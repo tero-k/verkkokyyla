@@ -62,13 +62,14 @@ export function usePingSession() {
   }, [isRunning])
 
   const refreshSnapshot = useCallback(async () => {
+    if (startInfo === null) return
     try {
-      const snap = await getSnapshot()
+      const snap = await getSnapshot(startInfo.sessionId)
       setSnapshot(snap)
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [])
+  }, [startInfo])
 
   const refreshList = useCallback(async () => {
     try {
@@ -177,8 +178,9 @@ export function usePingSession() {
   }, [clearErrors, family, handleStatus, target])
 
   const stop = useCallback(async () => {
+    if (startInfo === null) return
     try {
-      await stopSession()
+      await stopSession(startInfo.sessionId)
       setIsRunning(false)
       setPausedError("")
       void refreshSnapshot()
@@ -186,7 +188,7 @@ export function usePingSession() {
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [refreshList, refreshSnapshot])
+  }, [refreshList, refreshSnapshot, startInfo])
 
   const retry = useCallback(async () => {
     if (isRunning) {

@@ -41,13 +41,22 @@ async fn start_session(
 #[tauri::command]
 async fn stop_session(
     manager: tauri::State<'_, SessionManager>,
+    session_id: i64,
 ) -> Result<StoppedSessionDto, SessionError> {
-    manager.stop().await
+    manager.stop(session_id).await
 }
 
 #[tauri::command]
-fn get_snapshot(manager: tauri::State<'_, SessionManager>) -> SnapshotDto {
-    manager.snapshot()
+fn get_snapshot(
+    manager: tauri::State<'_, SessionManager>,
+    session_id: i64,
+) -> SnapshotDto {
+    manager.snapshot(session_id)
+}
+
+#[tauri::command]
+fn list_active_sessions(manager: tauri::State<'_, SessionManager>) -> Vec<i64> {
+    manager.active_session_ids()
 }
 
 #[tauri::command]
@@ -88,6 +97,7 @@ pub fn run() {
             start_session,
             stop_session,
             get_snapshot,
+            list_active_sessions,
             list_sessions,
             load_session,
             delete_session

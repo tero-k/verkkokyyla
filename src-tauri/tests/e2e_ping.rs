@@ -131,7 +131,7 @@ async fn e2e_loopback_happy_path() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let events = collect_n(&mut probe_rx, 5).await?;
-    let stopped = manager.stop().await?;
+    let stopped = manager.stop(info.session_id).await?;
     let extra = drain_remaining(&mut probe_rx).await;
 
     let all_events: Vec<_> = events.into_iter().chain(extra).collect();
@@ -189,7 +189,7 @@ async fn e2e_non_responding_loss_path() -> Result<(), Box<dyn std::error::Error>
         .await?;
 
     let events = collect_n(&mut probe_rx, 3).await?;
-    manager.stop().await?;
+    manager.stop(info.session_id).await?;
     let extra = drain_remaining(&mut probe_rx).await;
 
     let all_events: Vec<_> = events.into_iter().chain(extra).collect();
@@ -238,7 +238,7 @@ async fn e2e_persistence_across_restart() -> Result<(), Box<dyn std::error::Erro
         .await?;
 
     let events = collect_n(&mut probe_rx, 3).await?;
-    manager.stop().await?;
+    manager.stop(info.session_id).await?;
     let extra = drain_remaining(&mut probe_rx).await;
     let observed = events.len() + extra.len();
 
@@ -305,11 +305,11 @@ async fn e2e_loopback_v6_graceful_skip() {
 
     match collect_n_with_timeout(&mut probe_rx, 1, 5).await {
         Ok(_) => {
-            let _ = manager.stop().await;
+            let _ = manager.stop(info.session_id).await;
         }
         Err(err) => {
             eprintln!("skipping IPv6 test: probe collection failed: {err}");
-            let _ = manager.stop().await;
+            let _ = manager.stop(info.session_id).await;
         }
     }
 

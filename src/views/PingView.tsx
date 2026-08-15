@@ -8,7 +8,11 @@ import { PingStatsTable } from "../components/PingStatsTable"
 
 import styles from "./PingView.module.css"
 
-export default function PingView() {
+type PingViewProps = {
+  onClose?: () => void
+}
+
+export default function PingView({ onClose }: PingViewProps) {
   const {
     target,
     setTarget,
@@ -69,7 +73,24 @@ export default function PingView() {
 
   return (
     <section className={styles.view}>
-      <h1>Ping</h1>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardTitle}>
+          {isRunning || pastSession !== null
+            ? target || pastSession?.session.targetInput || "Ping"
+            : "Ping"}
+        </h2>
+        {onClose !== undefined && (
+          <button
+            type="button"
+            className={styles.closeButton}
+            onClick={onClose}
+            aria-label="Close"
+            data-testid="close-ping"
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       <div className={styles.controls}>
         <div className={styles.field}>

@@ -30,12 +30,16 @@ export function startSession(
   })
 }
 
-export function stopSession(): Promise<StoppedSessionDto> {
-  return invoke<StoppedSessionDto>("stop_session")
+export function stopSession(sessionId: number): Promise<StoppedSessionDto> {
+  return invoke<StoppedSessionDto>("stop_session", { sessionId })
 }
 
-export function getSnapshot(): Promise<SnapshotDto> {
-  return invoke<SnapshotDto>("get_snapshot")
+export function getSnapshot(sessionId: number): Promise<SnapshotDto> {
+  return invoke<SnapshotDto>("get_snapshot", { sessionId })
+}
+
+export function listActiveSessions(): Promise<number[]> {
+  return invoke<number[]>("list_active_sessions")
 }
 
 export function listSessions(): Promise<SessionSummaryDto[]> {

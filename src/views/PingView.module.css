@@ -1,12 +1,41 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
   min-height: 0;
+  padding: 1rem;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  background: #18181b;
 }
 
-.view h1 {
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.cardTitle {
   margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.closeButton {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  color: #e4e4e7;
+  background: #27272a;
 }
 
 .controls {

@@ -1,6 +1,6 @@
 import "./App.css";
 import styles from "./App.module.css";
-import PingView from "./views/PingView";
+import PingWorkspace from "./views/PingWorkspace";
 import { NAV_ITEMS, resolveRoute } from "./routing";
 
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
         </nav>
       </aside>
       <main className={styles.content}>
-        <PingView />
+        <PingWorkspace />
       </main>
     </div>
   );

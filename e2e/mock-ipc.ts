@@ -175,6 +175,12 @@ export async function installMockTauri(page: Page): Promise<void> {
                 message: "no ping session is running",
               }
             }
+            if (args.sessionId !== currentSessionId) {
+              throw {
+                kind: "not-running",
+                message: "session not found",
+              }
+            }
             running = false
             const snap = computeSnapshot()
             const endedAt = new Date().toISOString()
@@ -212,6 +218,8 @@ export async function installMockTauri(page: Page): Promise<void> {
           }
           case "get_snapshot":
             return computeSnapshot()
+          case "list_active_sessions":
+            return running ? [currentSessionId] : []
           case "list_sessions":
             return sessions
           case "load_session": {

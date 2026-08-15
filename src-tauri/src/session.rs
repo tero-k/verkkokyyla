@@ -15,6 +15,7 @@ use std::fmt;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -361,12 +362,12 @@ struct ActiveSession {
     stop_tx: watch::Sender<bool>,
     loop_handle: JoinHandle<()>,
     consumer_handle: JoinHandle<()>,
+    stats: Arc<Mutex<StatsEngine>>,
     on_status: StatusSink,
 }
 
 struct Inner {
-    active: tokio::sync::Mutex<Option<ActiveSession>>,
-    stats: Arc<Mutex<StatsEngine>>,
+    active: std::sync::Mutex<HashMap<i64, ActiveSession>>,
 }
 
 /// Owns the (at most one) active ping session. Clone-cheap (all Arc).
@@ -383,8 +384,7 @@ impl SessionManager {
             db: Arc::new(db),
             factory,
             inner: Arc::new(Inner {
-                active: tokio::sync::Mutex::new(None),
-                stats: Arc::new(Mutex::new(StatsEngine::new())),
+                active: std::sync::Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -407,11 +407,6 @@ impl SessionManager {
         P: Fn(ProbeEvent) + Send + 'static,
     {
         let family = parse_family(family)?;
-        let mut guard = self.inner.active.lock().await;
-        if guard.is_some() {
-            return Err(SessionError::AlreadyRunning);
-        }
-
         let resolved = resolve_target(target, family).await?;
         let (mut engine, choice) = self
             .select_engine(resolved.selected, resolved.scope_id, payload_size, dont_fragment)
@@ -433,7 +428,7 @@ impl SessionManager {
             })
             .await?;
 
-        *lock_stats(&self.inner.stats) = StatsEngine::new();
+        let stats = Arc::new(Mutex::new(StatsEngine::new()));
         on_status(StatusEvent::EngineSelected {
             engine: engine_label.clone(),
             fallback: choice == EngineChoice::Fallback,
@@ -448,18 +443,24 @@ impl SessionManager {
             probe_rx,
             Arc::clone(&self.db),
             session_id,
-            Arc::clone(&self.inner.stats),
+            Arc::clone(&stats),
             on_probe,
             Arc::clone(&on_status),
         ));
 
-        *guard = Some(ActiveSession {
+        let active = ActiveSession {
             session_id,
             stop_tx,
             loop_handle,
             consumer_handle,
+            stats,
             on_status,
-        });
+        };
+        self.inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session_id, active);
 
         Ok(StartInfoDto {
             session_id,
@@ -504,13 +505,13 @@ impl SessionManager {
     /// Clean stop: signal the loop, join both tasks (the consumer performs
     /// the final flush before exiting), stamp `ended_at`, and announce
     /// `session-stopped`. A clean stop loses nothing.
-    pub async fn stop(&self) -> Result<StoppedSessionDto, SessionError> {
+    pub async fn stop(&self, session_id: i64) -> Result<StoppedSessionDto, SessionError> {
         let active = self
             .inner
             .active
             .lock()
-            .await
-            .take()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&session_id)
             .ok_or(SessionError::NotRunning)?;
 
         let _ = active.stop_tx.send(true);
@@ -522,7 +523,7 @@ impl SessionManager {
         let ended_at = now_rfc3339();
         self.db.finish_session(active.session_id, &ended_at).await?;
 
-        let snap = lock_stats(&self.inner.stats).snapshot();
+        let snap = lock_stats(&active.stats).snapshot();
         (active.on_status)(StatusEvent::SessionStopped {
             session_id: active.session_id,
             probe_count: snap.count,
@@ -536,9 +537,27 @@ impl SessionManager {
         })
     }
 
-    /// Aggregates of the current (or most recent) session.
-    pub fn snapshot(&self) -> SnapshotDto {
-        SnapshotDto::from(lock_stats(&self.inner.stats).snapshot())
+    /// Aggregates of an active session.
+    pub fn snapshot(&self, session_id: i64) -> SnapshotDto {
+        let guard = self
+            .inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let snap = match guard.get(&session_id) {
+            Some(session) => lock_stats(&session.stats).snapshot(),
+            None => StatsEngine::new().snapshot(),
+        };
+        SnapshotDto::from(snap)
+    }
+
+    pub fn active_session_ids(&self) -> Vec<i64> {
+        let guard = self
+            .inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        guard.keys().copied().collect()
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<SessionSummaryDto>, SessionError> {
@@ -569,8 +588,13 @@ impl SessionManager {
     /// Test-only crash simulation: abort both tasks mid-flight without a
     /// final flush or `ended_at` stamp, then release the session slot.
     #[cfg(test)]
-    async fn simulate_crash(&self) {
-        let active = self.inner.active.lock().await.take();
+    async fn simulate_crash(&self, session_id: i64) {
+        let active = self
+            .inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&session_id);
         if let Some(active) = active {
             active.loop_handle.abort();
             active.consumer_handle.abort();
@@ -797,12 +821,12 @@ mod tests {
         }
         // The consumer feeds stats before emitting the event, so the
         // snapshot already reflects all 5 probes.
-        let snap = manager.snapshot();
+        let snap = manager.snapshot(info.session_id);
         assert_eq!(snap.count, 5);
         assert_eq!(snap.loss_count, 0);
         assert_eq!(snap.min_ms, Some(10.0));
 
-        let stopped = manager.stop().await.expect("stop");
+        let stopped = manager.stop(info.session_id).await.expect("stop");
         assert_eq!(stopped.session_id, info.session_id);
         assert_eq!(stopped.probe_count, 5);
         assert_eq!(stopped.loss_count, 0);
@@ -856,7 +880,7 @@ mod tests {
         let manager = test_manager(&dir, mock_factory(rtt_script(60))).await;
 
         assert!(matches!(
-            manager.stop().await,
+            manager.stop(1234).await,
             Err(SessionError::NotRunning)
         ));
 
@@ -869,21 +893,22 @@ mod tests {
 
         let (on_probe, _pr2) = probe_sink();
         let (on_status, _sr2) = status_sink();
-        manager
+        let info1 = manager
             .start("127.0.0.1", "auto", 32, false, on_probe, on_status)
             .await
             .expect("first start");
 
         let (on_probe2, _pr3) = probe_sink();
         let (on_status2, _sr3) = status_sink();
-        assert!(matches!(
-            manager.start("127.0.0.1", "auto", 32, false, on_probe2, on_status2).await,
-            Err(SessionError::AlreadyRunning)
-        ));
+        let info2 = manager
+            .start("127.0.0.1", "auto", 32, false, on_probe2, on_status2)
+            .await
+            .expect("second start succeeds");
 
-        manager.stop().await.expect("stop");
+        manager.stop(info1.session_id).await.expect("stop first");
+        manager.stop(info2.session_id).await.expect("stop second");
         assert!(matches!(
-            manager.stop().await,
+            manager.stop(info1.session_id).await,
             Err(SessionError::NotRunning)
         ));
     }
@@ -917,7 +942,7 @@ mod tests {
             }
         );
 
-        manager.stop().await.expect("stop");
+        manager.stop(info.session_id).await.expect("stop");
         let sessions = manager.db.list_sessions().await.expect("list sessions");
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].engine, expected);
@@ -946,7 +971,7 @@ mod tests {
             received += 1;
         }
 
-        manager.simulate_crash().await;
+        manager.simulate_crash(info.session_id).await;
 
         let persisted = u64::try_from(
             manager
@@ -975,7 +1000,7 @@ mod tests {
             .start("127.0.0.1", "v4", 32, false, on_probe2, on_status2)
             .await
             .expect("restart after crash");
-        manager.stop().await.expect("stop after restart");
+        manager.stop(info2.session_id).await.expect("stop after restart");
         assert_ne!(info.session_id, info2.session_id);
     }
 
@@ -994,7 +1019,7 @@ mod tests {
             .await
             .expect("start");
         next_probe(&mut probe_rx).await;
-        manager.stop().await.expect("stop");
+        manager.stop(info.session_id).await.expect("stop");
 
         let list = manager.list_sessions().await.expect("list");
         assert_eq!(list.len(), 1);
