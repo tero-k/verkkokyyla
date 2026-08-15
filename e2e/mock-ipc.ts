@@ -55,6 +55,12 @@ export async function installMockTauri(page: Page): Promise<void> {
         probes: MockProbeEvent[]
       }>()
       let endedSessions: MockSession[] = []
+      if (
+        typeof window !== "undefined" &&
+        Array.isArray(window.__TAURI_MOCK_ENDED_SESSIONS__)
+      ) {
+        endedSessions.push(...window.__TAURI_MOCK_ENDED_SESSIONS__)
+      }
       let nextEngineIsFallback = false
 
       function transformCallback(
@@ -327,6 +333,7 @@ declare global {
     __TAURI_MOCK_SEND_PROBES__: (events: MockProbeEvent[], sessionId?: number) => void
     __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string, sessionId?: number) => void
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
+    __TAURI_MOCK_ENDED_SESSIONS__?: MockSession[]
   }
 }
 

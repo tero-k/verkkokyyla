@@ -247,6 +247,45 @@ test("two concurrent sessions keep independent probe counts and snapshots", asyn
   expect(ended.map((s) => s.probeCount).sort()).toEqual([3, 5])
 })
 
+test("initial load with past sessions shows empty loader instead of blank card", async ({
+  page,
+}) => {
+  const seed = {
+    id: 42,
+    targetInput: "localhost",
+    resolvedIp: "127.0.0.1",
+    family: "auto",
+    engine: "surge",
+    intervalMs: 1000,
+    timeoutMs: 1000,
+    payloadSize: 32,
+    dontFragment: false,
+    startedAt: "2024-01-01T00:00:00.000Z",
+    endedAt: "2024-01-01T00:00:05.000Z",
+    probeCount: 5,
+    lossCount: 0,
+    lossPercent: 0,
+    probes: [],
+  }
+  await page.addInitScript((session) => {
+    window.__TAURI_MOCK_ENDED_SESSIONS__ = [session]
+  }, seed)
+  await installMockTauri(page)
+  await page.goto("/")
+
+  // No blank card should appear; the empty-state loader should be visible.
+  await expect(page.locator('[data-testid="ping-target"]')).toHaveCount(0)
+  await expect(
+    page.locator('[data-testid="session-panel"]').locator('[data-testid="session-item"]'),
+  ).toHaveCount(1)
+
+  // Opening the past session should create a card with the loaded data.
+  await page.click('[data-testid="session-open"]')
+  await expect(page.locator('[data-testid="resolved-ip"]')).toHaveText(
+    "127.0.0.1",
+  )
+})
+
 test("closing all cards shows past sessions and loading one opens a card", async ({
   page,
 }) => {

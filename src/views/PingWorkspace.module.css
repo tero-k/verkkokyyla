@@ -55,3 +55,8 @@
 .emptyPanel {
   max-width: 720px;
 }
+
+.loading {
+  padding: 2rem;
+  color: #a1a1aa;
+}

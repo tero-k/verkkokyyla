@@ -14,8 +14,9 @@ type SessionTab = {
 let nextId = 1
 
 export default function PingWorkspace() {
-  const [tabs, setTabs] = useState<SessionTab[]>([{ id: nextId }])
+  const [tabs, setTabs] = useState<SessionTab[]>([])
   const [pastSessions, setPastSessions] = useState<SessionSummaryDto[]>([])
+  const [ready, setReady] = useState(false)
 
   const refreshPast = useCallback(async () => {
     try {
@@ -28,8 +29,30 @@ export default function PingWorkspace() {
   }, [])
 
   useEffect(() => {
-    void refreshPast()
-  }, [refreshPast])
+    let mounted = true
+    const init = async () => {
+      try {
+        const sessions = await listSessions()
+        if (!mounted) return
+        setPastSessions(sessions)
+        if (sessions.length === 0) {
+          nextId += 1
+          setTabs([{ id: nextId }])
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("failed to initialize workspace", err)
+        nextId += 1
+        setTabs([{ id: nextId }])
+      } finally {
+        if (mounted) setReady(true)
+      }
+    }
+    void init()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const addSession = useCallback(() => {
     nextId += 1
@@ -68,7 +91,9 @@ export default function PingWorkspace() {
           + New ping
         </button>
       </div>
-      {isEmpty ? (
+      {!ready ? (
+        <p className={styles.loading}>Loading…</p>
+      ) : isEmpty ? (
         <div className={styles.emptyState}>
           <p className={styles.emptyHint}>No active pings.</p>
           <div className={styles.emptyPanel}>
