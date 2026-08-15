@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+dist-ssr/
+src-tauri/target/
+src-tauri/gen/
+
+# agent/tooling state (kept out of git)
+.omo/
+.codegraph/
+
+# test artifacts
+test-results/
+playwright-report/
+
+# misc
+*.local
+*.log
+.DS_Store
