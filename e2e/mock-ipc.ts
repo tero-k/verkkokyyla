@@ -46,6 +46,7 @@ export async function installMockTauri(page: Page): Promise<void> {
       let currentResolvedIp = ""
       let currentFamily = "auto"
       let currentEngine = "surge"
+      let nextEngineIsFallback = false
       let sessions: MockSession[] = []
       let onProbeChannel: { onmessage?: (message: unknown) => void } | null = null
       let onStatusChannel: { onmessage?: (message: unknown) => void } | null = null
@@ -77,13 +78,16 @@ export async function installMockTauri(page: Page): Promise<void> {
         engine: string
         fallback: boolean
       } {
+        const engine = nextEngineIsFallback ? "surge-fallback" : currentEngine
+        const fallback = nextEngineIsFallback
+        nextEngineIsFallback = false
         if (target === "localhost" || target === "127.0.0.1") {
-          return { resolvedIp: "127.0.0.1", engine: "surge", fallback: false }
+          return { resolvedIp: "127.0.0.1", engine, fallback }
         }
         if (target === "::1") {
-          return { resolvedIp: "::1", engine: "surge", fallback: false }
+          return { resolvedIp: "::1", engine, fallback }
         }
-        return { resolvedIp: "192.0.2.1", engine: "surge", fallback: false }
+        return { resolvedIp: "192.0.2.1", engine, fallback }
       }
 
       function computeSnapshot(): Snapshot {
@@ -243,8 +247,23 @@ export async function installMockTauri(page: Page): Promise<void> {
           sendChannel(onProbeChannel, event)
         }
       }
+
+      window.__TAURI_MOCK_SEND_STATUS_ERROR__ = (message) => {
+        sendChannel(onStatusChannel, { event: "error", message })
+      }
+
+      window.__TAURI_MOCK_SET_FALLBACK__ = (enabled) => {
+        nextEngineIsFallback = enabled
+      }
     })()
   })
+}
+
+declare global {
+  interface Window {
+    __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string) => void
+    __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
+  }
 }
 
 export function makeProbe(

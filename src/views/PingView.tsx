@@ -15,6 +15,7 @@ export default function PingView() {
     setFamily,
     isRunning,
     error,
+    pausedError,
     status,
     startInfo,
     snapshot,
@@ -25,6 +26,7 @@ export default function PingView() {
     pastSession,
     start,
     stop,
+    retry,
     openSession,
     deleteSession,
   } = usePingSession()
@@ -110,6 +112,22 @@ export default function PingView() {
           </button>
         </div>
       </div>
+
+      {pausedError.length > 0 && (
+        <div className={styles.pauseBanner} data-testid="pause-banner">
+          <div className={styles.pauseMessage} data-testid="pause-message">
+            Session paused: {pausedError}
+          </div>
+          <button
+            type="button"
+            onClick={() => void retry()}
+            disabled={pausedError.length === 0}
+            data-testid="retry-fallback"
+          >
+            Retry with fallback
+          </button>
+        </div>
+      )}
 
       {(status.length > 0 || error.length > 0 || resolvedIp !== undefined) && (
         <div className={styles.banner}>

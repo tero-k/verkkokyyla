@@ -5,6 +5,8 @@ declare global {
   interface Window {
     __TAURI_MOCK_SEND_PROBE__: (event: MockProbeEvent) => void
     __TAURI_MOCK_SEND_PROBES__: (events: MockProbeEvent[]) => void
+    __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string) => void
+    __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
   }
 }
 
@@ -127,4 +129,35 @@ test("run, stop, list, reopen, and delete a session", async ({ page }) => {
 
   await page.click('[data-testid="session-delete"]')
   await expect(page.locator('[data-testid="session-item"]')).toHaveCount(0)
+})
+
+test("engine error pauses session and retry falls back", async ({ page }) => {
+  await installMockTauri(page)
+  await page.goto("/")
+  await page.fill('[data-testid="ping-target"]', "localhost")
+  await page.click('[data-testid="ping-start"]')
+
+  await expect(page.locator('[data-testid="ping-status"]')).toContainText(
+    "Engine: surge",
+  )
+
+  await page.evaluate(() => {
+    window.__TAURI_MOCK_SEND_STATUS_ERROR__(
+      "engine privileges revoked; retry with fallback",
+    )
+  })
+
+  await expect(page.locator('[data-testid="pause-banner"]')).toBeVisible()
+  await expect(page.locator('[data-testid="pause-message"]')).toContainText(
+    "Session paused: engine privileges revoked; retry with fallback",
+  )
+
+  await page.evaluate(() => {
+    window.__TAURI_MOCK_SET_FALLBACK__(true)
+  })
+  await page.click('[data-testid="retry-fallback"]')
+
+  await expect(page.locator('[data-testid="ping-status"]')).toContainText(
+    "Engine: surge-fallback (fallback)",
+  )
 })

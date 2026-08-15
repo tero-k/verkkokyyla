@@ -38,6 +38,7 @@ export function usePingSession() {
   const [family, setFamily] = useState<Family>("auto")
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState("")
+  const [pausedError, setPausedError] = useState("")
   const [status, setStatus] = useState("")
   const [startInfo, setStartInfo] = useState<StartInfoDto | null>(null)
   const [snapshot, setSnapshot] = useState<SnapshotDto | null>(null)
@@ -52,6 +53,11 @@ export function usePingSession() {
   const pendingRef = useRef<ProbeEvent[]>([])
   const flushingRef = useRef(false)
   const flushRef = useRef(() => {})
+  const isRunningRef = useRef(isRunning)
+
+  useEffect(() => {
+    isRunningRef.current = isRunning
+  }, [isRunning])
 
   const refreshSnapshot = useCallback(async () => {
     try {
@@ -69,6 +75,11 @@ export function usePingSession() {
     } catch (err) {
       setError(errorMessage(err))
     }
+  }, [])
+
+  const clearErrors = useCallback(() => {
+    setError("")
+    setPausedError("")
   }, [])
 
   useEffect(() => {
@@ -110,7 +121,11 @@ export function usePingSession() {
         )
         break
       case "error":
-        setError(event.message)
+        if (isRunningRef.current) {
+          setPausedError(event.message)
+        } else {
+          setError(event.message)
+        }
         break
       case "session-stopped":
         setStatus(
@@ -123,7 +138,7 @@ export function usePingSession() {
   }, [])
 
   const start = useCallback(async () => {
-    setError("")
+    clearErrors()
     setStatus("")
     try {
       const handleProbe = (event: ProbeEvent) => {
@@ -155,18 +170,26 @@ export function usePingSession() {
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [family, handleStatus, target])
+  }, [clearErrors, family, handleStatus, target])
 
   const stop = useCallback(async () => {
     try {
       await stopSession()
       setIsRunning(false)
+      setPausedError("")
       void refreshSnapshot()
       void refreshList()
     } catch (err) {
       setError(errorMessage(err))
     }
   }, [refreshList, refreshSnapshot])
+
+  const retry = useCallback(async () => {
+    if (isRunning) {
+      await stop()
+    }
+    await start()
+  }, [isRunning, start, stop])
 
   const openSession = useCallback(
     async (id: number) => {
@@ -221,6 +244,7 @@ export function usePingSession() {
     setFamily,
     isRunning,
     error,
+    pausedError,
     status,
     startInfo,
     snapshot,
@@ -231,6 +255,7 @@ export function usePingSession() {
     pastSession,
     start,
     stop,
+    retry,
     openSession,
     deleteSession,
   }

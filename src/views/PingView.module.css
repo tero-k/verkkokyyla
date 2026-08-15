@@ -92,6 +92,42 @@
   font-size: 0.85rem;
 }
 
+.pauseBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #7f1d1d;
+  border-radius: 4px;
+  background: #2a0f0f;
+}
+
+.pauseMessage {
+  color: #fca5a5;
+  font-size: 0.85rem;
+}
+
+.pauseBanner button {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #7f1d1d;
+  border-radius: 4px;
+  background: #450a0a;
+  color: #fee2e2;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pauseBanner button:hover:not(:disabled) {
+  background: #7f1d1d;
+}
+
+.pauseBanner button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .resolved {
   font-size: 0.85rem;
   color: #a1a1aa;
