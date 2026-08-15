@@ -289,6 +289,41 @@ export async function installMockTauri(page: Page): Promise<void> {
             endedSessions = endedSessions.filter((s) => s.id !== args.id)
             return null
           }
+          case "run_download_speed_test": {
+            const url = String(args.url)
+            const onProgress = args.onProgress as {
+              onmessage?: (message: unknown) => void
+            }
+            if (url === "https://error.test/") {
+              throw {
+                kind: "request",
+                message: "request failed: mock failure",
+              }
+            }
+            const contentLength = 1_048_576
+            const chunk = contentLength / 4
+            for (let i = 1; i <= 4; i++) {
+              sendChannel(onProgress, {
+                event: "progress",
+                bytesReceived: chunk * i,
+                contentLength,
+                elapsedMs: 250 * i,
+                currentMbps: 8.39,
+              })
+            }
+            return {
+              url,
+              finalUrl: url,
+              statusCode: 200,
+              contentLength,
+              bytesReceived: contentLength,
+              totalTimeMs: 1000,
+              timeToFirstByteMs: 120,
+              dnsResolutionMs: 12,
+              tlsHandshakeMs: null,
+              averageMbps: 8.39,
+            }
+          }
           default:
             throw new Error(`unknown command ${cmd}`)
         }

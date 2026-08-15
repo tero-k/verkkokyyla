@@ -1,5 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core"
 import type {
+  DownloadProgressEvent,
+  DownloadSpeedResultDto,
   Family,
   LoadedSessionDto,
   ProbeEvent,
@@ -52,4 +54,15 @@ export function loadSession(id: number): Promise<LoadedSessionDto> {
 
 export function deleteSession(id: number): Promise<void> {
   return invoke<void>("delete_session", { id })
+}
+
+export function runDownloadSpeedTest(
+  url: string,
+  onProgress: (event: DownloadProgressEvent) => void,
+): Promise<DownloadSpeedResultDto> {
+  const onProgressChannel = new Channel<DownloadProgressEvent>(onProgress)
+  return invoke<DownloadSpeedResultDto>("run_download_speed_test", {
+    url,
+    onProgress: onProgressChannel,
+  })
 }

@@ -85,6 +85,27 @@ export type LoadedSessionDto = {
   readonly probes: readonly ProbeRowDto[]
 }
 
+export type DownloadProgressEvent = {
+  readonly event: "progress"
+  readonly bytesReceived: number
+  readonly contentLength: number | null
+  readonly elapsedMs: number
+  readonly currentMbps: number
+}
+
+export type DownloadSpeedResultDto = {
+  readonly url: string
+  readonly finalUrl: string
+  readonly statusCode: number
+  readonly contentLength: number | null
+  readonly bytesReceived: number
+  readonly totalTimeMs: number
+  readonly timeToFirstByteMs: number | null
+  readonly dnsResolutionMs: number | null
+  readonly tlsHandshakeMs: number | null
+  readonly averageMbps: number
+}
+
 export type ValidationResult =
   | { readonly ok: true; readonly value: string }
   | { readonly ok: false; readonly error: string }
