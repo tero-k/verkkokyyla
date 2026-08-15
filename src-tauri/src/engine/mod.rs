@@ -9,13 +9,21 @@
 mod dns;
 #[cfg(test)]
 mod mock;
+#[cfg(unix)]
+mod osping;
 mod surge;
+#[cfg(windows)]
+mod winicmp;
 mod zone;
 
 pub use dns::{resolve_target, Family, ResolveResult};
 #[cfg(test)]
 pub use mock::MockPinger;
+#[cfg(unix)]
+pub use osping::{EngineWarning, OsPinger};
 pub use surge::SurgePinger;
+#[cfg(windows)]
+pub use winicmp::WinIcmpPinger;
 pub use zone::{parse_ipv6_with_scope, ParseError};
 
 use std::fmt;
@@ -87,6 +95,10 @@ impl std::error::Error for EngineError {
 /// The ping engines. Enum dispatch only — no trait objects.
 pub enum PingEngine {
     Surge(SurgePinger),
+    #[cfg(windows)]
+    WinIcmp(WinIcmpPinger),
+    #[cfg(unix)]
+    OsPosix(OsPinger),
     #[cfg(test)]
     Mock(MockPinger),
 }
@@ -96,6 +108,10 @@ impl PingEngine {
     pub async fn probe(&mut self, seq: u64) -> ProbeResult {
         match self {
             PingEngine::Surge(pinger) => pinger.probe(seq).await,
+            #[cfg(windows)]
+            PingEngine::WinIcmp(pinger) => pinger.probe(seq).await,
+            #[cfg(unix)]
+            PingEngine::OsPosix(pinger) => pinger.probe(seq).await,
             #[cfg(test)]
             PingEngine::Mock(pinger) => pinger.probe(seq),
         }
