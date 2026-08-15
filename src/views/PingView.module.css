@@ -1,0 +1,121 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+.view h1 {
+  margin: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.field label {
+  font-size: 0.8rem;
+  color: #a1a1aa;
+}
+
+.field input,
+.field select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  background: #18181b;
+  color: #e4e4e7;
+  font-size: 0.9rem;
+  min-width: 220px;
+}
+
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.6;
+}
+
+.inlineError {
+  font-size: 0.8rem;
+  color: #f87171;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.actions button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  background: #27272a;
+  color: #e4e4e7;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.actions button:hover:not(:disabled) {
+  background: #3f3f46;
+}
+
+.actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  background: #1c1c1f;
+}
+
+.status {
+  color: #38bdf8;
+  font-size: 0.85rem;
+}
+
+.error {
+  color: #f87171;
+  font-size: 0.85rem;
+}
+
+.resolved {
+  font-size: 0.85rem;
+  color: #a1a1aa;
+}
+
+.resolvedIp {
+  color: #e4e4e7;
+  font-weight: 600;
+}
+
+.answers {
+  margin-left: 0.5rem;
+  color: #71717a;
+}
+
+.tableWrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+.graphsWrapper {
+  min-width: 0;
+}
+
+.sessionsWrapper {
+  min-width: 0;
+}

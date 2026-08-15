@@ -1,0 +1,24 @@
+.wrapper {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.chart {
+  min-width: 0;
+  width: 100%;
+}
+
+.chart :global(.u-title) {
+  font-size: 0.85rem;
+  color: #e4e4e7;
+}
+
+.chart :global(.u-axis) {
+  color: #a1a1aa;
+}
+
+.chart :global(.u-label) {
+  color: #a1a1aa;
+}

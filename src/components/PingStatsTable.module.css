@@ -1,0 +1,84 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.6rem 0.75rem;
+  background: #1c1c1f;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+}
+
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.metricLabel {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.metricValue {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+
+.tableWrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th,
+.table td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+
+.table thead {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  background: #1c1c1f;
+  color: #a1a1aa;
+}
+
+.table tbody {
+  display: block;
+  max-height: 320px;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.table tbody tr {
+  display: table;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.table tbody tr:nth-child(even) {
+  background: #1c1c1f;
+}
+
+.lost td {
+  color: #f87171;
+}
