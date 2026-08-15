@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react"
 import { validateTarget } from "../lib/validate"
 import { DEFAULT_PAYLOAD_SIZE, MAX_PAYLOAD_SIZE } from "../lib/constants"
 import { FAMILIES, type Family } from "../lib/types"
@@ -10,9 +11,10 @@ import styles from "./PingView.module.css"
 
 type PingViewProps = {
   onClose?: () => void
+  initialSessionId?: number
 }
 
-export default function PingView({ onClose }: PingViewProps) {
+export default function PingView({ onClose, initialSessionId }: PingViewProps) {
   const {
     target,
     setTarget,
@@ -39,6 +41,14 @@ export default function PingView({ onClose }: PingViewProps) {
     openSession,
     deleteSession,
   } = usePingSession()
+
+  const loadedInitial = useRef(false)
+  useEffect(() => {
+    if (initialSessionId === undefined) return
+    if (loadedInitial.current) return
+    loadedInitial.current = true
+    void openSession(initialSessionId)
+  }, [initialSessionId, openSession])
 
   const validation = validateTarget(target)
   const canStart = validation.ok && !isRunning

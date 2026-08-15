@@ -246,3 +246,37 @@ test("two concurrent sessions keep independent probe counts and snapshots", asyn
   }))
   expect(ended.map((s) => s.probeCount).sort()).toEqual([3, 5])
 })
+
+test("closing all cards shows past sessions and loading one opens a card", async ({
+  page,
+}) => {
+  await installMockTauri(page)
+  await page.goto("/")
+
+  // Run a short session so there is a past session to load.
+  await page.fill('[data-testid="ping-target"]', "localhost")
+  await page.click('[data-testid="ping-start"]')
+  const probes = Array.from({ length: 3 }, (_, i) => makeProbe(i + 1, 10, false))
+  await page.evaluate((events) => {
+    window.__TAURI_MOCK_SEND_PROBES__(events)
+  }, probes)
+  await page.click('[data-testid="ping-stop"]')
+  await page.waitForSelector('[data-testid="session-item"]')
+
+  // Close the only card; the empty-state panel should appear.
+  await page.click('[data-testid="close-ping"]')
+  await expect(page.locator('[data-testid="ping-target"]')).toHaveCount(0)
+  await expect(
+    page.locator('[data-testid="session-panel"]').locator('[data-testid="session-item"]'),
+  ).toHaveCount(1)
+
+  // Load the past session from the empty-state panel.
+  await page.click('[data-testid="session-open"]')
+  await expect(page.locator('[data-testid="resolved-ip"]')).toHaveText(
+    "127.0.0.1",
+  )
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="ping-table-row"]').length === 3,
+  )
+})

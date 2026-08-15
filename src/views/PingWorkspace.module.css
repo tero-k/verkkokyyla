@@ -36,3 +36,22 @@
   gap: 1rem;
   align-items: start;
 }
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 2rem;
+  border: 1px dashed #52525b;
+  border-radius: 6px;
+  background: #18181b;
+}
+
+.emptyHint {
+  margin: 0;
+  color: #a1a1aa;
+}
+
+.emptyPanel {
+  max-width: 720px;
+}
