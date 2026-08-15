@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { TABLE_ROW_CAP } from "../lib/constants"
+import { DEFAULT_PAYLOAD_SIZE, TABLE_ROW_CAP } from "../lib/constants"
 import {
   deleteSession as deleteSessionCommand,
   getSnapshot,
@@ -36,6 +36,8 @@ function errorMessage(err: unknown): string {
 export function usePingSession() {
   const [target, setTarget] = useState("")
   const [family, setFamily] = useState<Family>("auto")
+  const [payloadSize, setPayloadSize] = useState<number>(DEFAULT_PAYLOAD_SIZE)
+  const [dontFragment, setDontFragment] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState("")
   const [pausedError, setPausedError] = useState("")
@@ -152,6 +154,8 @@ export function usePingSession() {
       const info = await startSession(
         target,
         family,
+        payloadSize,
+        dontFragment,
         handleProbe,
         handleStatus,
       )
@@ -242,6 +246,10 @@ export function usePingSession() {
     setTarget,
     family,
     setFamily,
+    payloadSize,
+    setPayloadSize,
+    dontFragment,
+    setDontFragment,
     isRunning,
     error,
     pausedError,

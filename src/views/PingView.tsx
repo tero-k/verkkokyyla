@@ -1,4 +1,5 @@
 import { validateTarget } from "../lib/validate"
+import { DEFAULT_PAYLOAD_SIZE, MAX_PAYLOAD_SIZE } from "../lib/constants"
 import { FAMILIES, type Family } from "../lib/types"
 import { usePingSession } from "../hooks/usePingSession"
 import { PingGraphs } from "../components/PingGraphs"
@@ -13,6 +14,10 @@ export default function PingView() {
     setTarget,
     family,
     setFamily,
+    payloadSize,
+    setPayloadSize,
+    dontFragment,
+    setDontFragment,
     isRunning,
     error,
     pausedError,
@@ -37,11 +42,8 @@ export default function PingView() {
     viewMode === "past" ? pastSession?.session.resolvedIp : startInfo?.resolvedIp
   const answers =
     viewMode === "past" ? [pastSession?.session.resolvedIp] : startInfo?.answers
-
-  const displaySnapshot =
-    viewMode === "past"
-      ? snapshot
-      : snapshot
+  const dfDisabled = family === "v6" || isRunning
+  const displaySnapshot = viewMode === "past" ? snapshot : snapshot
 
   const handleStart = () => {
     if (!canStart) return
@@ -51,6 +53,18 @@ export default function PingView() {
   const handleFamilyChange = (value: Family) => {
     if (isRunning) return
     setFamily(value)
+    if (value === "v6") {
+      setDontFragment(false)
+    }
+  }
+
+  const handlePayloadSizeChange = (value: string) => {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isNaN(parsed)) {
+      setPayloadSize(DEFAULT_PAYLOAD_SIZE)
+      return
+    }
+    setPayloadSize(Math.max(1, Math.min(parsed, MAX_PAYLOAD_SIZE)))
   }
 
   return (
@@ -91,6 +105,34 @@ export default function PingView() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className={styles.field}>
+          <label htmlFor="ping-payload">Packet size</label>
+          <input
+            id="ping-payload"
+            type="number"
+            min={1}
+            max={MAX_PAYLOAD_SIZE}
+            value={payloadSize}
+            onChange={(e) => handlePayloadSizeChange(e.target.value)}
+            disabled={isRunning}
+            data-testid="ping-payload"
+          />
+        </div>
+
+        <div className={`${styles.field} ${styles.checkboxField}`}>
+          <label htmlFor="ping-df">
+            <input
+              id="ping-df"
+              type="checkbox"
+              checked={dontFragment}
+              onChange={(e) => setDontFragment(e.target.checked)}
+              disabled={dfDisabled}
+              data-testid="ping-df"
+            />
+            Don't fragment
+          </label>
         </div>
 
         <div className={styles.actions}>

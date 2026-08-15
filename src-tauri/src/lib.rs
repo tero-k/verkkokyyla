@@ -17,6 +17,8 @@ async fn start_session(
     manager: tauri::State<'_, SessionManager>,
     target: String,
     family: String,
+    payload_size: usize,
+    dont_fragment: bool,
     on_probe: tauri::ipc::Channel<ProbeEvent>,
     on_status: tauri::ipc::Channel<StatusEvent>,
 ) -> Result<StartInfoDto, SessionError> {
@@ -24,8 +26,9 @@ async fn start_session(
         .start(
             &target,
             &family,
+            payload_size,
+            dont_fragment,
             move |event| {
-                // A dropped receiver (frontend gone) must not kill the session.
                 let _ = on_probe.send(event);
             },
             Arc::new(move |event| {

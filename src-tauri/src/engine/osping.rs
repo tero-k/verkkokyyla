@@ -33,16 +33,18 @@ pub struct EngineWarning {
 pub struct OsPinger {
     program: PathBuf,
     target: IpAddr,
+    payload_size: usize,
+    dont_fragment: bool,
     warnings: Vec<EngineWarning>,
 }
 
 impl OsPinger {
     /// Discover the ping binary in [`DISCOVERY_ORDER`] and bind the target.
-    pub fn new(target: IpAddr) -> Result<Self, EngineError> {
+    pub fn new(target: IpAddr, payload_size: usize, dont_fragment: bool) -> Result<Self, EngineError> {
         for candidate in DISCOVERY_ORDER {
             let path = PathBuf::from(candidate);
             if path.is_file() {
-                return Ok(Self::with_program(path, target));
+                return Ok(Self::with_program(path, target, payload_size, dont_fragment));
             }
         }
         Err(EngineError::Unavailable(format!(
@@ -52,10 +54,12 @@ impl OsPinger {
     }
 
     /// Bind an explicit binary path — the test seam for fake ping fixtures.
-    pub fn with_program(program: PathBuf, target: IpAddr) -> Self {
+    pub fn with_program(program: PathBuf, target: IpAddr, payload_size: usize, dont_fragment: bool) -> Self {
         Self {
             program,
             target,
+            payload_size: payload_size.clamp(1, 65_507),
+            dont_fragment,
             warnings: Vec::new(),
         }
     }
@@ -69,7 +73,7 @@ impl OsPinger {
     pub async fn probe(&mut self, seq: u64) -> ProbeResult {
         let watchdog = Duration::from_millis(PING_TIMEOUT_MS + WATCHDOG_EXTRA_MS);
         let spawned = Command::new(&self.program)
-            .args(ping_argv(self.target))
+            .args(ping_argv(self.target, self.payload_size, self.dont_fragment))
             .env("LC_ALL", "C")
             .kill_on_drop(true)
             .output();
@@ -125,20 +129,36 @@ impl OsPinger {
     }
 }
 
-/// Fixed argv array (no shell, no interpolation): `-c 1 -W <n> <target>`.
-/// Linux takes `-W` in seconds; macOS in milliseconds.
-fn ping_argv(target: IpAddr) -> [String; 5] {
+/// Build the OS `ping` argv. Linux/macOS differ on the wait unit,
+/// and `-s <bytes>` sets the ICMP payload size. The DF flag is requested
+/// with `-M do` on Linux and `-D` on macOS; on other POSIX targets it is
+/// omitted when the binary is not known to support it.
+fn ping_argv(target: IpAddr, payload_size: usize, dont_fragment: bool) -> Vec<String> {
     #[cfg(target_os = "macos")]
     let wait = PING_TIMEOUT_MS.to_string();
     #[cfg(not(target_os = "macos"))]
     let wait = PING_TIMEOUT_MS.div_ceil(1000).to_string();
-    [
+
+    let mut args = vec![
         "-c".to_owned(),
         "1".to_owned(),
         "-W".to_owned(),
         wait,
-        target.to_string(),
-    ]
+        "-s".to_owned(),
+        payload_size.to_string(),
+    ];
+
+    if dont_fragment {
+        #[cfg(target_os = "macos")]
+        args.push("-D".to_owned());
+        #[cfg(target_os = "linux")]
+        args.push("-M".to_owned());
+        #[cfg(target_os = "linux")]
+        args.push("do".to_owned());
+    }
+
+    args.push(target.to_string());
+    args
 }
 
 /// Extract the token after `time=` (digits and dots) from one output line.
@@ -181,7 +201,7 @@ mod tests {
             &dir,
             "echo '64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=12.3 ms'",
         );
-        let mut pinger = OsPinger::with_program(program, target());
+        let mut pinger = OsPinger::with_program(program, target(), 32, false);
 
         match pinger.probe(1).await {
             ProbeResult::Rtt(rtt) => {
@@ -202,7 +222,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("osping-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("tempdir");
         let program = fake_ping(&dir, "echo '64 bytes from x: time=abc ms'");
-        let mut pinger = OsPinger::with_program(program, target());
+        let mut pinger = OsPinger::with_program(program, target(), 32, false);
 
         assert_eq!(pinger.probe(1).await, ProbeResult::Timeout);
         let warnings = pinger.take_warnings();
@@ -221,7 +241,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("osping-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("tempdir");
         let program = fake_ping(&dir, "echo '64 Bytes von x: Zeit=12,3 ms'");
-        let mut pinger = OsPinger::with_program(program, target());
+        let mut pinger = OsPinger::with_program(program, target(), 32, false);
 
         assert_eq!(pinger.probe(1).await, ProbeResult::Timeout);
         assert_eq!(pinger.take_warnings().len(), 1);
@@ -239,7 +259,7 @@ mod tests {
             &dir,
             "echo 'PING 192.0.2.1: 56 data bytes'; echo 'ping: sendto: No route to host' >&2; exit 1",
         );
-        let mut pinger = OsPinger::with_program(program, target());
+        let mut pinger = OsPinger::with_program(program, target(), 32, false);
 
         assert_eq!(pinger.probe(1).await, ProbeResult::Timeout);
         assert!(pinger.take_warnings().is_empty());

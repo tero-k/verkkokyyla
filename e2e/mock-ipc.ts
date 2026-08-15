@@ -15,6 +15,8 @@ type MockSession = {
   engine: string
   intervalMs: number
   timeoutMs: number
+  payloadSize: number
+  dontFragment: boolean
   startedAt: string
   endedAt: string
   probeCount: number
@@ -47,6 +49,8 @@ export async function installMockTauri(page: Page): Promise<void> {
       let currentFamily = "auto"
       let currentEngine = "surge"
       let nextEngineIsFallback = false
+      let currentPayloadSize = 32
+      let currentDontFragment = false
       let sessions: MockSession[] = []
       let onProbeChannel: { onmessage?: (message: unknown) => void } | null = null
       let onStatusChannel: { onmessage?: (message: unknown) => void } | null = null
@@ -137,6 +141,10 @@ export async function installMockTauri(page: Page): Promise<void> {
             running = true
             currentTarget = String(args.target)
             currentFamily = String(args.family)
+            currentPayloadSize =
+              typeof args.payloadSize === "number" ? args.payloadSize : 32
+            currentDontFragment =
+              typeof args.dontFragment === "boolean" ? args.dontFragment : false
             currentProbes = []
             const info = resolveInfo(currentTarget)
             currentResolvedIp = info.resolvedIp
@@ -156,6 +164,8 @@ export async function installMockTauri(page: Page): Promise<void> {
               fallback: info.fallback,
               resolvedIp: currentResolvedIp,
               answers: [currentResolvedIp],
+              payloadSize: currentPayloadSize,
+              dontFragment: currentDontFragment,
             }
           }
           case "stop_session": {
@@ -179,6 +189,8 @@ export async function installMockTauri(page: Page): Promise<void> {
               engine: currentEngine,
               intervalMs: 1000,
               timeoutMs: 1000,
+              payloadSize: currentPayloadSize,
+              dontFragment: currentDontFragment,
               startedAt,
               endedAt,
               probeCount: snap.count,

@@ -1,6 +1,9 @@
 export const FAMILIES = ["auto", "v4", "v6"] as const
 export type Family = (typeof FAMILIES)[number]
 
+export const DEFAULT_PAYLOAD_SIZE = 32
+export const MAX_PAYLOAD_SIZE = 65_507
+
 export type ProbeEvent = {
   readonly seq: number
   readonly rttMs: number | null
@@ -31,6 +34,8 @@ export type StartInfoDto = {
   readonly fallback: boolean
   readonly resolvedIp: string
   readonly answers: readonly string[]
+  readonly payloadSize: number
+  readonly dontFragment: boolean
 }
 
 export type SnapshotDto = {
@@ -52,6 +57,8 @@ export type SessionSummaryDto = {
   readonly engine: string
   readonly intervalMs: number
   readonly timeoutMs: number
+  readonly payloadSize: number
+  readonly dontFragment: boolean
   readonly startedAt: string
   readonly endedAt: string | null
   readonly probeCount: number

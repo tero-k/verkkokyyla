@@ -94,6 +94,8 @@ pub struct NewSession {
     pub engine: String,
     pub interval_ms: i64,
     pub timeout_ms: i64,
+    pub payload_size: i64,
+    pub dont_fragment: bool,
     /// RFC 3339 session start timestamp.
     pub started_at: String,
 }
@@ -109,6 +111,8 @@ pub struct SessionSummary {
     pub engine: String,
     pub interval_ms: i64,
     pub timeout_ms: i64,
+    pub payload_size: i64,
+    pub dont_fragment: bool,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub probe_count: i64,
@@ -144,8 +148,8 @@ impl Database {
     pub async fn create_session(&self, session: &NewSession) -> Result<i64, DbError> {
         let result = sqlx::query(
             "INSERT INTO sessions \
-             (target_input, resolved_ip, family, engine, interval_ms, timeout_ms, started_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (target_input, resolved_ip, family, engine, interval_ms, timeout_ms, payload_size, dont_fragment, started_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.target_input)
         .bind(&session.resolved_ip)
@@ -153,6 +157,8 @@ impl Database {
         .bind(&session.engine)
         .bind(session.interval_ms)
         .bind(session.timeout_ms)
+        .bind(session.payload_size)
+        .bind(session.dont_fragment)
         .bind(&session.started_at)
         .execute(&self.pool)
         .await?;
@@ -196,7 +202,7 @@ impl Database {
     pub async fn list_sessions(&self) -> Result<Vec<SessionSummary>, DbError> {
         let rows = sqlx::query(
             "SELECT s.id, s.target_input, s.resolved_ip, s.family, s.engine, \
-                    s.interval_ms, s.timeout_ms, s.started_at, s.ended_at, \
+                    s.interval_ms, s.timeout_ms, s.payload_size, s.dont_fragment, s.started_at, s.ended_at, \
                     COUNT(p.id) AS probe_count, \
                     COALESCE(SUM(p.loss), 0) AS loss_count, \
                     CASE WHEN COUNT(p.id) = 0 THEN 0.0 \
@@ -217,6 +223,8 @@ impl Database {
                     engine: row.try_get("engine")?,
                     interval_ms: row.try_get("interval_ms")?,
                     timeout_ms: row.try_get("timeout_ms")?,
+                    payload_size: row.try_get("payload_size")?,
+                    dont_fragment: row.try_get("dont_fragment")?,
                     started_at: row.try_get("started_at")?,
                     ended_at: row.try_get("ended_at")?,
                     probe_count: row.try_get("probe_count")?,
@@ -331,6 +339,8 @@ mod tests {
             engine: "surge".to_string(),
             interval_ms: 1000,
             timeout_ms: 1000,
+            payload_size: 32,
+            dont_fragment: false,
             started_at: now_rfc3339(),
         }
     }
@@ -353,15 +363,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v1() {
+    async fn fresh_db_migrates_to_v2() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 1);
-        let row = sqlx::query("SELECT version FROM _sqlx_migrations")
-            .fetch_one(&db.pool)
+        assert_eq!(migration_count(&db).await, 2);
+        let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&db.pool)
             .await
-            .expect("read version");
-        assert_eq!(row.try_get::<i64, _>("version").expect("version"), 1);
+            .expect("read versions");
+        let versions: Vec<i64> = versions
+            .iter()
+            .map(|row| row.try_get::<i64, _>("version").expect("version"))
+            .collect();
+        assert_eq!(versions, vec![1, 2]);
     }
 
     #[tokio::test]
@@ -369,10 +383,10 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 1);
+        assert_eq!(migration_count(&db).await, 2);
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 1);
+        assert_eq!(migration_count(&db).await, 2);
     }
 
     #[tokio::test]

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use surge_ping::{Client, Config, PingIdentifier, PingSequence, Pinger, SurgeError, ICMP};
 
-use super::{EngineError, ProbeResult, PING_PAYLOAD_BYTES, PING_TIMEOUT_MS};
+use super::{EngineError, ProbeResult, PING_TIMEOUT_MS};
 
 /// Fixed ICMP identifier; the session layer runs one session at a time.
 const SURGE_IDENT: u16 = 0xC0DE;
@@ -22,14 +22,19 @@ pub struct SurgePinger {
     #[allow(dead_code)]
     client: Client,
     pinger: Pinger,
-    payload: [u8; PING_PAYLOAD_BYTES],
+    payload: Vec<u8>,
 }
 
 impl SurgePinger {
     /// Create a client + pinger for `addr`. A non-zero `scope_id` (IPv6
     /// zone) is applied both at the socket level (`interface_index`, where
     /// the platform supports it) and on the pinger's destination sockaddr.
-    pub async fn new(addr: IpAddr, scope_id: u32) -> Result<Self, EngineError> {
+    pub async fn new(
+        addr: IpAddr,
+        scope_id: u32,
+        payload_size: usize,
+        _dont_fragment: bool,
+    ) -> Result<Self, EngineError> {
         let kind = match addr {
             IpAddr::V4(_) => ICMP::V4,
             IpAddr::V6(_) => ICMP::V6,
@@ -44,10 +49,11 @@ impl SurgePinger {
         if scope_id != 0 {
             pinger.scope_id(scope_id);
         }
+        let payload = vec![0x61; payload_size.clamp(1, 65_507)];
         Ok(Self {
             client,
             pinger,
-            payload: [0x61; PING_PAYLOAD_BYTES],
+            payload,
         })
     }
 
@@ -75,7 +81,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "real ICMP echo; run with --ignored for evidence"]
     async fn integration_ping_surge_loopback_v4() {
-        let mut pinger = SurgePinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)
+        let mut pinger = SurgePinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0, 32, false)
             .await
             .expect("surge client on v4 loopback");
         let mut replies = 0u32;
@@ -94,7 +100,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "real ICMP echo; run with --ignored for evidence"]
     async fn integration_ping_surge_loopback_v6() {
-        let Ok(mut pinger) = SurgePinger::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0).await else {
+        let Ok(mut pinger) = SurgePinger::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0, 32, false).await else {
             eprintln!("SKIP: cannot create ICMPv6 client on this host");
             return;
         };
@@ -117,7 +123,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "real ICMP echo; run with --ignored for evidence"]
     async fn integration_ping_testnet_timeouts_without_hang() {
-        let mut pinger = SurgePinger::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 0)
+        let mut pinger = SurgePinger::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 0, 32, false)
             .await
             .expect("surge client");
         for seq in 1..=3 {

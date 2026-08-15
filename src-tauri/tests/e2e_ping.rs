@@ -127,7 +127,7 @@ async fn e2e_loopback_happy_path() -> Result<(), Box<dyn std::error::Error>> {
     let (on_probe, mut probe_rx, _total) = probe_sink();
 
     let info = manager
-        .start("127.0.0.1", "v4", on_probe, status_sink())
+        .start("127.0.0.1", "v4", 32, false, on_probe, status_sink())
         .await?;
 
     let events = collect_n(&mut probe_rx, 5).await?;
@@ -185,7 +185,7 @@ async fn e2e_non_responding_loss_path() -> Result<(), Box<dyn std::error::Error>
     let (on_probe, mut probe_rx, _total) = probe_sink();
 
     let info = manager
-        .start("192.0.2.1", "v4", on_probe, status_sink())
+        .start("192.0.2.1", "v4", 32, false, on_probe, status_sink())
         .await?;
 
     let events = collect_n(&mut probe_rx, 3).await?;
@@ -234,7 +234,7 @@ async fn e2e_persistence_across_restart() -> Result<(), Box<dyn std::error::Erro
     let (on_probe, mut probe_rx, _total) = probe_sink();
 
     let info = manager
-        .start("127.0.0.1", "v4", on_probe, status_sink())
+        .start("127.0.0.1", "v4", 32, false, on_probe, status_sink())
         .await?;
 
     let events = collect_n(&mut probe_rx, 3).await?;
@@ -295,7 +295,7 @@ async fn e2e_loopback_v6_graceful_skip() {
     };
 
     let (on_probe, mut probe_rx, _total) = probe_sink();
-    let info = match manager.start("::1", "v6", on_probe, status_sink()).await {
+    let info = match manager.start("::1", "v6", 32, false, on_probe, status_sink()).await {
         Ok(info) => info,
         Err(err) => {
             eprintln!("skipping IPv6 test: start failed: {err}");

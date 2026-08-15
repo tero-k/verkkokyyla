@@ -112,6 +112,8 @@ pub struct SessionSummaryDto {
     pub engine: String,
     pub interval_ms: i64,
     pub timeout_ms: i64,
+    pub payload_size: i64,
+    pub dont_fragment: bool,
     pub started_at: String,
     pub ended_at: Option<String>,
     pub probe_count: i64,
@@ -129,6 +131,8 @@ impl From<SessionSummary> for SessionSummaryDto {
             engine: row.engine,
             interval_ms: row.interval_ms,
             timeout_ms: row.timeout_ms,
+            payload_size: row.payload_size,
+            dont_fragment: row.dont_fragment,
             started_at: row.started_at,
             ended_at: row.ended_at,
             probe_count: row.probe_count,
@@ -177,6 +181,8 @@ pub struct StartInfoDto {
     pub resolved_ip: String,
     /// All resolver answers (the selected address is `resolved_ip`).
     pub answers: Vec<String>,
+    pub payload_size: i64,
+    pub dont_fragment: bool,
 }
 
 /// `stop_session` return payload.
@@ -301,22 +307,26 @@ type EngineFactoryFuture =
 /// Injectable engine constructor. Tests substitute a Mock-scripted factory
 /// (including one that simulates a permission-denied primary).
 pub type EngineFactory =
-    Arc<dyn Fn(IpAddr, u32, EngineChoice) -> EngineFactoryFuture + Send + Sync>;
+    Arc<dyn Fn(IpAddr, u32, EngineChoice, usize, bool) -> EngineFactoryFuture + Send + Sync>;
 
 /// Production factory: real surge / WinIcmp / OsPinger engines.
 pub fn default_engine_factory() -> EngineFactory {
-    Arc::new(|addr, scope_id, choice| {
+    Arc::new(|addr, scope_id, choice, payload_size, dont_fragment| {
         Box::pin(async move {
             match choice {
-                EngineChoice::Primary => {
-                    SurgePinger::new(addr, scope_id).await.map(PingEngine::Surge)
-                }
+                EngineChoice::Primary => SurgePinger::new(addr, scope_id, payload_size, dont_fragment)
+                    .await
+                    .map(PingEngine::Surge),
                 #[cfg(windows)]
                 EngineChoice::Fallback => Ok(PingEngine::WinIcmp(WinIcmpPinger::new(
-                    addr, scope_id,
+                    addr,
+                    scope_id,
+                    payload_size,
                 ))),
                 #[cfg(unix)]
-                EngineChoice::Fallback => OsPinger::new(addr).map(PingEngine::OsPosix),
+                EngineChoice::Fallback => {
+                    OsPinger::new(addr, payload_size, dont_fragment).map(PingEngine::OsPosix)
+                }
             }
         })
     })
@@ -388,6 +398,8 @@ impl SessionManager {
         &self,
         target: &str,
         family: &str,
+        payload_size: usize,
+        dont_fragment: bool,
         on_probe: P,
         on_status: StatusSink,
     ) -> Result<StartInfoDto, SessionError>
@@ -402,7 +414,7 @@ impl SessionManager {
 
         let resolved = resolve_target(target, family).await?;
         let (mut engine, choice) = self
-            .select_engine(resolved.selected, resolved.scope_id)
+            .select_engine(resolved.selected, resolved.scope_id, payload_size, dont_fragment)
             .await?;
         let engine_label = engine_name(choice).to_owned();
 
@@ -415,6 +427,8 @@ impl SessionManager {
                 engine: engine_label.clone(),
                 interval_ms: i64::try_from(PING_INTERVAL_MS).unwrap_or(i64::MAX),
                 timeout_ms: i64::try_from(PING_TIMEOUT_MS).unwrap_or(i64::MAX),
+                payload_size: i64::try_from(payload_size).unwrap_or(i64::MAX),
+                dont_fragment,
                 started_at: now_rfc3339(),
             })
             .await?;
@@ -453,6 +467,8 @@ impl SessionManager {
             fallback: choice == EngineChoice::Fallback,
             resolved_ip: resolved.selected.to_string(),
             answers: resolved.answers.iter().map(ToString::to_string).collect(),
+            payload_size: i64::try_from(payload_size).unwrap_or(i64::MAX),
+            dont_fragment,
         })
     }
 
@@ -462,14 +478,23 @@ impl SessionManager {
         &self,
         addr: IpAddr,
         scope_id: u32,
+        payload_size: usize,
+        dont_fragment: bool,
     ) -> Result<(PingEngine, EngineChoice), SessionError> {
-        match (self.factory)(addr, scope_id, EngineChoice::Primary).await {
+        match (self.factory)(addr, scope_id, EngineChoice::Primary, payload_size, dont_fragment).await
+        {
             Ok(engine) => Ok((engine, EngineChoice::Primary)),
             Err(EngineError::Socket(err))
                 if err.kind() == std::io::ErrorKind::PermissionDenied =>
             {
-                let engine =
-                    (self.factory)(addr, scope_id, EngineChoice::Fallback).await?;
+                let engine = (self.factory)(
+                    addr,
+                    scope_id,
+                    EngineChoice::Fallback,
+                    payload_size,
+                    dont_fragment,
+                )
+                .await?;
                 Ok((engine, EngineChoice::Fallback))
             }
             Err(other) => Err(SessionError::Engine(other)),
@@ -679,7 +704,7 @@ mod tests {
 
     /// Factory whose primary (and fallback) slots build a scripted Mock.
     fn mock_factory(script: Vec<ProbeResult>) -> EngineFactory {
-        Arc::new(move |_, _, _choice| {
+        Arc::new(move |_, _, _choice, _payload_size, _dont_fragment| {
             let script = script.clone();
             Box::pin(async move { Ok(PingEngine::Mock(MockPinger::new(script))) })
         })
@@ -688,7 +713,7 @@ mod tests {
     /// Factory whose primary slot fails with permission-denied; the fallback
     /// slot builds a scripted Mock.
     fn denied_factory(script: Vec<ProbeResult>) -> EngineFactory {
-        Arc::new(move |_, _, choice| {
+        Arc::new(move |_, _, choice, _payload_size, _dont_fragment| {
             let script = script.clone();
             Box::pin(async move {
                 match choice {
@@ -757,7 +782,7 @@ mod tests {
         let (on_status, mut status_rx) = status_sink();
 
         let info = manager
-            .start("127.0.0.1", "v4", on_probe, on_status)
+            .start("127.0.0.1", "v4", 32, false, on_probe, on_status)
             .await
             .expect("start");
         assert_eq!(info.engine, "surge");
@@ -838,21 +863,21 @@ mod tests {
         let (on_probe, _pr) = probe_sink();
         let (on_status, _sr) = status_sink();
         assert!(matches!(
-            manager.start("127.0.0.1", "bogus", on_probe, on_status).await,
+            manager.start("127.0.0.1", "bogus", 32, false, on_probe, on_status).await,
             Err(SessionError::InvalidFamily(_))
         ));
 
         let (on_probe, _pr2) = probe_sink();
         let (on_status, _sr2) = status_sink();
         manager
-            .start("127.0.0.1", "auto", on_probe, on_status)
+            .start("127.0.0.1", "auto", 32, false, on_probe, on_status)
             .await
             .expect("first start");
 
         let (on_probe2, _pr3) = probe_sink();
         let (on_status2, _sr3) = status_sink();
         assert!(matches!(
-            manager.start("127.0.0.1", "auto", on_probe2, on_status2).await,
+            manager.start("127.0.0.1", "auto", 32, false, on_probe2, on_status2).await,
             Err(SessionError::AlreadyRunning)
         ));
 
@@ -876,7 +901,7 @@ mod tests {
         let (on_status, mut status_rx) = status_sink();
 
         let info = manager
-            .start("127.0.0.1", "auto", on_probe, on_status)
+            .start("127.0.0.1", "auto", 32, false, on_probe, on_status)
             .await
             .expect("start via fallback");
         let expected = engine_name(EngineChoice::Fallback);
@@ -912,7 +937,7 @@ mod tests {
         let (on_status, _sr) = status_sink();
 
         let info = manager
-            .start("127.0.0.1", "v4", on_probe, on_status)
+            .start("127.0.0.1", "v4", 32, false, on_probe, on_status)
             .await
             .expect("start");
         let mut received = 0u64;
@@ -947,7 +972,7 @@ mod tests {
         let (on_probe2, _pr2) = probe_sink();
         let (on_status2, _sr2) = status_sink();
         let info2 = manager
-            .start("127.0.0.1", "v4", on_probe2, on_status2)
+            .start("127.0.0.1", "v4", 32, false, on_probe2, on_status2)
             .await
             .expect("restart after crash");
         manager.stop().await.expect("stop after restart");
@@ -965,7 +990,7 @@ mod tests {
         let (on_status, _sr) = status_sink();
 
         let info = manager
-            .start("localhost", "auto", on_probe, on_status)
+            .start("localhost", "auto", 32, false, on_probe, on_status)
             .await
             .expect("start");
         next_probe(&mut probe_rx).await;

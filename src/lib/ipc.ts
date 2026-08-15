@@ -13,6 +13,8 @@ import type {
 export function startSession(
   target: string,
   family: Family,
+  payloadSize: number,
+  dontFragment: boolean,
   onProbe: (event: ProbeEvent) => void,
   onStatus: (event: StatusEvent) => void,
 ): Promise<StartInfoDto> {
@@ -21,6 +23,8 @@ export function startSession(
   return invoke<StartInfoDto>("start_session", {
     target,
     family,
+    payloadSize,
+    dontFragment,
     onProbe: onProbeChannel,
     onStatus: onStatusChannel,
   })

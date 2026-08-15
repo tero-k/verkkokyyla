@@ -38,6 +38,26 @@
   min-width: 220px;
 }
 
+.field input[type="number"] {
+  min-width: 100px;
+}
+
+.checkboxField label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #e4e4e7;
+  cursor: pointer;
+  min-width: auto;
+}
+
+.checkboxField input {
+  min-width: auto;
+  width: auto;
+  cursor: pointer;
+}
+
 .field input:disabled,
 .field select:disabled {
   opacity: 0.6;

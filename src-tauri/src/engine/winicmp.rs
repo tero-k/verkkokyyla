@@ -8,7 +8,7 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use super::{ProbeResult, PING_PAYLOAD_BYTES, PING_TIMEOUT_MS};
+use super::{ProbeResult, PING_TIMEOUT_MS};
 
 /// IPHlpAPI status: no reply arrived before the timeout (ipexport.h).
 const IP_REQ_TIMED_OUT: u32 = 11010;
@@ -25,15 +25,15 @@ enum EchoError {
 pub struct WinIcmpPinger {
     target: IpAddr,
     scope_id: u32,
-    payload: [u8; PING_PAYLOAD_BYTES],
+    payload: Vec<u8>,
 }
 
 impl WinIcmpPinger {
-    pub fn new(target: IpAddr, scope_id: u32) -> Self {
+    pub fn new(target: IpAddr, scope_id: u32, payload_size: usize) -> Self {
         Self {
             target,
             scope_id,
-            payload: [0x61; PING_PAYLOAD_BYTES],
+            payload: vec![0x61; payload_size.clamp(1, 65_507)],
         }
     }
 
@@ -41,7 +41,7 @@ impl WinIcmpPinger {
     pub async fn probe(&mut self, _seq: u64) -> ProbeResult {
         let target = self.target;
         let scope_id = self.scope_id;
-        let payload = self.payload;
+        let payload = self.payload.clone();
         let timeout_ms = u32::try_from(PING_TIMEOUT_MS).unwrap_or(u32::MAX);
         match tokio::task::spawn_blocking(move || echo(target, scope_id, &payload, timeout_ms))
             .await
@@ -223,7 +223,7 @@ mod tests {
     // Then a real reply comes back (IcmpSendEcho path, no admin needed).
     #[tokio::test]
     async fn winicmp_v4_loopback_echo_succeeds_unprivileged() {
-        let mut pinger = WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+        let mut pinger = WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0, 32);
         match pinger.probe(1).await {
             ProbeResult::Rtt(rtt) => assert!(rtt <= Duration::from_millis(PING_TIMEOUT_MS)),
             other => panic!("expected Rtt from 127.0.0.1, got {other:?}"),
@@ -235,7 +235,7 @@ mod tests {
     // Then a real reply comes back (Icmp6SendEcho2 path, scope 0).
     #[tokio::test]
     async fn winicmp_v6_loopback_echo_succeeds_unprivileged() {
-        let mut pinger = WinIcmpPinger::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0);
+        let mut pinger = WinIcmpPinger::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0, 32);
         match pinger.probe(1).await {
             ProbeResult::Rtt(_) => {}
             other => panic!("expected Rtt from ::1, got {other:?}"),
@@ -247,7 +247,7 @@ mod tests {
     // Then dispatch reaches the IPHlpAPI implementation.
     #[tokio::test]
     async fn winicmp_enum_dispatch_reaches_impl() {
-        let mut engine = PingEngine::WinIcmp(WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0));
+        let mut engine = PingEngine::WinIcmp(WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0, 32));
         assert!(matches!(engine.probe(1).await, ProbeResult::Rtt(_)));
     }
 
@@ -256,7 +256,7 @@ mod tests {
     // Then the outcome is Timeout or Error (no Rtt), with no panic or hang.
     #[tokio::test]
     async fn winicmp_testnet_never_hangs() {
-        let mut pinger = WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 0);
+        let mut pinger = WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)), 0, 32);
         let result = pinger.probe(1).await;
         assert!(
             matches!(result, ProbeResult::Timeout | ProbeResult::Error(_)),
