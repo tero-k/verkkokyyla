@@ -72,7 +72,7 @@ fn parse_impl(
                 .map_err(|_| ParseError::InvalidZoneIndex(z.to_owned()))?;
             Ok((addr, index))
         }
-        Some(z) if z.is_empty() => Err(ParseError::InvalidZoneIndex(String::new())),
+        Some("") => Err(ParseError::InvalidZoneIndex(String::new())),
         Some(z) => Ok((addr, resolve_name(z)?)),
     }
 }
