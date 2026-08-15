@@ -22,6 +22,7 @@ type MockSession = {
   probeCount: number
   lossCount: number
   lossPercent: number
+  probes: MockProbeEvent[]
 }
 
 type Snapshot = {
@@ -40,20 +41,21 @@ export async function installMockTauri(page: Page): Promise<void> {
     ;(() => {
       let callbackId = 0
       const callbacks = new Map<number, { cb: unknown; once: boolean }>()
-      let running = false
       let nextSessionId = 0
-      let currentSessionId = 0
-      let currentProbes: MockProbeEvent[] = []
-      let currentTarget = ""
-      let currentResolvedIp = ""
-      let currentFamily = "auto"
-      let currentEngine = "surge"
+      let lastStartedId: number | null = null
+      const activeSessions = new Map<number, {
+        targetInput: string
+        resolvedIp: string
+        family: string
+        engine: string
+        payloadSize: number
+        dontFragment: boolean
+        onProbeChannel: { onmessage?: (message: unknown) => void }
+        onStatusChannel: { onmessage?: (message: unknown) => void }
+        probes: MockProbeEvent[]
+      }>()
+      let endedSessions: MockSession[] = []
       let nextEngineIsFallback = false
-      let currentPayloadSize = 32
-      let currentDontFragment = false
-      let sessions: MockSession[] = []
-      let onProbeChannel: { onmessage?: (message: unknown) => void } | null = null
-      let onStatusChannel: { onmessage?: (message: unknown) => void } | null = null
 
       function transformCallback(
         cb: (rawMessage: unknown) => void,
@@ -82,7 +84,7 @@ export async function installMockTauri(page: Page): Promise<void> {
         engine: string
         fallback: boolean
       } {
-        const engine = nextEngineIsFallback ? "surge-fallback" : currentEngine
+        const engine = nextEngineIsFallback ? "surge-fallback" : "surge"
         const fallback = nextEngineIsFallback
         nextEngineIsFallback = false
         if (target === "localhost" || target === "127.0.0.1") {
@@ -94,10 +96,10 @@ export async function installMockTauri(page: Page): Promise<void> {
         return { resolvedIp: "192.0.2.1", engine, fallback }
       }
 
-      function computeSnapshot(): Snapshot {
-        const count = currentProbes.length
-        const lossCount = currentProbes.filter((p) => p.lost).length
-        const rtts = currentProbes
+      function computeSnapshot(probes: MockProbeEvent[]): Snapshot {
+        const count = probes.length
+        const lossCount = probes.filter((p) => p.lost).length
+        const rtts = probes
           .filter((p) => !p.lost && p.rttMs !== null)
           .map((p) => p.rttMs as number)
         const min = rtts.length > 0 ? Math.min(...rtts) : null
@@ -126,111 +128,150 @@ export async function installMockTauri(page: Page): Promise<void> {
         }
       }
 
+      function defaultSessionId(): number {
+        if (lastStartedId !== null && activeSessions.has(lastStartedId)) {
+          return lastStartedId
+        }
+        const ids = Array.from(activeSessions.keys())
+        if (ids.length === 0) {
+          throw new Error("no active session")
+        }
+        return ids[0]
+      }
+
+      function resolveActiveSession(sessionId: number | undefined) {
+        const id = sessionId ?? defaultSessionId()
+        const session = activeSessions.get(id)
+        if (session === undefined) {
+          throw new Error(`session ${id} not found`)
+        }
+        return { id, session }
+      }
+
       async function invoke(
         cmd: string,
         args: Record<string, unknown>,
       ): Promise<unknown> {
         switch (cmd) {
           case "start_session": {
-            if (running) {
-              throw {
-                kind: "already-running",
-                message: "a ping session is already running",
-              }
-            }
-            running = true
-            currentTarget = String(args.target)
-            currentFamily = String(args.family)
-            currentPayloadSize =
+            const targetInput = String(args.target)
+            const family = String(args.family)
+            const payloadSize =
               typeof args.payloadSize === "number" ? args.payloadSize : 32
-            currentDontFragment =
+            const dontFragment =
               typeof args.dontFragment === "boolean" ? args.dontFragment : false
-            currentProbes = []
-            const info = resolveInfo(currentTarget)
-            currentResolvedIp = info.resolvedIp
-            currentEngine = info.engine
+            const info = resolveInfo(targetInput)
             nextSessionId += 1
-            currentSessionId = nextSessionId
-            onProbeChannel = args.onProbe as typeof onProbeChannel
-            onStatusChannel = args.onStatus as typeof onStatusChannel
+            const sessionId = nextSessionId
+            const onProbeChannel = args.onProbe as { onmessage?: (message: unknown) => void }
+            const onStatusChannel = args.onStatus as { onmessage?: (message: unknown) => void }
+            const active = {
+              targetInput,
+              resolvedIp: info.resolvedIp,
+              family,
+              engine: info.engine,
+              payloadSize,
+              dontFragment,
+              onProbeChannel,
+              onStatusChannel,
+              probes: [] as MockProbeEvent[],
+            }
+            activeSessions.set(sessionId, active)
+            lastStartedId = sessionId
             sendChannel(onStatusChannel, {
               event: "engine-selected",
-              engine: currentEngine,
+              engine: info.engine,
               fallback: info.fallback,
             })
             return {
-              sessionId: currentSessionId,
-              engine: currentEngine,
+              sessionId,
+              engine: info.engine,
               fallback: info.fallback,
-              resolvedIp: currentResolvedIp,
-              answers: [currentResolvedIp],
-              payloadSize: currentPayloadSize,
-              dontFragment: currentDontFragment,
+              resolvedIp: info.resolvedIp,
+              answers: [info.resolvedIp],
+              payloadSize,
+              dontFragment,
             }
           }
           case "stop_session": {
-            if (!running) {
+            const sessionId = Number(args.sessionId)
+            const active = activeSessions.get(sessionId)
+            if (active === undefined) {
               throw {
                 kind: "not-running",
                 message: "no ping session is running",
               }
             }
-            if (args.sessionId !== currentSessionId) {
-              throw {
-                kind: "not-running",
-                message: "session not found",
-              }
+            activeSessions.delete(sessionId)
+            if (lastStartedId === sessionId) {
+              lastStartedId = null
             }
-            running = false
-            const snap = computeSnapshot()
+            const snap = computeSnapshot(active.probes)
             const endedAt = new Date().toISOString()
             const startedAt = new Date(
               Date.now() - snap.count * 1000,
             ).toISOString()
-            sessions.push({
-              id: currentSessionId,
-              targetInput: currentTarget,
-              resolvedIp: currentResolvedIp,
-              family: currentFamily,
-              engine: currentEngine,
+            const ended: MockSession = {
+              id: sessionId,
+              targetInput: active.targetInput,
+              resolvedIp: active.resolvedIp,
+              family: active.family,
+              engine: active.engine,
               intervalMs: 1000,
               timeoutMs: 1000,
-              payloadSize: currentPayloadSize,
-              dontFragment: currentDontFragment,
+              payloadSize: active.payloadSize,
+              dontFragment: active.dontFragment,
               startedAt,
               endedAt,
               probeCount: snap.count,
               lossCount: snap.lossCount,
               lossPercent: snap.lossFraction * 100,
-            })
-            sendChannel(onStatusChannel, {
+              probes: active.probes,
+            }
+            endedSessions.push(ended)
+            sendChannel(active.onStatusChannel, {
               event: "session-stopped",
-              sessionId: currentSessionId,
+              sessionId,
               probeCount: snap.count,
               lossCount: snap.lossCount,
             })
             return {
-              sessionId: currentSessionId,
+              sessionId,
               probeCount: snap.count,
               lossCount: snap.lossCount,
               endedAt,
             }
           }
-          case "get_snapshot":
-            return computeSnapshot()
+          case "get_snapshot": {
+            const sessionId = Number(args.sessionId)
+            const active = activeSessions.get(sessionId)
+            if (active === undefined) {
+              return {
+                count: 0,
+                lossCount: 0,
+                lossFraction: 0,
+                minMs: null,
+                avgMs: null,
+                maxMs: null,
+                stddevMs: null,
+                jitterMs: null,
+              }
+            }
+            return computeSnapshot(active.probes)
+          }
           case "list_active_sessions":
-            return running ? [currentSessionId] : []
+            return Array.from(activeSessions.keys())
           case "list_sessions":
-            return sessions
+            return endedSessions
           case "load_session": {
-            const session = sessions.find((s) => s.id === args.id)
+            const session = endedSessions.find((s) => s.id === args.id)
             if (session === undefined) {
               throw {
                 kind: "session-not-found",
                 message: `no session with id ${args.id}`,
               }
             }
-            const probes = currentProbes.map((p) => ({
+            const probes = session.probes.map((p) => ({
               seq: p.seq,
               rttMs: p.rttMs,
               loss: p.lost,
@@ -239,7 +280,7 @@ export async function installMockTauri(page: Page): Promise<void> {
             return { session, probes }
           }
           case "delete_session": {
-            sessions = sessions.filter((s) => s.id !== args.id)
+            endedSessions = endedSessions.filter((s) => s.id !== args.id)
             return null
           }
           default:
@@ -254,22 +295,23 @@ export async function installMockTauri(page: Page): Promise<void> {
         isTauri: () => true,
       }
 
-      window.__TAURI_MOCK_SEND_PROBE__ = (event) => {
-        if (!running) return
-        currentProbes.push(event)
-        sendChannel(onProbeChannel, event)
+      window.__TAURI_MOCK_SEND_PROBE__ = (event, sessionId) => {
+        const { session } = resolveActiveSession(sessionId)
+        session.probes.push(event)
+        sendChannel(session.onProbeChannel, event)
       }
 
-      window.__TAURI_MOCK_SEND_PROBES__ = (events) => {
-        if (!running) return
+      window.__TAURI_MOCK_SEND_PROBES__ = (events, sessionId) => {
+        const { session } = resolveActiveSession(sessionId)
         for (const event of events) {
-          currentProbes.push(event)
-          sendChannel(onProbeChannel, event)
+          session.probes.push(event)
+          sendChannel(session.onProbeChannel, event)
         }
       }
 
-      window.__TAURI_MOCK_SEND_STATUS_ERROR__ = (message) => {
-        sendChannel(onStatusChannel, { event: "error", message })
+      window.__TAURI_MOCK_SEND_STATUS_ERROR__ = (message, sessionId) => {
+        const { session } = resolveActiveSession(sessionId)
+        sendChannel(session.onStatusChannel, { event: "error", message })
       }
 
       window.__TAURI_MOCK_SET_FALLBACK__ = (enabled) => {
@@ -281,7 +323,9 @@ export async function installMockTauri(page: Page): Promise<void> {
 
 declare global {
   interface Window {
-    __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string) => void
+    __TAURI_MOCK_SEND_PROBE__: (event: MockProbeEvent, sessionId?: number) => void
+    __TAURI_MOCK_SEND_PROBES__: (events: MockProbeEvent[], sessionId?: number) => void
+    __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string, sessionId?: number) => void
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
   }
 }

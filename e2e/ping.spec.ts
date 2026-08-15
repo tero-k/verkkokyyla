@@ -3,9 +3,9 @@ import { installMockTauri, makeProbe, type MockProbeEvent } from "./mock-ipc"
 
 declare global {
   interface Window {
-    __TAURI_MOCK_SEND_PROBE__: (event: MockProbeEvent) => void
-    __TAURI_MOCK_SEND_PROBES__: (events: MockProbeEvent[]) => void
-    __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string) => void
+    __TAURI_MOCK_SEND_PROBE__: (event: MockProbeEvent, sessionId?: number) => void
+    __TAURI_MOCK_SEND_PROBES__: (events: MockProbeEvent[], sessionId?: number) => void
+    __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string, sessionId?: number) => void
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
   }
 }
@@ -172,4 +172,77 @@ test("engine error pauses session and retry falls back", async ({ page }) => {
   await expect(page.locator('[data-testid="ping-status"]')).toContainText(
     "Engine: surge-fallback (fallback)",
   )
+})
+
+test("two concurrent sessions keep independent probe counts and snapshots", async ({
+  page,
+}) => {
+  await installMockTauri(page)
+  await page.goto("/")
+
+  // First card
+  await page.locator('[data-testid="ping-target"]').nth(0).fill("localhost")
+  await page.locator('[data-testid="ping-start"]').nth(0).click()
+  await expect(
+    page.locator('[data-testid="resolved-ip"]').nth(0),
+  ).toHaveText("127.0.0.1")
+
+  // Add a second card
+  await page.click('[data-testid="new-ping"]')
+  await page.locator('[data-testid="ping-target"]').nth(1).fill("example.com")
+  await page.locator('[data-testid="ping-start"]').nth(1).click()
+  await expect(
+    page.locator('[data-testid="resolved-ip"]').nth(1),
+  ).toHaveText("192.0.2.1")
+
+  // Get the two active session ids from the mock.
+  const sessionIds = (await page.evaluate(async () => {
+    return (await window.__TAURI_INTERNALS__.invoke(
+      "list_active_sessions",
+      {},
+    )) as number[]
+  })) as [number, number]
+  expect(sessionIds).toHaveLength(2)
+
+  // Send probes to each session independently.
+  const firstProbes = Array.from({ length: 3 }, (_, i) =>
+    makeProbe(i + 1, 10, false),
+  )
+  const secondProbes = Array.from({ length: 5 }, (_, i) =>
+    makeProbe(i + 1, 20, false),
+  )
+
+  await page.evaluate(
+    ([events, id]) => {
+      window.__TAURI_MOCK_SEND_PROBES__(events, id)
+    },
+    [firstProbes, sessionIds[0]] as const,
+  )
+  await page.evaluate(
+    ([events, id]) => {
+      window.__TAURI_MOCK_SEND_PROBES__(events, id)
+    },
+    [secondProbes, sessionIds[1]] as const,
+  )
+
+  // Each aggregate bar should reflect its own probe count.
+  await expect(
+    page.locator('[data-testid="aggregates-bar"]').nth(0),
+  ).toContainText("3")
+  await expect(
+    page.locator('[data-testid="aggregates-bar"]').nth(1),
+  ).toContainText("5")
+
+  // Stop both sessions.
+  await page.locator('[data-testid="ping-stop"]').nth(0).click()
+  await page.locator('[data-testid="ping-stop"]').nth(1).click()
+
+  // Both sessions should now appear in the persisted list.
+  const ended = (await page.evaluate(async () => {
+    return (await window.__TAURI_INTERNALS__.invoke(
+      "list_sessions",
+      {},
+    )) as { id: number; probeCount: number }[]
+  }))
+  expect(ended.map((s) => s.probeCount).sort()).toEqual([3, 5])
 })
