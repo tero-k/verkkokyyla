@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { formatMetric, formatTime } from "../lib/format"
 import type { ProbeRow, SnapshotDto } from "../lib/types"
 
 import styles from "./PingStatsTable.module.css"
+
+const COLLAPSED_ROWS = 5
 
 type PingStatsTableProps = {
   readonly rows: readonly ProbeRow[]
@@ -10,13 +12,16 @@ type PingStatsTableProps = {
 }
 
 export function PingStatsTable({ rows, snapshot }: PingStatsTableProps) {
+  const [expanded, setExpanded] = useState(false)
   const bodyRef = useRef<HTMLTableSectionElement>(null)
+
+  const visibleRows = expanded ? rows : rows.slice(-COLLAPSED_ROWS)
 
   useEffect(() => {
     const body = bodyRef.current
     if (body === null) return
     body.scrollTop = body.scrollHeight
-  }, [rows])
+  }, [visibleRows])
 
   const lossPercent =
     snapshot !== null ? snapshot.lossFraction * 100 : null
@@ -68,6 +73,18 @@ export function PingStatsTable({ rows, snapshot }: PingStatsTableProps) {
         </div>
       </div>
 
+      {rows.length > COLLAPSED_ROWS && (
+        <div className={styles.toggle}>
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            data-testid="expand-table"
+          >
+            {expanded ? "Show fewer" : `Show all (${rows.length})`}
+          </button>
+        </div>
+      )}
+
       <div className={styles.tableWrapper}>
         <table className={styles.table}>
           <thead>
@@ -78,7 +95,7 @@ export function PingStatsTable({ rows, snapshot }: PingStatsTableProps) {
             </tr>
           </thead>
           <tbody ref={bodyRef}>
-            {rows.map((row) => (
+            {visibleRows.map((row) => (
               <tr
                 key={row.seq}
                 className={row.lost ? styles.lost : undefined}

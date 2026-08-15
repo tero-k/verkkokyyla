@@ -52,6 +52,12 @@ test("600 probes keep the table at 500 rows and show full aggregates", async ({
 
   await page.waitForFunction(
     () =>
+      document.querySelectorAll('[data-testid="ping-table-row"]').length === 5,
+  )
+
+  await page.click('[data-testid="expand-table"]')
+  await page.waitForFunction(
+    () =>
       document.querySelectorAll('[data-testid="ping-table-row"]').length === 500,
   )
 
@@ -81,6 +87,12 @@ test("50% loss session renders lost rows and chart canvases", async ({
     window.__TAURI_MOCK_SEND_PROBES__(events)
   }, probes)
 
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="ping-table-row"]').length === 5,
+  )
+
+  await page.click('[data-testid="expand-table"]')
   await page.waitForFunction(
     () =>
       document.querySelectorAll('[data-testid="ping-table-row"]').length === 100,
