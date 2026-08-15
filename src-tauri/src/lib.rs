@@ -1,4 +1,5 @@
 pub mod db;
+pub mod download;
 pub mod engine;
 pub mod session;
 pub mod stats;
@@ -11,6 +12,17 @@ use session::{
     LoadedSessionDto, ProbeEvent, SessionError, SessionManager, SessionSummaryDto, SnapshotDto,
     StartInfoDto, StatusEvent, StoppedSessionDto,
 };
+
+#[tauri::command]
+async fn run_download_speed_test(
+    url: String,
+    on_progress: tauri::ipc::Channel<download::DownloadProgressEvent>,
+) -> Result<download::DownloadSpeedResultDto, download::DownloadError> {
+    download::run_download_speed_test(&url, move |event| {
+        let _ = on_progress.send(event);
+    })
+    .await
+}
 
 #[tauri::command]
 async fn start_session(
@@ -100,7 +112,8 @@ pub fn run() {
             list_active_sessions,
             list_sessions,
             load_session,
-            delete_session
+            delete_session,
+            run_download_speed_test
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

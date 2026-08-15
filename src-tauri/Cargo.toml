@@ -20,6 +20,10 @@ tokio = { version = "1", features = ["full"] }
 surge-ping = "0.9"
 socket2 = "0.6"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"
+url = "2"
+thiserror = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
