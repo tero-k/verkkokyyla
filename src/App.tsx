@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import DownloadSpeedView from "./views/DownloadSpeedView"
 import PingWorkspace from "./views/PingWorkspace"
+import TracerouteView from "./views/TracerouteView"
 import { NAV_ITEMS, resolveRoute } from "./routing"
 import "./App.css"
 import styles from "./App.module.css"
@@ -35,6 +36,7 @@ export default function App() {
         </nav>
       </aside>
       <main className={styles.content}>
+        {route === "traceroute" && <TracerouteView />}
         {route === "download-speed" ? <DownloadSpeedView /> : <PingWorkspace />}
       </main>
     </div>

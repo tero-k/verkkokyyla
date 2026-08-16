@@ -1,0 +1,25 @@
+Command: npx tsc --noEmit
+Output: (no output)
+
+Command: npm run build
+Output:
+> verkkokyyla@0.1.1 build
+> tsc && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 65 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                 0.41 kB │ gzip: 0.27 kB
+dist/assets/index-CScHy3Oj.css  15.96 kB │ gzip: 3.47 kB
+dist/assets/index-CczyIact.js   242.21 kB │ gzip: 83.26 kB
+✓ built in 482ms
+
+Command: git diff --numstat -- src/App.tsx
+Output:
+2	0	src/App.tsx
+
+Command: Select-String -Path "src/App.tsx" -Pattern 'route === "traceroute"'
+Output:
+src\App.tsx:39:        {route === "traceroute" && <TracerouteView />}

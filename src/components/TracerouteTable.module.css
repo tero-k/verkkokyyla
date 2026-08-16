@@ -1,0 +1,32 @@
+.wrapper {
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  max-height: 420px;
+  overflow: auto;
+  background: #1c1c1f;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th,
+.table td {
+  padding: 0.4rem 0.55rem;
+  text-align: left;
+}
+
+.table thead {
+  background: #111113;
+  color: #a1a1aa;
+}
+
+.table tbody tr:nth-child(even) {
+  background: #18181b;
+}
+
+.table tbody tr:hover {
+  background: #27272a;
+}
