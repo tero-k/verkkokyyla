@@ -51,6 +51,38 @@ export type StatusEvent =
       readonly lossCount: number
     }
 
+export type TraceEvent =
+  | {
+      readonly event: "hop"
+      readonly hop: number
+      readonly address: string | null
+      readonly rtt1Ms: number | null
+      readonly rtt2Ms: number | null
+      readonly rtt3Ms: number | null
+      readonly annotation: string | null
+      readonly at: string
+    }
+  | {
+      readonly event: "hostname"
+      readonly hop: number
+      readonly address: string
+      readonly hostname: string | null
+    }
+
+export type TraceStatusEvent =
+  | {
+      readonly event: "completed"
+      readonly traceId: number
+      readonly hopCount: number
+      readonly reachedTarget: boolean
+    }
+  | {
+      readonly event: "cancelled"
+      readonly traceId: number
+      readonly hopCount: number
+    }
+  | { readonly event: "error"; readonly message: string }
+
 export type StartInfoDto = {
   readonly sessionId: number
   readonly engine: string
@@ -106,6 +138,51 @@ export type StoppedSessionDto = {
 export type LoadedSessionDto = {
   readonly session: SessionSummaryDto
   readonly probes: readonly ProbeRowDto[]
+}
+
+export type StartTraceDto = {
+  readonly traceId: number
+  readonly engine: string
+  readonly resolvedIp: string
+  readonly answers: readonly string[]
+}
+
+export type StoppedTraceDto = {
+  readonly traceId: number
+  readonly hopCount: number
+  readonly endedAt: string
+}
+
+export type TraceSummaryDto = {
+  readonly id: number
+  readonly targetInput: string
+  readonly resolvedIp: string
+  readonly family: string
+  readonly engine: string
+  readonly maxHops: number
+  readonly startedAt: string
+  readonly endedAt: string | null
+  readonly status: string
+  readonly reachedTarget: boolean
+  readonly hopCount: number
+}
+
+export type TraceHopDto = {
+  readonly hop: number
+  readonly address: string | null
+  readonly hostname: string | null
+  readonly rtt1Ms: number | null
+  readonly rtt2Ms: number | null
+  readonly rtt3Ms: number | null
+  readonly annotation: string | null
+  readonly at: string
+}
+
+export type TraceHopRow = TraceHopDto
+
+export type LoadedTraceDto = {
+  readonly trace: TraceSummaryDto
+  readonly hops: readonly TraceHopDto[]
 }
 
 export type DownloadProgressEvent = {

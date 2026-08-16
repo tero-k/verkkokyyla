@@ -4,6 +4,7 @@ import type {
   DownloadSpeedResultDto,
   Family,
   HttpSettings,
+  LoadedTraceDto,
   LoadedSessionDto,
   PageProgressEvent,
   PageSpeedResultDto,
@@ -11,8 +12,13 @@ import type {
   SessionSummaryDto,
   SnapshotDto,
   StartInfoDto,
+  StartTraceDto,
   StatusEvent,
+  StoppedTraceDto,
   StoppedSessionDto,
+  TraceEvent,
+  TraceStatusEvent,
+  TraceSummaryDto,
 } from "./types"
 
 export function startSession(
@@ -57,6 +63,38 @@ export function loadSession(id: number): Promise<LoadedSessionDto> {
 
 export function deleteSession(id: number): Promise<void> {
   return invoke<void>("delete_session", { id })
+}
+
+export function startTrace(
+  target: string,
+  family: Family,
+  onEvent: (event: TraceEvent) => void,
+  onStatus: (event: TraceStatusEvent) => void,
+): Promise<StartTraceDto> {
+  const onEventChannel = new Channel<TraceEvent>(onEvent)
+  const onStatusChannel = new Channel<TraceStatusEvent>(onStatus)
+  return invoke<StartTraceDto>("start_trace", {
+    target,
+    family,
+    onEvent: onEventChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function stopTrace(): Promise<StoppedTraceDto> {
+  return invoke<StoppedTraceDto>("stop_trace")
+}
+
+export function listTraces(): Promise<TraceSummaryDto[]> {
+  return invoke<TraceSummaryDto[]>("list_traces")
+}
+
+export function loadTrace(id: number): Promise<LoadedTraceDto> {
+  return invoke<LoadedTraceDto>("load_trace", { id })
+}
+
+export function deleteTrace(id: number): Promise<void> {
+  return invoke<void>("delete_trace", { id })
 }
 
 export function runDownloadSpeedTest(
