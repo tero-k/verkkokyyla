@@ -20,6 +20,9 @@ function assertNever(value: never): never {
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
   if (typeof err === "string") return err
+  if (typeof err === "object" && err !== null && "message" in err) {
+    if (typeof err.message === "string") return err.message
+  }
   return String(err)
 }
 
