@@ -10,7 +10,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { route: "ping", label: "Ping", hash: "#/ping" },
-  { route: "download-speed", label: "Download speed test", hash: "#/download-speed" },
+  { route: "download-speed", label: "Web page speed test", hash: "#/download-speed" },
 ];
 
 export function resolveRoute(hash: string): Route {

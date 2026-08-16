@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use serde::Serialize;
 
+use crate::http_client::{build_client, HttpSettingsDto};
+
 /// Progress event streamed over the `on_progress` channel.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +69,7 @@ impl Serialize for DownloadError {
     }
 }
 
-fn parse_url(url: &str) -> Result<url::Url, DownloadError> {
+pub(crate) fn parse_url(url: &str) -> Result<url::Url, DownloadError> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(DownloadError::InvalidScheme);
     }
@@ -86,7 +88,7 @@ fn parse_url(url: &str) -> Result<url::Url, DownloadError> {
     Ok(parsed)
 }
 
-fn host_and_port(parsed: &url::Url) -> Result<(String, u16), DownloadError> {
+pub(crate) fn host_and_port(parsed: &url::Url) -> Result<(String, u16), DownloadError> {
     let host = parsed.host_str().unwrap_or("");
     if host.is_empty() {
         return Err(DownloadError::MissingHost);
@@ -97,7 +99,7 @@ fn host_and_port(parsed: &url::Url) -> Result<(String, u16), DownloadError> {
     Ok((host.to_owned(), port))
 }
 
-fn mbps_from(bytes: u64, elapsed: Duration) -> f64 {
+pub(crate) fn mbps_from(bytes: u64, elapsed: Duration) -> f64 {
     let secs = elapsed.as_secs_f64();
     if secs <= 0.0 || bytes == 0 {
         return 0.0;
@@ -108,6 +110,7 @@ fn mbps_from(bytes: u64, elapsed: Duration) -> f64 {
 /// Run a download speed test against `url` and stream progress via `on_progress`.
 pub async fn run_download_speed_test<F>(
     url: &str,
+    settings: HttpSettingsDto,
     on_progress: F,
 ) -> Result<DownloadSpeedResultDto, DownloadError>
 where
@@ -123,20 +126,11 @@ where
         .collect::<Vec<_>>();
     let dns_resolution_ms = Some(dns_start.elapsed().as_millis() as u64);
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|e| DownloadError::Request(e.to_string()))?;
+    let client = build_client(settings, "verkkokyyla/0.1.0 download-speed-test")?;
 
     let request = client
         .get(parsed.as_str())
-        .header("Cache-Control", "no-cache")
-        .header(
-            "User-Agent",
-            "verkkokyyla/0.1.0 download-speed-test",
-        );
+        .header("Cache-Control", "no-cache");
 
     let started = Instant::now();
     let response = request
@@ -209,6 +203,20 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::time::sleep;
 
+    use crate::http_client::{HttpSettingsDto, HttpVersion};
+
+    fn default_settings() -> HttpSettingsDto {
+        HttpSettingsDto {
+            version: HttpVersion::Auto,
+            connect_timeout_sec: 10,
+            request_timeout_sec: 60,
+            follow_redirects: true,
+            max_redirects: 10,
+            compression: true,
+            user_agent: String::new(),
+        }
+    }
+
     async fn local_server(response: Vec<u8>) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -243,7 +251,7 @@ mod tests {
 
         let progress_count = Arc::new(AtomicU64::new(0));
         let counter = Arc::clone(&progress_count);
-        let result = run_download_speed_test(&url, move |_event| {
+        let result = run_download_speed_test(&url, default_settings(), move |_event| {
             counter.fetch_add(1, Ordering::SeqCst);
         })
         .await
@@ -264,7 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_scheme_is_invalid() {
-        let err = run_download_speed_test("example.com/path", |_event| {})
+        let err = run_download_speed_test("example.com/path", default_settings(), |_event| {})
             .await
             .unwrap_err();
         assert!(matches!(err, DownloadError::InvalidScheme));
@@ -272,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn ftp_scheme_is_invalid() {
-        let err = run_download_speed_test("ftp://example.com/file", |_event| {})
+        let err = run_download_speed_test("ftp://example.com/file", default_settings(), |_event| {})
             .await
             .unwrap_err();
         assert!(matches!(err, DownloadError::InvalidScheme));
@@ -280,7 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_host_is_rejected() {
-        let err = run_download_speed_test("http:///", |_event| {})
+        let err = run_download_speed_test("http:///", default_settings(), |_event| {})
             .await
             .unwrap_err();
         assert!(matches!(err, DownloadError::MissingHost));
@@ -292,7 +300,7 @@ mod tests {
         let port = local_server(response).await;
         let url = format!("http://127.0.0.1:{port}/missing");
 
-        let result = run_download_speed_test(&url, |_event| {}).await.unwrap();
+        let result = run_download_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
         assert_eq!(result.status_code, 404);
         assert_eq!(result.bytes_received, 5);
         assert!(result.average_mbps.is_finite());
@@ -304,7 +312,7 @@ mod tests {
         let port = local_server(response).await;
         let url = format!("http://127.0.0.1:{port}/chunked");
 
-        let result = run_download_speed_test(&url, |_event| {}).await.unwrap();
+        let result = run_download_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
         assert_eq!(result.status_code, 200);
         assert_eq!(result.bytes_received, 5);
         assert_eq!(result.content_length, None);

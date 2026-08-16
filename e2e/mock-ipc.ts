@@ -291,9 +291,11 @@ export async function installMockTauri(page: Page): Promise<void> {
           }
           case "run_download_speed_test": {
             const url = String(args.url)
+            const settings = args.settings as Record<string, unknown> | undefined
             const onProgress = args.onProgress as {
               onmessage?: (message: unknown) => void
             }
+            window.__TAURI_MOCK_LAST_HTTP_SETTINGS__ = settings ?? null
             if (url === "https://error.test/") {
               throw {
                 kind: "request",
@@ -322,6 +324,117 @@ export async function installMockTauri(page: Page): Promise<void> {
               dnsResolutionMs: 12,
               tlsHandshakeMs: null,
               averageMbps: 8.39,
+            }
+          }
+          case "run_page_speed_test": {
+            const url = String(args.url)
+            const settings = args.settings as Record<string, unknown> | undefined
+            const onProgress = args.onProgress as {
+              onmessage?: (message: unknown) => void
+            }
+            window.__TAURI_MOCK_LAST_HTTP_SETTINGS__ = settings ?? null
+            if (url === "https://error.test/") {
+              throw {
+                kind: "request",
+                message: "request failed: mock page failure",
+              }
+            }
+            const resources = [
+              {
+                url,
+                resourceType: "document",
+                statusCode: 200,
+                contentLength: 4096,
+                bytesReceived: 4096,
+                startOffsetMs: 0,
+                durationMs: 120,
+                timeToFirstByteMs: 40,
+                averageMbps: 0.27,
+                error: null,
+              },
+              {
+                url: new URL("/style.css", url).href,
+                resourceType: "stylesheet",
+                statusCode: 200,
+                contentLength: 2048,
+                bytesReceived: 2048,
+                startOffsetMs: 130,
+                durationMs: 80,
+                timeToFirstByteMs: 20,
+                averageMbps: 0.2,
+                error: null,
+              },
+              {
+                url: new URL("/app.js", url).href,
+                resourceType: "script",
+                statusCode: 200,
+                contentLength: 8192,
+                bytesReceived: 8192,
+                startOffsetMs: 220,
+                durationMs: 150,
+                timeToFirstByteMs: 30,
+                averageMbps: 0.44,
+                error: null,
+              },
+              {
+                url: new URL("/image.png", url).href,
+                resourceType: "image",
+                statusCode: 200,
+                contentLength: 10240,
+                bytesReceived: 10240,
+                startOffsetMs: 380,
+                durationMs: 210,
+                timeToFirstByteMs: 50,
+                averageMbps: 0.39,
+                error: null,
+              },
+              {
+                url: new URL("/font.woff2", url).href,
+                resourceType: "font",
+                statusCode: 200,
+                contentLength: 5120,
+                bytesReceived: 5120,
+                startOffsetMs: 410,
+                durationMs: 95,
+                timeToFirstByteMs: 25,
+                averageMbps: 0.43,
+                error: null,
+              },
+              {
+                url: new URL("/xhr.json", url).href,
+                resourceType: "xhr",
+                statusCode: 200,
+                contentLength: 256,
+                bytesReceived: 256,
+                startOffsetMs: 520,
+                durationMs: 45,
+                timeToFirstByteMs: 15,
+                averageMbps: 0.05,
+                error: null,
+              },
+            ]
+            for (let i = 0; i < resources.length; i++) {
+              sendChannel(onProgress, {
+                event: "progress",
+                resource: resources[i],
+                completed: i + 1,
+                total: resources.length,
+              })
+            }
+            const totalBytesReceived = resources.reduce(
+              (sum, r) => sum + r.bytesReceived,
+              0,
+            )
+            return {
+              url,
+              totalResources: resources.length,
+              successfulResources: resources.length,
+              failedResources: 0,
+              totalBytesReceived,
+              totalDurationMs: 565,
+              timeToFirstByteMs: 40,
+              averageMbps: 0.3,
+              resources,
             }
           }
           default:
@@ -369,6 +482,7 @@ declare global {
     __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string, sessionId?: number) => void
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
     __TAURI_MOCK_ENDED_SESSIONS__?: MockSession[]
+    __TAURI_MOCK_LAST_HTTP_SETTINGS__?: Record<string, unknown> | null
   }
 }
 

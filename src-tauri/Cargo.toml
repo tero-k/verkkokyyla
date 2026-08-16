@@ -1,9 +1,10 @@
 [package]
 name = "verkkokyyla"
-version = "0.1.0"
+version = "0.1.1"
 description = "verkkokyyla - desktop network debugging tool"
 edition = "2021"
 rust-version = "1.77.2"
+default-run = "verkkokyyla"
 
 [lib]
 name = "verkkokyyla_lib"
@@ -20,10 +21,11 @@ tokio = { version = "1", features = ["full"] }
 surge-ping = "0.9"
 socket2 = "0.6"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "http2"] }
 futures-util = "0.3"
 url = "2"
 thiserror = "2"
+scraper = "0.23"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

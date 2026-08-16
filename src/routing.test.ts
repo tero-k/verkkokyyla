@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { NAV_ITEMS, resolveRoute } from "./routing";
 
 describe("app shell", () => {
-  it("has Ping and Download speed test nav items", () => {
+  it("has Ping and Web page speed test nav items", () => {
     expect(NAV_ITEMS).toHaveLength(2);
     expect(NAV_ITEMS).toEqual([
       { route: "ping", label: "Ping", hash: "#/ping" },
       {
         route: "download-speed",
-        label: "Download speed test",
+        label: "Web page speed test",
         hash: "#/download-speed",
       },
     ]);
@@ -18,7 +18,7 @@ describe("app shell", () => {
     expect(resolveRoute("#/ping")).toBe("ping");
   });
 
-  it("resolves the Download speed hash to the download-speed route", () => {
+  it("resolves the Web page speed test hash to the download-speed route", () => {
     expect(resolveRoute("#/download-speed")).toBe("download-speed");
   });
 

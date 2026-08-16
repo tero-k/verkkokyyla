@@ -1,3 +1,26 @@
+export const HTTP_VERSIONS = ["auto", "http1.1", "http2"] as const
+export type HttpVersion = (typeof HTTP_VERSIONS)[number]
+
+export const DEFAULT_HTTP_SETTINGS = {
+  version: "auto" satisfies HttpVersion,
+  connectTimeoutSec: 10,
+  requestTimeoutSec: 60,
+  followRedirects: true,
+  maxRedirects: 10,
+  compression: true,
+  userAgent: "",
+} as const
+
+export type HttpSettings = {
+  readonly version: HttpVersion
+  readonly connectTimeoutSec: number
+  readonly requestTimeoutSec: number
+  readonly followRedirects: boolean
+  readonly maxRedirects: number
+  readonly compression: boolean
+  readonly userAgent: string
+}
+
 export const FAMILIES = ["auto", "v4", "v6"] as const
 export type Family = (typeof FAMILIES)[number]
 
@@ -104,6 +127,49 @@ export type DownloadSpeedResultDto = {
   readonly dnsResolutionMs: number | null
   readonly tlsHandshakeMs: number | null
   readonly averageMbps: number
+}
+
+export const PAGE_RESOURCE_TYPES = [
+  "document",
+  "stylesheet",
+  "script",
+  "image",
+  "font",
+  "xhr",
+  "other",
+] as const
+export type PageResourceType = (typeof PAGE_RESOURCE_TYPES)[number]
+
+export type PageResourceDto = {
+  readonly url: string
+  readonly resourceType: PageResourceType
+  readonly statusCode: number | null
+  readonly contentLength: number | null
+  readonly bytesReceived: number
+  readonly startOffsetMs: number
+  readonly durationMs: number
+  readonly timeToFirstByteMs: number | null
+  readonly averageMbps: number
+  readonly error: string | null
+}
+
+export type PageProgressEvent = {
+  readonly event: "progress"
+  readonly resource: PageResourceDto
+  readonly completed: number
+  readonly total: number
+}
+
+export type PageSpeedResultDto = {
+  readonly url: string
+  readonly totalResources: number
+  readonly successfulResources: number
+  readonly failedResources: number
+  readonly totalBytesReceived: number
+  readonly totalDurationMs: number
+  readonly timeToFirstByteMs: number | null
+  readonly averageMbps: number
+  readonly resources: readonly PageResourceDto[]
 }
 
 export type ValidationResult =

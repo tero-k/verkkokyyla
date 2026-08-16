@@ -1,6 +1,22 @@
 import { useCallback, useState } from "react"
-import { runDownloadSpeedTest } from "../lib/ipc"
-import type { DownloadProgressEvent, DownloadSpeedResultDto } from "../lib/types"
+import { runDownloadSpeedTest, runPageSpeedTest } from "../lib/ipc"
+import type {
+  DownloadProgressEvent,
+  DownloadSpeedResultDto,
+  PageProgressEvent,
+  PageSpeedResultDto,
+} from "../lib/types"
+import { useHttpSettings } from "./useHttpSettings"
+
+export type SpeedMode = "single" | "page"
+
+type SingleProgress = { readonly kind: "single"; readonly event: DownloadProgressEvent }
+type PageProgress = { readonly kind: "page"; readonly event: PageProgressEvent }
+export type SpeedProgress = SingleProgress | PageProgress
+
+type SingleResult = { readonly kind: "single"; readonly data: DownloadSpeedResultDto }
+type PageResult = { readonly kind: "page"; readonly data: PageSpeedResultDto }
+export type SpeedResult = SingleResult | PageResult
 
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -22,10 +38,12 @@ function isValidUrl(value: string): boolean {
 
 export function useDownloadSpeedTest() {
   const [url, setUrl] = useState("")
+  const [mode, setMode] = useState<SpeedMode>("single")
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState("")
-  const [progress, setProgress] = useState<DownloadProgressEvent | null>(null)
-  const [result, setResult] = useState<DownloadSpeedResultDto | null>(null)
+  const [progress, setProgress] = useState<SpeedProgress | null>(null)
+  const [result, setResult] = useState<SpeedResult | null>(null)
+  const { settings: httpSettings, update: updateHttpSettings, reset: resetHttpSettings } = useHttpSettings()
 
   const reset = useCallback(() => {
     setError("")
@@ -37,20 +55,29 @@ export function useDownloadSpeedTest() {
     reset()
     setIsRunning(true)
     try {
-      const finalResult = await runDownloadSpeedTest(url, (event) => {
-        setProgress(event)
-      })
-      setResult(finalResult)
+      if (mode === "single") {
+        const finalResult = await runDownloadSpeedTest(url, httpSettings, (event) => {
+          setProgress({ kind: "single", event })
+        })
+        setResult({ kind: "single", data: finalResult })
+      } else {
+        const finalResult = await runPageSpeedTest(url, httpSettings, (event) => {
+          setProgress({ kind: "page", event })
+        })
+        setResult({ kind: "page", data: finalResult })
+      }
     } catch (err) {
       setError(errorMessage(err))
     } finally {
       setIsRunning(false)
     }
-  }, [reset, url])
+  }, [reset, url, mode, httpSettings])
 
   return {
     url,
     setUrl,
+    mode,
+    setMode,
     isRunning,
     isValid: isValidUrl(url),
     error,
@@ -58,5 +85,8 @@ export function useDownloadSpeedTest() {
     result,
     start,
     reset,
+    httpSettings,
+    updateHttpSettings,
+    resetHttpSettings,
   }
 }

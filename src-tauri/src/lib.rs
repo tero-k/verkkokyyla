@@ -1,6 +1,8 @@
 pub mod db;
 pub mod download;
 pub mod engine;
+pub mod http_client;
+pub mod page_speed;
 pub mod session;
 pub mod stats;
 
@@ -16,9 +18,10 @@ use session::{
 #[tauri::command]
 async fn run_download_speed_test(
     url: String,
+    settings: http_client::HttpSettingsDto,
     on_progress: tauri::ipc::Channel<download::DownloadProgressEvent>,
 ) -> Result<download::DownloadSpeedResultDto, download::DownloadError> {
-    download::run_download_speed_test(&url, move |event| {
+    download::run_download_speed_test(&url, settings, move |event| {
         let _ = on_progress.send(event);
     })
     .await
@@ -94,6 +97,18 @@ async fn delete_session(
     manager.delete_session(id).await
 }
 
+#[tauri::command]
+async fn run_page_speed_test(
+    url: String,
+    settings: http_client::HttpSettingsDto,
+    on_progress: tauri::ipc::Channel<page_speed::PageProgressEvent>,
+) -> Result<page_speed::PageSpeedResultDto, download::DownloadError> {
+    page_speed::run_page_speed_test(&url, settings, move |event| {
+        let _ = on_progress.send(event);
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -113,7 +128,8 @@ pub fn run() {
             list_sessions,
             load_session,
             delete_session,
-            run_download_speed_test
+            run_download_speed_test,
+            run_page_speed_test
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

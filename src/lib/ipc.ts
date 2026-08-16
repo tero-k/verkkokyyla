@@ -3,7 +3,10 @@ import type {
   DownloadProgressEvent,
   DownloadSpeedResultDto,
   Family,
+  HttpSettings,
   LoadedSessionDto,
+  PageProgressEvent,
+  PageSpeedResultDto,
   ProbeEvent,
   SessionSummaryDto,
   SnapshotDto,
@@ -58,11 +61,26 @@ export function deleteSession(id: number): Promise<void> {
 
 export function runDownloadSpeedTest(
   url: string,
+  settings: HttpSettings,
   onProgress: (event: DownloadProgressEvent) => void,
 ): Promise<DownloadSpeedResultDto> {
   const onProgressChannel = new Channel<DownloadProgressEvent>(onProgress)
   return invoke<DownloadSpeedResultDto>("run_download_speed_test", {
     url,
+    settings,
+    onProgress: onProgressChannel,
+  })
+}
+
+export function runPageSpeedTest(
+  url: string,
+  settings: HttpSettings,
+  onProgress: (event: PageProgressEvent) => void,
+): Promise<PageSpeedResultDto> {
+  const onProgressChannel = new Channel<PageProgressEvent>(onProgress)
+  return invoke<PageSpeedResultDto>("run_page_speed_test", {
+    url,
+    settings,
     onProgress: onProgressChannel,
   })
 }

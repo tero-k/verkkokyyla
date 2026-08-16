@@ -43,8 +43,166 @@
   font-size: 0.9rem;
 }
 
-.field input:disabled {
+.field select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  background: #18181b;
+  color: #e4e4e7;
+  font-size: 0.9rem;
+}
+
+.field select:disabled {
   opacity: 0.6;
+}
+
+.failedCount {
+  color: #f87171;
+}
+
+.tableWrapper {
+  overflow-x: auto;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+}
+
+.resourceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.resourceTable th,
+.resourceTable td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #27272a;
+  text-align: left;
+}
+
+.resourceTable th {
+  background: #1c1c1f;
+  color: #a1a1aa;
+  font-weight: 600;
+}
+
+.resourceTable tr:last-child td {
+  border-bottom: none;
+}
+
+.urlCell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tableCaption {
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+  color: #a1a1aa;
+}
+
+.slowResource {
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.slowResource td {
+  color: #fde68a;
+}
+
+.slowBadge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.2);
+  color: #fde68a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.settingsPanel {
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  background: #18181b;
+}
+
+.settingsSummary {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settingsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsSummary::before {
+  content: "▶";
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 0.7rem;
+  color: #a1a1aa;
+  transition: transform 0.15s ease;
+}
+
+.settingsPanel[open] > .settingsSummary::before {
+  transform: rotate(90deg);
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-top: 1px solid #27272a;
+}
+
+.settingsGrid .field {
+  min-width: 0;
+}
+
+.checkboxField label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  color: #e4e4e7;
+}
+
+.checkboxField input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #38bdf8;
+}
+
+.fieldHint {
+  font-size: 0.75rem;
+  color: #71717a;
+}
+
+.settingsActions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.resetButton {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  background: #27272a;
+  color: #e4e4e7;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.resetButton:hover {
+  background: #3f3f46;
 }
 
 .actions {
