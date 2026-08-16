@@ -4,6 +4,7 @@ pub mod engine;
 pub mod http_client;
 pub mod page_speed;
 pub mod session;
+pub mod trace;
 pub mod stats;
 
 use std::sync::Arc;
