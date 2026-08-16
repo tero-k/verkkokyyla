@@ -1,7 +1,7 @@
 mod trace {
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
     use std::time::Duration;
 
@@ -12,6 +12,8 @@ mod trace {
     use verkkokyyla_lib::engine::trace_parse::RawHop;
     use verkkokyyla_lib::engine::TraceEngineError;
     use verkkokyyla_lib::trace::{TraceError, TraceEvent, TraceFactory, TraceManager, TraceResolver, TraceStatusEvent, TraceStream};
+
+    type OptionalHopRx = Option<mpsc::Receiver<Result<Option<RawHop>, TraceEngineError>>>;
 
     struct TempDir(PathBuf);
 
@@ -40,7 +42,7 @@ mod trace {
         RawHop { hop, address: address.map(str::to_owned), rtts: vec![Some(1.0), Some(2.0), Some(3.0)], annotation: None }
     }
 
-    async fn test_db(path: &PathBuf) -> Database { Database::connect(path).await.expect("db") }
+    async fn test_db(path: &Path) -> Database { Database::connect(path).await.expect("db") }
 
     fn event_sink() -> (Arc<dyn Fn(TraceEvent) + Send + Sync>, mpsc::UnboundedReceiver<TraceEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -52,7 +54,7 @@ mod trace {
         (Arc::new(move |event| { let _ = tx.send(event); }), rx)
     }
 
-    fn scripted_factory(rx: Arc<Mutex<Option<mpsc::Receiver<Result<Option<RawHop>, TraceEngineError>>>>>) -> TraceFactory {
+    fn scripted_factory(rx: Arc<Mutex<OptionalHopRx>>) -> TraceFactory {
         Arc::new(move |_| {
             let rx = Arc::clone(&rx);
             Box::pin(async move {
@@ -97,10 +99,8 @@ mod trace {
 
         let mut hostnames = Vec::new();
         while hostnames.len() < 2 {
-            if let Some(event) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.expect("hostname event") {
-                if let TraceEvent::Hostname { hostname: Some(name), .. } = event {
-                    hostnames.push(name);
-                }
+            if let Some(TraceEvent::Hostname { hostname: Some(name), .. }) = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.expect("hostname event") {
+                hostnames.push(name);
             }
         }
         assert!(hostnames.iter().any(|name| name == "edge.example"));
@@ -170,8 +170,8 @@ mod trace {
 
         let hostname = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
-                if let Some(event) = events.recv().await {
-                    if let TraceEvent::Hostname { hostname: Some(name), .. } = event { break name; }
+                if let Some(TraceEvent::Hostname { hostname: Some(name), .. }) = events.recv().await {
+                    break name;
                 }
             }
         }).await.expect("hostname event");

@@ -17,7 +17,6 @@ export default function PingWorkspace() {
   const [tabs, setTabs] = useState<SessionTab[]>([])
   const [pastSessions, setPastSessions] = useState<SessionSummaryDto[]>([])
   const [ready, setReady] = useState(false)
-  const isTracerouteRoute = window.location.hash === "#/traceroute"
 
   const refreshPast = useCallback(async () => {
     try {
@@ -80,7 +79,6 @@ export default function PingWorkspace() {
   const isEmpty = tabs.length === 0
 
   return (
-    isTracerouteRoute ? null : (
     <div className={styles.workspace}>
       <div className={styles.header}>
         <h1>Ping</h1>
@@ -119,6 +117,5 @@ export default function PingWorkspace() {
         </div>
       )}
     </div>
-    )
   )
 }

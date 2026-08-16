@@ -36,8 +36,9 @@ export default function App() {
         </nav>
       </aside>
       <main className={styles.content}>
+        {route === "ping" && <PingWorkspace />}
+        {route === "download-speed" && <DownloadSpeedView />}
         {route === "traceroute" && <TracerouteView />}
-        {route === "download-speed" ? <DownloadSpeedView /> : <PingWorkspace />}
       </main>
     </div>
   )

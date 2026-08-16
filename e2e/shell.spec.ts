@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-test("sidebar shows Ping and Download speed test nav items", async ({ page }) => {
+test("sidebar shows Ping, Traceroute, and Download speed test nav items", async ({ page }) => {
   await page.goto("/");
   const navItems = page.locator("nav[aria-label='Tools'] a");
-  await expect(navItems).toHaveCount(2);
-  await expect(navItems.first()).toHaveText("Ping");
-  await expect(navItems.nth(1)).toHaveText("Download speed test");
+  await expect(navItems).toHaveCount(3);
+  await expect(navItems.nth(0)).toHaveText("Ping");
+  await expect(navItems.nth(1)).toHaveText("Traceroute");
+  await expect(navItems.nth(2)).toHaveText("Web page speed test");
 });
 
 test("unknown hash renders the Ping view", async ({ page }) => {
