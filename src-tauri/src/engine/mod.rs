@@ -12,7 +12,14 @@ mod mock;
 #[cfg(unix)]
 mod osping;
 mod surge;
+#[cfg(test)]
+mod trace_os_tests;
+pub mod trace_os;
 pub mod trace_parse;
+#[cfg(unix)]
+mod trace_posix;
+#[cfg(windows)]
+mod tracert_win;
 #[cfg(windows)]
 mod winicmp;
 mod zone;
@@ -22,7 +29,12 @@ pub use dns::{resolve_target, Family, ResolveResult};
 pub use mock::MockPinger;
 #[cfg(unix)]
 pub use osping::{EngineWarning, OsPinger};
+pub use trace_os::{RawHopStream, TraceEngineError, TraceLimits, TraceOs};
 pub use surge::SurgePinger;
+#[cfg(unix)]
+pub use trace_posix::TracePosix;
+#[cfg(windows)]
+pub use tracert_win::TracertWin;
 #[cfg(windows)]
 pub use winicmp::WinIcmpPinger;
 pub use zone::{parse_ipv6_with_scope, ParseError};
