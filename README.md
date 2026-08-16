@@ -6,6 +6,8 @@ A small Tauri 2 desktop ping utility for Windows, macOS, and Linux. It pings a t
 
 Requires [Rust](https://rustup.rs/) and [Node.js](https://nodejs.org/).
 
+The app includes Ping, Download Speed, and Traceroute tabs. Traceroute uses the operating system's native traceroute command, streams hops in real time, and keeps a local history just like the other tools.
+
 ```bash
 npm install
 ```
