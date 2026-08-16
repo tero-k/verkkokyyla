@@ -12,6 +12,7 @@ mod mock;
 #[cfg(unix)]
 mod osping;
 mod surge;
+pub mod trace_parse;
 #[cfg(windows)]
 mod winicmp;
 mod zone;
@@ -56,7 +57,10 @@ pub enum EngineError {
     /// A scoped-IPv6 literal failed to parse.
     Parse(ParseError),
     /// The DNS lookup itself failed.
-    Resolve { input: String, source: std::io::Error },
+    Resolve {
+        input: String,
+        source: std::io::Error,
+    },
     /// The lookup succeeded but no answer matched the requested family.
     NoAnswer { input: String, family: Family },
     /// Engine socket/client creation failed (e.g. permission denied).
@@ -178,10 +182,7 @@ mod tests {
             ProbeResult::Rtt(Duration::from_millis(3))
         );
         assert_eq!(engine.probe(2).await, ProbeResult::Timeout);
-        assert_eq!(
-            engine.probe(3).await,
-            ProbeResult::Error("boom".to_owned())
-        );
+        assert_eq!(engine.probe(3).await, ProbeResult::Error("boom".to_owned()));
         // Script exhausted -> Timeout.
         assert_eq!(engine.probe(4).await, ProbeResult::Timeout);
     }

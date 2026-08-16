@@ -1,4 +1,4 @@
-//! SQLite persistence layer (schema v1: `sessions` + `probes`).
+//! SQLite persistence layer (schema v1-v3: `sessions` + `probes` + `traces`).
 //!
 //! Owns the database file lifecycle and all SQL. Callers pass timestamps as
 //! RFC 3339 strings (`now_rfc3339` / `system_time_to_rfc3339` are provided so
@@ -120,6 +120,49 @@ pub struct SessionSummary {
     pub loss_percent: f64,
 }
 
+/// Parameters for starting a new trace row.
+#[derive(Debug, Clone)]
+pub struct NewTrace {
+    pub target_input: String,
+    pub resolved_ip: String,
+    pub family: String,
+    pub engine: String,
+    pub max_hops: i64,
+    /// RFC 3339 trace start timestamp.
+    pub started_at: String,
+}
+
+/// Trace row joined with aggregate hop stats.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceSummary {
+    pub id: i64,
+    pub target_input: String,
+    pub resolved_ip: String,
+    pub family: String,
+    pub engine: String,
+    pub max_hops: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: String,
+    pub reached_target: bool,
+    pub hop_count: i64,
+}
+
+/// Hop row stored for a trace.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceHopRow {
+    pub trace_id: i64,
+    pub hop: i64,
+    pub address: Option<String>,
+    pub hostname: Option<String>,
+    pub rtt1_ms: Option<f64>,
+    pub rtt2_ms: Option<f64>,
+    pub rtt3_ms: Option<f64>,
+    pub annotation: Option<String>,
+    /// RFC 3339 timestamp of the hop.
+    pub at: String,
+}
+
 /// Connection pool wrapper owning all database access.
 pub struct Database {
     pool: SqlitePool,
@@ -163,6 +206,62 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(result.last_insert_rowid())
+    }
+
+    /// Inserts a trace row and returns its id.
+    pub async fn create_trace(&self, trace: &NewTrace) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO traces (target_input, resolved_ip, family, engine, max_hops, started_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&trace.target_input)
+        .bind(&trace.resolved_ip)
+        .bind(&trace.family)
+        .bind(&trace.engine)
+        .bind(trace.max_hops)
+        .bind(&trace.started_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Finalizes a trace and writes its hops in one transaction.
+    pub async fn complete_trace_with_hops(
+        &self,
+        id: i64,
+        ended_at: &str,
+        status: &str,
+        reached_target: bool,
+        hops: &[TraceHopRow],
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE traces SET ended_at = ?, status = ?, reached_target = ? WHERE id = ?")
+            .bind(ended_at)
+            .bind(status)
+            .bind(reached_target)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        for hop in hops {
+            sqlx::query(
+                "INSERT INTO trace_hops \
+                 (trace_id, hop, address, hostname, rtt1_ms, rtt2_ms, rtt3_ms, annotation, at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(hop.trace_id)
+            .bind(hop.hop)
+            .bind(&hop.address)
+            .bind(&hop.hostname)
+            .bind(hop.rtt1_ms)
+            .bind(hop.rtt2_ms)
+            .bind(hop.rtt3_ms)
+            .bind(&hop.annotation)
+            .bind(&hop.at)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Stamps `ended_at` (RFC 3339) on a session.
@@ -263,6 +362,86 @@ impl Database {
             .await?;
         Ok(())
     }
+
+    /// Updates a trace hop hostname by trace id and hop number.
+    pub async fn update_trace_hop_hostname(
+        &self,
+        trace_id: i64,
+        hop: i64,
+        hostname: Option<&str>,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE trace_hops SET hostname = ? WHERE trace_id = ? AND hop = ?")
+            .bind(hostname)
+            .bind(trace_id)
+            .bind(hop)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Lists all traces (newest first) with hop counts.
+    pub async fn list_traces(&self) -> Result<Vec<TraceSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT t.id, t.target_input, t.resolved_ip, t.family, t.engine, t.max_hops, \
+                    t.started_at, t.ended_at, t.status, t.reached_target, \
+                    COALESCE((SELECT COUNT(*) FROM trace_hops h WHERE h.trace_id = t.id), 0) AS hop_count \
+             FROM traces t ORDER BY t.id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(TraceSummary {
+                    id: row.try_get("id")?,
+                    target_input: row.try_get("target_input")?,
+                    resolved_ip: row.try_get("resolved_ip")?,
+                    family: row.try_get("family")?,
+                    engine: row.try_get("engine")?,
+                    max_hops: row.try_get("max_hops")?,
+                    started_at: row.try_get("started_at")?,
+                    ended_at: row.try_get("ended_at")?,
+                    status: row.try_get("status")?,
+                    reached_target: row.try_get("reached_target")?,
+                    hop_count: row.try_get("hop_count")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Loads all hop rows for a trace ordered by hop number.
+    pub async fn load_trace_hops(&self, trace_id: i64) -> Result<Vec<TraceHopRow>, DbError> {
+        let rows = sqlx::query(
+            "SELECT trace_id, hop, address, hostname, rtt1_ms, rtt2_ms, rtt3_ms, annotation, at \
+             FROM trace_hops WHERE trace_id = ? ORDER BY hop",
+        )
+        .bind(trace_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(TraceHopRow {
+                    trace_id: row.try_get("trace_id")?,
+                    hop: row.try_get("hop")?,
+                    address: row.try_get("address")?,
+                    hostname: row.try_get("hostname")?,
+                    rtt1_ms: row.try_get("rtt1_ms")?,
+                    rtt2_ms: row.try_get("rtt2_ms")?,
+                    rtt3_ms: row.try_get("rtt3_ms")?,
+                    annotation: row.try_get("annotation")?,
+                    at: row.try_get("at")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Deletes a trace; its hops are removed via ON DELETE CASCADE.
+    pub async fn delete_trace(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM traces WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 /// Formats a `SystemTime` as an RFC 3339 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`).
@@ -354,6 +533,36 @@ mod tests {
         }
     }
 
+    fn sample_trace() -> NewTrace {
+        NewTrace {
+            target_input: "example.com".to_string(),
+            resolved_ip: "203.0.113.10".to_string(),
+            family: "v4".to_string(),
+            engine: "traceroute".to_string(),
+            max_hops: 30,
+            started_at: now_rfc3339(),
+        }
+    }
+
+    fn trace_hop(
+        trace_id: i64,
+        hop: i64,
+        address: Option<&str>,
+        hostname: Option<&str>,
+    ) -> TraceHopRow {
+        TraceHopRow {
+            trace_id,
+            hop,
+            address: address.map(std::string::ToString::to_string),
+            hostname: hostname.map(std::string::ToString::to_string),
+            rtt1_ms: Some(12.5),
+            rtt2_ms: None,
+            rtt3_ms: Some(11.0),
+            annotation: None,
+            at: now_rfc3339(),
+        }
+    }
+
     async fn migration_count(db: &Database) -> i64 {
         let row = sqlx::query("SELECT COUNT(*) AS n FROM _sqlx_migrations")
             .fetch_one(&db.pool)
@@ -363,10 +572,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v2() {
+    async fn fresh_db_migrates_to_v3() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 2);
+        assert_eq!(migration_count(&db).await, 3);
         let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&db.pool)
             .await
@@ -375,7 +584,30 @@ mod tests {
             .iter()
             .map(|row| row.try_get::<i64, _>("version").expect("version"))
             .collect();
-        assert_eq!(versions, vec![1, 2]);
+        assert_eq!(versions, vec![1, 2, 3]);
+
+        let tables =
+            sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+                .fetch_all(&db.pool)
+                .await
+                .expect("read tables");
+        let tables: Vec<String> = tables
+            .iter()
+            .map(|row| row.try_get::<String, _>("name").expect("table name"))
+            .collect();
+        assert!(tables.contains(&"traces".to_string()));
+        assert!(tables.contains(&"trace_hops".to_string()));
+
+        let indexes =
+            sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
+                .fetch_all(&db.pool)
+                .await
+                .expect("read indexes");
+        let indexes: Vec<String> = indexes
+            .iter()
+            .map(|row| row.try_get::<String, _>("name").expect("index name"))
+            .collect();
+        assert!(indexes.contains(&"idx_trace_hops_trace".to_string()));
     }
 
     #[tokio::test]
@@ -383,10 +615,10 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 2);
+        assert_eq!(migration_count(&db).await, 3);
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 2);
+        assert_eq!(migration_count(&db).await, 3);
     }
 
     #[tokio::test]
@@ -406,10 +638,7 @@ mod tests {
             .expect("batch insert");
         let elapsed = start.elapsed();
         eprintln!("batch insert of 1000 probes took {elapsed:?}");
-        assert_eq!(
-            db.load_probes(session_id).await.expect("load").len(),
-            1000
-        );
+        assert_eq!(db.load_probes(session_id).await.expect("load").len(), 1000);
         assert!(
             elapsed.as_millis() < 500,
             "batch insert took {elapsed:?}, expected < 500 ms"
@@ -428,9 +657,7 @@ mod tests {
             .map(|seq| probe(seq, if seq % 5 == 0 { None } else { Some(12.5) }))
             .collect();
         db.insert_probes_batch(id, &probes).await.expect("insert");
-        db.finish_session(id, &now_rfc3339())
-            .await
-            .expect("finish");
+        db.finish_session(id, &now_rfc3339()).await.expect("finish");
         let summaries = db.list_sessions().await.expect("list");
         assert_eq!(summaries.len(), 1);
         let s = &summaries[0];
@@ -460,6 +687,116 @@ mod tests {
             .await
             .expect("count probes");
         assert_eq!(row.try_get::<i64, _>("n").expect("n"), 0);
+    }
+
+    #[tokio::test]
+    async fn list_traces_derives_hop_count_and_reached_target() {
+        let dir = TestDir::new("trace-list");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let trace_id = db
+            .create_trace(&sample_trace())
+            .await
+            .expect("create trace");
+        let hops = [
+            trace_hop(trace_id, 1, Some("192.0.2.1"), None),
+            trace_hop(trace_id, 2, Some("203.0.113.10"), Some("target.example")),
+        ];
+        db.complete_trace_with_hops(trace_id, &now_rfc3339(), "completed", true, &hops)
+            .await
+            .expect("complete trace");
+
+        let traces = db.list_traces().await.expect("list traces");
+        assert_eq!(traces.len(), 1);
+        let trace = &traces[0];
+        assert_eq!(trace.hop_count, 2);
+        assert!(trace.reached_target);
+        assert_eq!(trace.status, "completed");
+    }
+
+    #[tokio::test]
+    async fn delete_trace_cascades_hops() {
+        let dir = TestDir::new("trace-delete");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let trace_id = db
+            .create_trace(&sample_trace())
+            .await
+            .expect("create trace");
+        let hops = [trace_hop(trace_id, 1, Some("192.0.2.1"), None)];
+        db.complete_trace_with_hops(trace_id, &now_rfc3339(), "completed", false, &hops)
+            .await
+            .expect("complete trace");
+
+        db.delete_trace(trace_id).await.expect("delete trace");
+
+        assert!(db.list_traces().await.expect("list traces").is_empty());
+        assert!(db
+            .load_trace_hops(trace_id)
+            .await
+            .expect("load hops")
+            .is_empty());
+        let row = sqlx::query("SELECT COUNT(*) AS n FROM trace_hops WHERE trace_id = ?")
+            .bind(trace_id)
+            .fetch_one(&db.pool)
+            .await
+            .expect("count hops");
+        assert_eq!(row.try_get::<i64, _>("n").expect("n"), 0);
+    }
+
+    #[tokio::test]
+    async fn complete_trace_with_hops_rolls_back_on_bad_hop() {
+        let dir = TestDir::new("trace-rollback");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let trace_id = db
+            .create_trace(&sample_trace())
+            .await
+            .expect("create trace");
+        let hops = [
+            trace_hop(trace_id, 1, Some("192.0.2.1"), None),
+            trace_hop(trace_id + 1, 2, Some("203.0.113.10"), None),
+        ];
+
+        let result = db
+            .complete_trace_with_hops(trace_id, &now_rfc3339(), "completed", true, &hops)
+            .await;
+        assert!(result.is_err(), "bad hop should fail the transaction");
+
+        let traces = db.list_traces().await.expect("list traces");
+        assert_eq!(traces.len(), 1);
+        let trace = &traces[0];
+        assert_eq!(trace.status, "running");
+        assert!(trace.ended_at.is_none());
+        assert_eq!(trace.hop_count, 0);
+        assert!(!trace.reached_target);
+        assert!(db
+            .load_trace_hops(trace_id)
+            .await
+            .expect("load hops")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_trace_hop_hostname_sets_matching_hop_only() {
+        let dir = TestDir::new("trace-hostname");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let trace_id = db
+            .create_trace(&sample_trace())
+            .await
+            .expect("create trace");
+        let hops = [
+            trace_hop(trace_id, 1, Some("192.0.2.1"), None),
+            trace_hop(trace_id, 2, Some("198.51.100.1"), None),
+        ];
+        db.complete_trace_with_hops(trace_id, &now_rfc3339(), "completed", false, &hops)
+            .await
+            .expect("complete trace");
+
+        db.update_trace_hop_hostname(trace_id, 2, Some("router.example"))
+            .await
+            .expect("update hostname");
+
+        let loaded = db.load_trace_hops(trace_id).await.expect("load hops");
+        assert_eq!(loaded[0].hostname.as_deref(), None);
+        assert_eq!(loaded[1].hostname.as_deref(), Some("router.example"));
     }
 
     #[tokio::test]
