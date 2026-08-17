@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { deleteTrace, listTraces, loadTrace, startTrace, stopTrace } from "../lib/ipc"
 import { validateTarget } from "../lib/validate"
-import { applyHostnameEvent, applyHopEvent } from "../lib/traceHops"
+import { applyHostnameEvent, applyHopEvent, compareTraceHops } from "../lib/traceHops"
 import type {
+  ComparedHopRow,
   Family,
   LoadedTraceDto,
   TraceEvent,
@@ -11,7 +12,7 @@ import type {
   TraceSummaryDto,
 } from "../lib/types"
 
-type ViewMode = "live" | "past"
+type ViewMode = "live" | "past" | "compare"
 
 function assertNever(value: never): never {
   throw new Error(`unexpected trace status event: ${JSON.stringify(value)}`)
@@ -36,6 +37,11 @@ export function useTraceroute() {
   const [pastTraces, setPastTraces] = useState<readonly TraceSummaryDto[]>([])
   const [viewMode, setViewMode] = useState<ViewMode>("live")
   const [pastTrace, setPastTrace] = useState<LoadedTraceDto | null>(null)
+  const [isCompareSelecting, setIsCompareSelecting] = useState(false)
+  const [compareSelection, setCompareSelection] = useState<readonly number[]>([])
+  const [compareA, setCompareA] = useState<LoadedTraceDto | null>(null)
+  const [compareB, setCompareB] = useState<LoadedTraceDto | null>(null)
+  const [compareDiff, setCompareDiff] = useState<readonly ComparedHopRow[]>([])
 
   const hopsRef = useRef<TraceHopRow[]>([])
   const pendingRef = useRef<TraceEvent[]>([])
@@ -55,6 +61,58 @@ export function useTraceroute() {
       setError(errorMessage(err))
     }
   }, [])
+
+  const clearCompare = useCallback(() => {
+    setIsCompareSelecting(false)
+    setCompareSelection([])
+    setCompareA(null)
+    setCompareB(null)
+    setCompareDiff([])
+    setViewMode((current) => (current === "compare" ? "live" : current))
+  }, [])
+
+  const startCompareSelection = useCallback(() => {
+    setIsCompareSelecting(true)
+    setCompareA(null)
+    setCompareB(null)
+    setCompareDiff([])
+    setViewMode((current) => (current === "compare" ? "live" : current))
+  }, [])
+
+  const toggleCompareSelection = useCallback((id: number) => {
+    setCompareSelection((selected) => {
+      if (selected.includes(id)) {
+        return selected.filter((existing) => existing !== id)
+      }
+      if (selected.length < 2) {
+        return [...selected, id]
+      }
+      // Replace the oldest selection so the latest two are kept.
+      return [selected[1], id]
+    })
+  }, [])
+
+  const compareSelected = useCallback(async () => {
+    if (compareSelection.length !== 2) return
+    setError("")
+    setStatus("")
+    try {
+      const [a, b] = await Promise.all([
+        loadTrace(compareSelection[0]),
+        loadTrace(compareSelection[1]),
+      ])
+      setIsCompareSelecting(false)
+      setCompareA(a)
+      setCompareB(b)
+      setCompareDiff(compareTraceHops(a.hops, b.hops))
+      setPastTrace(null)
+      hopsRef.current = []
+      setHops([])
+      setViewMode("compare")
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }, [compareSelection])
 
   useEffect(() => {
     void refreshTraces()
@@ -140,6 +198,7 @@ export function useTraceroute() {
       flushingRef.current = false
       setHops([])
       setPastTrace(null)
+      clearCompare()
       setViewMode("live")
       setIsRunning(true)
     } catch (err) {
@@ -163,6 +222,7 @@ export function useTraceroute() {
       try {
         const loaded = await loadTrace(id)
         setPastTrace(loaded)
+        clearCompare()
         setViewMode("past")
         hopsRef.current = [...loaded.hops]
         setHops(loaded.hops)
@@ -187,12 +247,23 @@ export function useTraceroute() {
           hopsRef.current = []
           setHops([])
         }
+        setCompareSelection((selected) =>
+          selected.filter((existing) => existing !== id),
+        )
+        if (compareA?.trace.id === id || compareB?.trace.id === id) {
+          setCompareA(null)
+          setCompareB(null)
+          setCompareDiff([])
+          setViewMode((current) =>
+            current === "compare" ? "live" : current,
+          )
+        }
         void refreshTraces()
       } catch (err) {
         setError(errorMessage(err))
       }
     },
-    [isRunning, pastTrace, refreshTraces],
+    [isRunning, pastTrace, compareA, compareB, refreshTraces],
   )
 
   return {
@@ -207,6 +278,15 @@ export function useTraceroute() {
     pastTraces,
     viewMode,
     pastTrace,
+    isCompareSelecting,
+    compareSelection,
+    compareA,
+    compareB,
+    compareDiff,
+    startCompareSelection,
+    toggleCompareSelection,
+    compareSelected,
+    clearCompare,
     start,
     stop,
     openTrace,
