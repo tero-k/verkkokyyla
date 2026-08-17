@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyHostnameEvent, applyHopEvent } from "./traceHops"
+import { applyHostnameEvent, applyHopEvent, compareTraceHops } from "./traceHops"
 import type { TraceHopRow } from "./types"
 
 function makeRow(hop: number, address: string | null, hostname: string | null): TraceHopRow {
@@ -128,5 +128,36 @@ describe("applyHostnameEvent", () => {
     })
 
     expect(result[1].hostname).toBe("late.example.net")
+  })
+})
+
+describe("compareTraceHops", () => {
+  it("marks identical hops as same", () => {
+    const a = [makeRow(1, "10.0.0.1", "a.example")]
+    const b = [makeRow(1, "10.0.0.1", "a.example")]
+    expect(compareTraceHops(a, b)).toEqual([
+      { hop: 1, a: a[0], b: b[0], status: "same" },
+    ])
+  })
+
+  it("marks hops with different RTTs as changed", () => {
+    const a = [makeRow(1, "10.0.0.1", null)]
+    const b = [{ ...a[0], rtt1Ms: 999 }]
+    expect(compareTraceHops(a, b)[0].status).toBe("changed")
+  })
+
+  it("marks a hop missing from one side as a-only or b-only", () => {
+    const a = [makeRow(1, "10.0.0.1", null)]
+    const b = [makeRow(2, "10.0.0.2", null)]
+    const result = compareTraceHops(a, b)
+    expect(result).toHaveLength(2)
+    expect(result.find((row) => row.hop === 1)?.status).toBe("a-only")
+    expect(result.find((row) => row.hop === 2)?.status).toBe("b-only")
+  })
+
+  it("sorts the result by hop number even when inputs are unsorted", () => {
+    const a = [makeRow(3, "10.0.0.3", null), makeRow(1, "10.0.0.1", null)]
+    const b = [makeRow(2, "10.0.0.2", null), makeRow(1, "10.0.0.1", null)]
+    expect(compareTraceHops(a, b).map((row) => row.hop)).toEqual([1, 2, 3])
   })
 })

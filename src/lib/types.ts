@@ -180,6 +180,13 @@ export type TraceHopDto = {
 
 export type TraceHopRow = TraceHopDto
 
+export type ComparedHopRow = {
+  readonly hop: number
+  readonly a: TraceHopRow | null
+  readonly b: TraceHopRow | null
+  readonly status: "same" | "changed" | "a-only" | "b-only"
+}
+
 export type LoadedTraceDto = {
   readonly trace: TraceSummaryDto
   readonly hops: readonly TraceHopDto[]
