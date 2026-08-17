@@ -33,19 +33,16 @@ function formatStatus(status: ComparedHopRow["status"]): string {
   }
 }
 
-function SideValue({ value }: { readonly value: TraceHopRow | null }) {
-  if (value === null) return <span className={styles.missing}>-</span>
-  return (
-    <>
-      <div className={styles.address}>{value.address ?? "-"}</div>
-      <div className={styles.hostname}>{value.hostname ?? "-"}</div>
-      <div className={styles.rtts}>
-        {formatRtt(value.rtt1Ms)} / {formatRtt(value.rtt2Ms)} /{" "}
-        {formatRtt(value.rtt3Ms)}
-      </div>
-      <div className={styles.annotation}>{value.annotation ?? "-"}</div>
-    </>
+function formatInline(hop: TraceHopRow | null): string {
+  if (hop === null) return "-"
+  const parts: string[] = []
+  if (hop.address) parts.push(hop.address)
+  if (hop.hostname) parts.push(`(${hop.hostname})`)
+  parts.push(
+    [hop.rtt1Ms, hop.rtt2Ms, hop.rtt3Ms].map(formatRtt).join(" / "),
   )
+  if (hop.annotation) parts.push(hop.annotation)
+  return parts.join(" · ")
 }
 
 export function TracerouteComparison({ a, b, diff, onClear }: TracerouteComparisonProps) {
@@ -69,10 +66,10 @@ export function TracerouteComparison({ a, b, diff, onClear }: TracerouteComparis
           <table className={styles.table} data-testid="trace-comparison-table">
             <thead>
               <tr>
-                <th>Hop</th>
-                <th>A</th>
-                <th>B</th>
-                <th>Status</th>
+                <th className={styles.hopCol}>Hop</th>
+                <th className={styles.sideCol}>A</th>
+                <th className={styles.sideCol}>B</th>
+                <th className={styles.statusCol}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -82,14 +79,14 @@ export function TracerouteComparison({ a, b, diff, onClear }: TracerouteComparis
                   className={styles[row.status]}
                   data-testid="trace-comparison-row"
                 >
-                  <td>{row.hop}</td>
-                  <td className={styles.sideA}>
-                    <SideValue value={row.a} />
+                  <td className={styles.hopCol}>{row.hop}</td>
+                  <td className={styles.sideCol}>
+                    <span className={styles.inline}>{formatInline(row.a)}</span>
                   </td>
-                  <td className={styles.sideB}>
-                    <SideValue value={row.b} />
+                  <td className={styles.sideCol}>
+                    <span className={styles.inline}>{formatInline(row.b)}</span>
                   </td>
-                  <td className={styles.status}>{formatStatus(row.status)}</td>
+                  <td className={styles.statusCol}>{formatStatus(row.status)}</td>
                 </tr>
               ))}
             </tbody>

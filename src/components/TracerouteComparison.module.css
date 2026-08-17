@@ -46,6 +46,7 @@
 
 .table {
   width: 100%;
+  min-width: 700px;
   border-collapse: collapse;
   font-size: 0.85rem;
   color: #e4e4e7;
@@ -53,10 +54,10 @@
 
 .table th,
 .table td {
-  padding: 0.5rem 0.6rem;
+  padding: 0.45rem 0.6rem;
   text-align: left;
   border-bottom: 1px solid #27272a;
-  vertical-align: top;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
@@ -70,39 +71,25 @@
   border-bottom: none;
 }
 
-.sideA,
-.sideB {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+.hopCol {
+  width: 3rem;
+  text-align: center;
 }
 
-.address {
-  color: #e4e4e7;
-  font-weight: 500;
+.statusCol {
+  width: 5.5rem;
+  text-align: center;
 }
 
-.hostname {
-  color: #a1a1aa;
-  font-size: 0.8rem;
+.sideCol {
+  width: 50%;
 }
 
-.rtts {
-  color: #d4d4d8;
-  font-size: 0.8rem;
+.inline {
   font-variant-numeric: tabular-nums;
 }
 
-.annotation {
-  color: #facc15;
-  font-size: 0.8rem;
-}
-
-.missing {
-  color: #71717a;
-}
-
-.status {
+.statusCol {
   font-weight: 600;
 }
 
@@ -110,7 +97,7 @@
   background: rgba(34, 197, 94, 0.08);
 }
 
-.same .status {
+.same .statusCol {
   color: #4ade80;
 }
 
@@ -118,7 +105,7 @@
   background: rgba(250, 204, 21, 0.08);
 }
 
-.changed .status {
+.changed .statusCol {
   color: #facc15;
 }
 
@@ -127,7 +114,7 @@
   background: rgba(248, 113, 113, 0.08);
 }
 
-.a-only .status,
-.b-only .status {
+.a-only .statusCol,
+.b-only .statusCol {
   color: #f87171;
 }
