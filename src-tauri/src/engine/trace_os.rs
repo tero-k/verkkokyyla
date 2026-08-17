@@ -104,6 +104,13 @@ impl TraceOs {
         command.stdout(std::process::Stdio::piped());
         command.kill_on_drop(true);
 
+        #[cfg(windows)]
+        {
+            // CREATE_NO_WINDOW — prevents a visible command-prompt window when
+            // the Tauri app spawns tracert.exe.
+            command.creation_flags(0x08000000);
+        }
+
         let mut child = command.spawn().map_err(|err| {
             TraceEngineError::Spawn(format!("failed to spawn {}: {err}", self.program.display()))
         })?;
