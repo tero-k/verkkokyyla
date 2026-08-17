@@ -63,11 +63,11 @@ test("history can compare two saved traces", async ({ page }) => {
   await installMockTauri(page)
   await page.goto("/#/traceroute")
 
-  await page.fill('[data-testid="trace-target"]', "example.com")
+  await page.fill('[data-testid="trace-target"]', "compare-a.test")
   await page.click('[data-testid="trace-start"]')
   await expect(page.locator('[data-testid="trace-status"]')).toContainText(/completed/i)
 
-  await page.fill('[data-testid="trace-target"]', "other.test")
+  await page.fill('[data-testid="trace-target"]', "compare-b.test")
   await page.click('[data-testid="trace-start"]')
   await expect(page.locator('[data-testid="trace-status"]')).toContainText(/completed/i)
 
@@ -82,10 +82,10 @@ test("history can compare two saved traces", async ({ page }) => {
   await page.click('[data-testid="trace-compare-button"]')
   await expect(page.locator('[data-testid="trace-comparison-view"]')).toBeVisible()
   const rows = page.locator('[data-testid="trace-comparison-row"]')
-  await expect(rows).toHaveCount(3)
+  await expect(rows).toHaveCount(1)
   await expect(rows.nth(0)).toContainText("Changed")
-  await expect(rows.nth(1)).toContainText("Only B")
-  await expect(rows.nth(2)).toContainText("Only B")
+  await expect(rows.nth(0)).toContainText("192.0.2.1")
+  await expect(rows.nth(0)).toContainText("198.51.100.1")
 
   await page.click('[data-testid="trace-comparison-clear"]')
   await expect(page.locator('[data-testid="trace-comparison-view"]')).toHaveCount(0)

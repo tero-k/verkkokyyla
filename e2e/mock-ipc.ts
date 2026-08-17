@@ -287,6 +287,9 @@ export async function installMockTauri(page: Page): Promise<void> {
         if (target === "::1") {
           return { resolvedIp: "::1", engine, fallback }
         }
+        if (target === "compare-b.test") {
+          return { resolvedIp: "198.51.100.1", engine, fallback }
+        }
         return { resolvedIp: "192.0.2.1", engine, fallback }
       }
 
