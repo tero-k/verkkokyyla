@@ -20,15 +20,8 @@ function makeHopRow(event: HopEvent): TraceHopRow {
   }
 }
 
-function hopEqual(left: TraceHopRow, right: TraceHopRow): boolean {
-  return (
-    left.address === right.address &&
-    left.hostname === right.hostname &&
-    left.rtt1Ms === right.rtt1Ms &&
-    left.rtt2Ms === right.rtt2Ms &&
-    left.rtt3Ms === right.rtt3Ms &&
-    left.annotation === right.annotation
-  )
+function addressEqual(left: TraceHopRow, right: TraceHopRow): boolean {
+  return left.address === right.address
 }
 
 export function compareTraceHops(
@@ -51,7 +44,7 @@ export function compareTraceHops(
 
     let status: ComparedHopRow["status"]
     if (aRow && bRow) {
-      status = hopEqual(aRow, bRow) ? "same" : "changed"
+      status = addressEqual(aRow, bRow) ? "same" : "changed"
     } else if (aRow) {
       status = "a-only"
     } else {

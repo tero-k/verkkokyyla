@@ -140,9 +140,15 @@ describe("compareTraceHops", () => {
     ])
   })
 
-  it("marks hops with different RTTs as changed", () => {
+  it("ignores hostname and RTT differences and only compares address", () => {
     const a = [makeRow(1, "10.0.0.1", null)]
-    const b = [{ ...a[0], rtt1Ms: 999 }]
+    const b = [{ ...a[0], hostname: "other", rtt1Ms: 999 }]
+    expect(compareTraceHops(a, b)[0].status).toBe("same")
+  })
+
+  it("marks hops with different IP addresses as changed", () => {
+    const a = [makeRow(1, "10.0.0.1", null)]
+    const b = [makeRow(1, "10.0.0.2", null)]
     expect(compareTraceHops(a, b)[0].status).toBe("changed")
   })
 
