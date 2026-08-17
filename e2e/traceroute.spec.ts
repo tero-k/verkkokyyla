@@ -58,3 +58,36 @@ test("history can reopen and delete a saved trace", async ({ page }) => {
   await page.click('[data-testid="trace-delete"]')
   await expect(page.locator('[data-testid="trace-session-item"]')).toHaveCount(0)
 })
+
+test("history can compare two saved traces", async ({ page }) => {
+  await installMockTauri(page)
+  await page.goto("/#/traceroute")
+
+  await page.fill('[data-testid="trace-target"]', "example.com")
+  await page.click('[data-testid="trace-start"]')
+  await expect(page.locator('[data-testid="trace-status"]')).toContainText(/completed/i)
+
+  await page.fill('[data-testid="trace-target"]', "other.test")
+  await page.click('[data-testid="trace-start"]')
+  await expect(page.locator('[data-testid="trace-status"]')).toContainText(/completed/i)
+
+  await expect(page.locator('[data-testid="trace-session-item"]')).toHaveCount(2)
+
+  await page.click('[data-testid="trace-compare-toggle"]')
+  const checkboxes = page.locator('[data-testid="trace-compare-select"]')
+  await expect(checkboxes).toHaveCount(2)
+  await checkboxes.nth(0).check()
+  await checkboxes.nth(1).check()
+
+  await page.click('[data-testid="trace-compare-button"]')
+  await expect(page.locator('[data-testid="trace-comparison-view"]')).toBeVisible()
+  const rows = page.locator('[data-testid="trace-comparison-row"]')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(0)).toContainText("Changed")
+  await expect(rows.nth(1)).toContainText("Only B")
+  await expect(rows.nth(2)).toContainText("Only B")
+
+  await page.click('[data-testid="trace-comparison-clear"]')
+  await expect(page.locator('[data-testid="trace-comparison-view"]')).toHaveCount(0)
+  await expect(page.locator('[data-testid="trace-compare-select"]')).toHaveCount(0)
+})
