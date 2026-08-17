@@ -86,3 +86,39 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.compareHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.compareHeader button {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  background: #27272a;
+  color: #e4e4e7;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.compareHeader button:hover:not(:disabled) {
+  background: #3f3f46;
+}
+
+.compareHeader button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.compareHint {
+  color: #a1a1aa;
+  font-size: 0.8rem;
+}
+
+.summary input[type="checkbox"] {
+  margin-right: 0.4rem;
+}

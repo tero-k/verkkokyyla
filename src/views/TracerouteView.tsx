@@ -1,6 +1,7 @@
 import { useTraceroute } from "../hooks/useTraceroute"
 import { FAMILIES, type Family } from "../lib/types"
 import { TraceSessionPanel } from "../components/TraceSessionPanel"
+import { TracerouteComparison } from "../components/TracerouteComparison"
 import { TracerouteTable } from "../components/TracerouteTable"
 
 import styles from "./TracerouteView.module.css"
@@ -24,7 +25,17 @@ export default function TracerouteView() {
     status,
     hops,
     pastTraces,
+    viewMode,
     pastTrace,
+    isCompareSelecting,
+    compareSelection,
+    compareA,
+    compareB,
+    compareDiff,
+    startCompareSelection,
+    toggleCompareSelection,
+    compareSelected,
+    clearCompare,
     start,
     stop,
     openTrace,
@@ -32,7 +43,11 @@ export default function TracerouteView() {
   } = useTraceroute()
 
   const canStart = target.trim().length > 0 && !isRunning
-  const progressHop = isRunning ? hops.length : pastTrace?.trace.hopCount ?? hops.length
+  const compareMode = viewMode === "compare" || isCompareSelecting
+  const progressHop =
+    isRunning || compareMode
+      ? hops.length
+      : pastTrace?.trace.hopCount ?? hops.length
 
   return (
     <section className={styles.view} data-testid="traceroute-view">
@@ -106,22 +121,39 @@ export default function TracerouteView() {
         </div>
       )}
 
-      {(isRunning || hops.length > 0 || pastTrace !== null) && (
+      {(isRunning || hops.length > 0 || pastTrace !== null || compareMode) && (
         <div className={styles.progress} data-testid="trace-progress">
           Hop {progressHop}/{MAX_HOPS}
         </div>
       )}
 
       <div className={styles.content}>
-        <div className={styles.livePane}>
-          <TracerouteTable rows={hops} />
-        </div>
+        {compareMode && compareA && compareB ? (
+          <div className={styles.comparePane}>
+            <TracerouteComparison
+              a={compareA}
+              b={compareB}
+              diff={compareDiff}
+              onClear={clearCompare}
+            />
+          </div>
+        ) : (
+          <div className={styles.livePane}>
+            <TracerouteTable rows={hops} />
+          </div>
+        )}
         <div className={styles.historyPane}>
           <TraceSessionPanel
             sessions={pastTraces}
             disabled={isRunning}
             onOpen={openTrace}
             onDelete={deleteTrace}
+            compareMode={isCompareSelecting}
+            compareSelection={compareSelection}
+            onToggleCompare={toggleCompareSelection}
+            onStartCompareSelection={startCompareSelection}
+            onCompareSelected={compareSelected}
+            onCancelCompare={clearCompare}
           />
         </div>
       </div>

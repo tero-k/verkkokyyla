@@ -107,7 +107,8 @@
 }
 
 .livePane,
-.historyPane {
+.historyPane,
+.comparePane {
   min-width: 0;
 }
 
