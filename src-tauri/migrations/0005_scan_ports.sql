@@ -1,0 +1,1 @@
+ALTER TABLE scan_hosts ADD COLUMN open_ports TEXT NOT NULL DEFAULT '[]';

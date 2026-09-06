@@ -40,11 +40,20 @@ pub struct OsPinger {
 
 impl OsPinger {
     /// Discover the ping binary in [`DISCOVERY_ORDER`] and bind the target.
-    pub fn new(target: IpAddr, payload_size: usize, dont_fragment: bool) -> Result<Self, EngineError> {
+    pub fn new(
+        target: IpAddr,
+        payload_size: usize,
+        dont_fragment: bool,
+    ) -> Result<Self, EngineError> {
         for candidate in DISCOVERY_ORDER {
             let path = PathBuf::from(candidate);
             if path.is_file() {
-                return Ok(Self::with_program(path, target, payload_size, dont_fragment));
+                return Ok(Self::with_program(
+                    path,
+                    target,
+                    payload_size,
+                    dont_fragment,
+                ));
             }
         }
         Err(EngineError::Unavailable(format!(
@@ -54,7 +63,12 @@ impl OsPinger {
     }
 
     /// Bind an explicit binary path — the test seam for fake ping fixtures.
-    pub fn with_program(program: PathBuf, target: IpAddr, payload_size: usize, dont_fragment: bool) -> Self {
+    pub fn with_program(
+        program: PathBuf,
+        target: IpAddr,
+        payload_size: usize,
+        dont_fragment: bool,
+    ) -> Self {
         Self {
             program,
             target,
@@ -73,7 +87,11 @@ impl OsPinger {
     pub async fn probe(&mut self, seq: u64) -> ProbeResult {
         let watchdog = Duration::from_millis(PING_TIMEOUT_MS + WATCHDOG_EXTRA_MS);
         let spawned = Command::new(&self.program)
-            .args(ping_argv(self.target, self.payload_size, self.dont_fragment))
+            .args(ping_argv(
+                self.target,
+                self.payload_size,
+                self.dont_fragment,
+            ))
             .env("LC_ALL", "C")
             .kill_on_drop(true)
             .output();

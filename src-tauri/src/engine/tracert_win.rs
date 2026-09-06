@@ -17,7 +17,18 @@ impl TracertWin {
             &super::trace_os::absolute_fallbacks(&["C:\\Windows\\System32\\tracert.exe"]),
         )?;
         Ok(Self {
-            inner: TraceOs::with_program(program, vec!["/d".to_owned(), "/h".to_owned(), "30".to_owned(), "/w".to_owned(), "1000".to_owned()], target, parse_tracert_line),
+            inner: TraceOs::with_program(
+                program,
+                vec![
+                    "/d".to_owned(),
+                    "/h".to_owned(),
+                    "30".to_owned(),
+                    "/w".to_owned(),
+                    "1000".to_owned(),
+                ],
+                target,
+                parse_tracert_line,
+            ),
         })
     }
 

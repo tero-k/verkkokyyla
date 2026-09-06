@@ -1,5 +1,8 @@
+import { BenchmarkResultPanel } from "../components/BenchmarkResultPanel"
+import { DownloadSpeedSessionPanel } from "../components/DownloadSpeedSessionPanel"
 import { useDownloadSpeedTest } from "../hooks/useDownloadSpeedTest"
-import { DEFAULT_HTTP_SETTINGS, type HttpSettings, type HttpVersion } from "../lib/types"
+import { useConfirmDialog } from "../hooks/useConfirmDialog"
+import { DEFAULT_HTTP_SETTINGS, HTTP_VERSIONS, type HttpSettings, type HttpVersion } from "../lib/types"
 
 import styles from "./DownloadSpeedView.module.css"
 
@@ -7,10 +10,143 @@ const VERSION_LABELS: Record<HttpVersion, string> = {
   auto: "Auto",
   "http1.1": "HTTP/1.1",
   http2: "HTTP/2 (prior knowledge)",
+  http3: "HTTP/3 (not supported)",
 }
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.min(Math.max(Math.round(value), min), max)
+}
+
+type BenchmarkConfig = ReturnType<typeof useDownloadSpeedTest>["benchmarkConfig"]
+
+type BenchmarkConfigUpdate = ReturnType<typeof useDownloadSpeedTest>["updateBenchmarkConfig"]
+
+function BenchmarkControls({
+  config,
+  onChange,
+  onReset,
+  disabled,
+}: {
+  readonly config: BenchmarkConfig
+  readonly onChange: BenchmarkConfigUpdate
+  readonly onReset: () => void
+  readonly disabled: boolean
+}) {
+  const toggleProtocol = (version: HttpVersion) => {
+    const current = config.protocols
+    const next = current.includes(version)
+      ? current.filter((v) => v !== version)
+      : [...current, version]
+    onChange({ protocols: next.length > 0 ? next : ["auto"] })
+  }
+
+  return (
+    <div className={styles.benchmarkControls} data-testid="benchmark-controls">
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Protocols</span>
+        <div className={styles.checkboxGroup}>
+          {HTTP_VERSIONS.map((version) => (
+            <label key={version} className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={config.protocols.includes(version)}
+                onChange={() => toggleProtocol(version)}
+                disabled={disabled}
+              />
+              {VERSION_LABELS[version]}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <label htmlFor="benchmark-runs">Runs</label>
+        <input
+          id="benchmark-runs"
+          type="number"
+          min={1}
+          max={100}
+          value={config.runs}
+          onChange={(e) =>
+            onChange({ runs: clampInt(Number(e.target.value), 1, 100) })
+          }
+          disabled={disabled}
+          data-testid="benchmark-runs"
+        />
+      </div>
+
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>Connection mode</span>
+        <div className={styles.radioGroup}>
+          {[
+            { value: "cold", label: "Cold" },
+            { value: "warm", label: "Warm" },
+          ].map((option) => (
+            <label key={option.value} className={styles.radioLabel}>
+              <input
+                type="radio"
+                name="benchmark-connection-mode"
+                value={option.value}
+                checked={config.connectionMode === option.value}
+                onChange={() =>
+                  onChange({ connectionMode: option.value as import("../lib/types").ConnectionMode })
+                }
+                disabled={disabled}
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <label htmlFor="benchmark-concurrency">Concurrency</label>
+        <select
+          id="benchmark-concurrency"
+          value={config.concurrency ?? ""}
+          onChange={(e) => {
+            const value = e.target.value
+            onChange({ concurrency: value === "" ? null : Number(value) })
+          }}
+          disabled={disabled}
+          data-testid="benchmark-concurrency"
+        >
+          <option value="">Off</option>
+          {[1, 5, 10, 25, 50].map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className={`${styles.field} ${styles.checkboxField}`}>
+        <label htmlFor="benchmark-probe">
+          <input
+            id="benchmark-probe"
+            type="checkbox"
+            checked={config.probe}
+            onChange={(e) => onChange({ probe: e.target.checked })}
+            disabled={disabled}
+            data-testid="benchmark-probe"
+          />
+          Probe connection (DNS/TCP/TLS)
+        </label>
+      </div>
+
+      <div className={styles.settingsActions}>
+        <button
+          type="button"
+          onClick={onReset}
+          className={styles.resetButton}
+          disabled={disabled}
+          data-testid="benchmark-config-reset"
+        >
+          Reset benchmark defaults
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function HttpSettingsPanel({
@@ -125,6 +261,39 @@ function HttpSettingsPanel({
             />
             Enable gzip/brotli/deflate compression
           </label>
+        </div>
+
+        <div className={styles.field}>
+          <label htmlFor="http-ip-family">IP family</label>
+          <select
+            id="http-ip-family"
+            value={settings.ipFamily}
+            onChange={(e) =>
+              onChange({ ipFamily: e.target.value as import("../lib/types").IpFamily })
+            }
+            data-testid="http-ip-family"
+          >
+            <option value="auto">Auto</option>
+            <option value="ipv4">IPv4</option>
+            <option value="ipv6">IPv6</option>
+          </select>
+        </div>
+
+        <div className={styles.field}>
+          <label htmlFor="http-read-timeout">Read timeout (seconds, 0 = disabled)</label>
+          <input
+            id="http-read-timeout"
+            type="number"
+            min={0}
+            max={300}
+            value={settings.readTimeoutSec}
+            onChange={(e) =>
+              onChange({
+                readTimeoutSec: clampInt(Number(e.target.value), 0, 300),
+              })
+            }
+            data-testid="http-read-timeout"
+          />
         </div>
 
         <div className={styles.field}>
@@ -321,6 +490,9 @@ export default function DownloadSpeedView() {
     setUrl,
     mode,
     setMode,
+    benchmarkConfig,
+    updateBenchmarkConfig,
+    resetBenchmarkConfig,
     isRunning,
     isValid,
     error,
@@ -331,7 +503,18 @@ export default function DownloadSpeedView() {
     httpSettings,
     updateHttpSettings,
     resetHttpSettings,
+    sessions,
+    sessionsLoading,
+    loadSession,
+    deleteSession,
   } = useDownloadSpeedTest()
+
+  const { confirm, dialog: confirmDialog } = useConfirmDialog()
+  const handleDeleteSession = async (id: number) => {
+    if (await confirm("Delete this speed test?")) {
+      await deleteSession(id)
+    }
+  }
 
   const progressPercent =
     progress?.kind === "single" &&
@@ -365,93 +548,121 @@ export default function DownloadSpeedView() {
     ) : null
 
   return (
-    <div className={styles.view} data-testid="download-speed-view">
-      <h1>Web page speed test</h1>
+    <div className={styles.content}>
+      <div className={styles.livePane}>
+        <div className={styles.view} data-testid="download-speed-view">
+          <h1>Web Benchmark</h1>
 
-      <div className={styles.controls}>
-        <div className={styles.field}>
-          <label htmlFor="download-url">URL</label>
-          <input
-            id="download-url"
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com"
-            disabled={isRunning}
-            data-testid="download-url"
-          />
-          {url.trim().length > 0 && !isValid && (
-            <span className={styles.inlineError}>
-              URL must start with http:// or https://
-            </span>
+          <div className={styles.controls}>
+            <div className={styles.field}>
+              <label htmlFor="download-url">URL</label>
+              <input
+                id="download-url"
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com"
+                disabled={isRunning}
+                data-testid="download-url"
+              />
+              {url.trim().length > 0 && !isValid && (
+                <span className={styles.inlineError}>
+                  URL must start with http:// or https://
+                </span>
+              )}
+            </div>
+
+            <div className={styles.field}>
+              <label htmlFor="download-mode">Mode</label>
+              <select
+                id="download-mode"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as import("../hooks/useDownloadSpeedTest").SpeedMode)}
+                disabled={isRunning}
+                data-testid="download-mode"
+              >
+                <option value="single">Single file</option>
+                <option value="page">Full page</option>
+                <option value="benchmark">Benchmark (detailed)</option>
+              </select>
+            </div>
+
+            <div className={styles.actions}>
+              <button
+                type="button"
+                onClick={() => void start()}
+                disabled={isRunning || !isValid}
+                data-testid="download-start"
+              >
+                Start
+              </button>
+              {result !== null && (
+                <button type="button" onClick={reset} data-testid="download-reset">
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+
+          {mode === "benchmark" && (
+            <BenchmarkControls
+              config={benchmarkConfig}
+              onChange={updateBenchmarkConfig}
+              onReset={resetBenchmarkConfig}
+              disabled={isRunning}
+            />
           )}
-        </div>
 
-        <div className={styles.field}>
-          <label htmlFor="download-mode">Mode</label>
-          <select
-            id="download-mode"
-            value={mode}
-            onChange={(e) => setMode(e.target.value as import("../hooks/useDownloadSpeedTest").SpeedMode)}
-            disabled={isRunning}
-            data-testid="download-mode"
-          >
-            <option value="single">Single file</option>
-            <option value="page">Full page</option>
-          </select>
-        </div>
+          <HttpSettingsPanel
+            settings={httpSettings}
+            onChange={updateHttpSettings}
+            onReset={resetHttpSettings}
+          />
 
-        <div className={styles.actions}>
-          <button
-            type="button"
-            onClick={() => void start()}
-            disabled={isRunning || !isValid}
-            data-testid="download-start"
-          >
-            Start
-          </button>
-          {result !== null && (
-            <button type="button" onClick={reset} data-testid="download-reset">
-              Reset
-            </button>
+          {error.length > 0 && (
+            <div className={`${styles.banner} ${styles.error}`} data-testid="download-error">
+              {error}
+            </div>
+          )}
+
+          {isRunning && progress !== null && (
+            <div className={styles.progress}>
+              <div className={styles.progressBarTrack}>
+                <div
+                  className={styles.progressBarFill}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <div className={styles.progressText}>{progressText}</div>
+            </div>
+          )}
+
+          {result?.kind === "single" && (
+            <div data-testid="download-results">
+              <SingleResult result={result.data} />
+            </div>
+          )}
+          {result?.kind === "page" && (
+            <div data-testid="download-results">
+              <PageResult result={result.data} />
+            </div>
+          )}
+          {result?.kind === "benchmark" && (
+            <div data-testid="download-results">
+              <BenchmarkResultPanel result={result.data} />
+            </div>
           )}
         </div>
       </div>
-
-      <HttpSettingsPanel
-        settings={httpSettings}
-        onChange={updateHttpSettings}
-        onReset={resetHttpSettings}
-      />
-
-      {error.length > 0 && (
-        <div className={`${styles.banner} ${styles.error}`} data-testid="download-error">
-          {error}
-        </div>
-      )}
-
-      {isRunning && progress !== null && (
-        <div className={styles.progress}>
-          <div className={styles.progressBarTrack}>
-            <div
-              className={styles.progressBarFill}
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-          <div className={styles.progressText}>{progressText}</div>
-        </div>
-      )}
-
-      {result?.kind === "single" && (
-        <div data-testid="download-results">
-          <SingleResult result={result.data} />
-        </div>
-      )}
-      {result?.kind === "page" && (
-        <div data-testid="download-results">
-          <PageResult result={result.data} />
-        </div>
-      )}
+      <div className={styles.historyPane}>
+        <DownloadSpeedSessionPanel
+          sessions={sessions}
+          disabled={isRunning || sessionsLoading}
+          onOpen={loadSession}
+          onDelete={handleDeleteSession}
+        />
+      </div>
+      {confirmDialog}
     </div>
   )
 }

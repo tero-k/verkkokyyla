@@ -12,13 +12,13 @@
 
 .chart :global(.u-title) {
   font-size: 0.85rem;
-  color: #e4e4e7;
+  color: var(--text);
 }
 
 .chart :global(.u-axis) {
-  color: #a1a1aa;
+  color: var(--text-muted);
 }
 
 .chart :global(.u-label) {
-  color: #a1a1aa;
+  color: var(--text-muted);
 }

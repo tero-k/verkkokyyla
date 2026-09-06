@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "verkkokyyla",
+        "title": "Verkkokyylä",
         "width": 1024,
         "height": 768
       }
@@ -24,6 +24,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico"]
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "resources": ["resources/manuf", "resources/manuf.SHA256"]
   }
 }

@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState } from "react"
 import {
   DEFAULT_HTTP_SETTINGS,
+  HTTP_VERSIONS,
+  IP_FAMILIES,
   type HttpSettings,
   type HttpVersion,
+  type IpFamily,
 } from "../lib/types"
 
-export const HTTP_SETTINGS_STORAGE_KEY = "verkkokyyla-http-settings-v1"
+export const HTTP_SETTINGS_STORAGE_KEY = "verkkokyyla-http-settings-v2"
 
 function isHttpVersion(value: unknown): value is HttpVersion {
-  return (
-    typeof value === "string" &&
-    ["auto", "http1.1", "http2"].includes(value)
-  )
+  return typeof value === "string" && HTTP_VERSIONS.includes(value as HttpVersion)
+}
+
+function isIpFamily(value: unknown): value is IpFamily {
+  return typeof value === "string" && IP_FAMILIES.includes(value as IpFamily)
 }
 
 function isNonNegativeNumber(value: unknown): value is number {
@@ -35,6 +39,9 @@ export function loadStoredSettings(
       requestTimeoutSec: isNonNegativeNumber(parsed.requestTimeoutSec)
         ? parsed.requestTimeoutSec
         : DEFAULT_HTTP_SETTINGS.requestTimeoutSec,
+      readTimeoutSec: isNonNegativeNumber(parsed.readTimeoutSec)
+        ? parsed.readTimeoutSec
+        : DEFAULT_HTTP_SETTINGS.readTimeoutSec,
       followRedirects:
         typeof parsed.followRedirects === "boolean"
           ? parsed.followRedirects
@@ -46,6 +53,9 @@ export function loadStoredSettings(
         typeof parsed.compression === "boolean"
           ? parsed.compression
           : DEFAULT_HTTP_SETTINGS.compression,
+      ipFamily: isIpFamily(parsed.ipFamily)
+        ? parsed.ipFamily
+        : DEFAULT_HTTP_SETTINGS.ipFamily,
       userAgent:
         typeof parsed.userAgent === "string"
           ? parsed.userAgent

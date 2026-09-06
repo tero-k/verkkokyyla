@@ -108,7 +108,6 @@ test("50% loss session renders lost rows and chart canvases", async ({
 
 test("run, stop, list, reopen, and delete a session", async ({ page }) => {
   await installMockTauri(page)
-  page.on("dialog", (dialog) => void dialog.accept())
   await page.goto("/")
   await page.fill('[data-testid="ping-target"]', "localhost")
   await page.click('[data-testid="ping-start"]')
@@ -140,6 +139,8 @@ test("run, stop, list, reopen, and delete a session", async ({ page }) => {
   expect(firstSeq).toBe("1")
 
   await page.click('[data-testid="session-delete"]')
+  await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible()
+  await page.click('[data-testid="confirm-dialog-confirm"]')
   await expect(page.locator('[data-testid="session-item"]')).toHaveCount(0)
 })
 
@@ -318,4 +319,38 @@ test("closing all cards shows past sessions and loading one opens a card", async
     () =>
       document.querySelectorAll('[data-testid="ping-table-row"]').length === 3,
   )
+})
+
+test("deleting a past session from empty-state panel shows a confirmation dialog", async ({
+  page,
+}) => {
+  await installMockTauri(page)
+  await page.goto("/")
+
+  // Run and stop a short session.
+  await page.fill('[data-testid="ping-target"]', "localhost")
+  await page.click('[data-testid="ping-start"]')
+  const probes = Array.from({ length: 3 }, (_, i) => makeProbe(i + 1, 10, false))
+  await page.evaluate((events) => {
+    window.__TAURI_MOCK_SEND_PROBES__(events)
+  }, probes)
+  await page.click('[data-testid="ping-stop"]')
+  await page.waitForSelector('[data-testid="session-item"]')
+
+  // Close the only card to reach the empty-state panel.
+  await page.click('[data-testid="close-ping"]')
+  await expect(
+    page.locator('[data-testid="session-panel"]').locator('[data-testid="session-item"]'),
+  ).toHaveCount(1)
+
+  // The in-app confirmation dialog asks before deleting.
+  await page.click('[data-testid="session-delete"]')
+  const dialog = page.locator('[data-testid="confirm-dialog"]')
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText("Delete this session?")
+
+  await page.click('[data-testid="confirm-dialog-confirm"]')
+  await expect(
+    page.locator('[data-testid="session-panel"]').locator('[data-testid="session-item"]'),
+  ).toHaveCount(0)
 })

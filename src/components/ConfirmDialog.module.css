@@ -1,0 +1,53 @@
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: var(--overlay);
+  z-index: 100;
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 420px;
+  width: 100%;
+  padding: 1.25rem;
+  border: 1px solid var(--surface-3);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.message {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.actions button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--surface-3);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: var(--surface-3);
+}
+
+.confirm {
+  border-color: var(--danger, #c0443c) !important;
+  color: var(--danger, #c0443c);
+}

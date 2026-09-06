@@ -81,8 +81,7 @@ fn parse_impl(
 #[cfg(unix)]
 fn name_to_index(name: &str) -> Result<u32, ParseError> {
     use std::ffi::CString;
-    let c_name =
-        CString::new(name).map_err(|_| ParseError::UnknownInterface(name.to_owned()))?;
+    let c_name = CString::new(name).map_err(|_| ParseError::UnknownInterface(name.to_owned()))?;
     // SAFETY: `c_name` is a valid NUL-terminated string that outlives the call.
     let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
     if index == 0 {
@@ -112,10 +111,7 @@ mod tests {
     #[test]
     fn plain_ipv6_yields_scope_zero() {
         assert_eq!(parse_ipv6_with_scope("fe80::1"), Ok((fe80_1(), 0)));
-        assert_eq!(
-            parse_ipv6_with_scope("::1"),
-            Ok((Ipv6Addr::LOCALHOST, 0))
-        );
+        assert_eq!(parse_ipv6_with_scope("::1"), Ok((Ipv6Addr::LOCALHOST, 0)));
     }
 
     // Given a numeric zone suffix,

@@ -112,7 +112,9 @@ mod sys {
         } else if status == IP_REQ_TIMED_OUT {
             Err(EchoError::Timeout)
         } else {
-            Err(EchoError::Failed(format!("{context} reply status={status}")))
+            Err(EchoError::Failed(format!(
+                "{context} reply status={status}"
+            )))
         }
     }
 
@@ -247,7 +249,8 @@ mod tests {
     // Then dispatch reaches the IPHlpAPI implementation.
     #[tokio::test]
     async fn winicmp_enum_dispatch_reaches_impl() {
-        let mut engine = PingEngine::WinIcmp(WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0, 32));
+        let mut engine =
+            PingEngine::WinIcmp(WinIcmpPinger::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0, 32));
         assert!(matches!(engine.probe(1).await, ProbeResult::Rtt(_)));
     }
 

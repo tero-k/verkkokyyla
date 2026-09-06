@@ -3,6 +3,7 @@ import { validateTarget } from "../lib/validate"
 import { DEFAULT_PAYLOAD_SIZE, MAX_PAYLOAD_SIZE } from "../lib/constants"
 import { FAMILIES, type Family } from "../lib/types"
 import { usePingSession } from "../hooks/usePingSession"
+import { useConfirmDialog } from "../hooks/useConfirmDialog"
 import { PingGraphs } from "../components/PingGraphs"
 import { PingSessionPanel } from "../components/PingSessionPanel"
 import { PingStatsTable } from "../components/PingStatsTable"
@@ -41,6 +42,13 @@ export default function PingView({ onClose, initialSessionId }: PingViewProps) {
     openSession,
     deleteSession,
   } = usePingSession()
+
+  const { confirm, dialog: confirmDialog } = useConfirmDialog()
+  const handleDeleteSession = async (id: number) => {
+    if (await confirm("Delete this session?")) {
+      await deleteSession(id)
+    }
+  }
 
   const loadedInitial = useRef(false)
   useEffect(() => {
@@ -243,9 +251,10 @@ export default function PingView({ onClose, initialSessionId }: PingViewProps) {
           sessions={sessions}
           disabled={isRunning}
           onOpen={openSession}
-          onDelete={deleteSession}
+          onDelete={handleDeleteSession}
         />
       </div>
+      {confirmDialog}
     </section>
   )
 }

@@ -5,9 +5,9 @@ test("sidebar has web page speed test link and navigation works", async ({ page 
   await installMockTauri(page)
   await page.goto("/")
 
-  await page.click("text=Web page speed test")
+  await page.click("text=Web Benchmark")
   await expect(page.locator('[data-testid="download-speed-view"]')).toBeVisible()
-  await expect(page.locator("h1")).toHaveText("Web page speed test")
+  await expect(page.locator("h1")).toHaveText("Web Benchmark")
 })
 
 test("invalid URL disables start and shows inline error", async ({ page }) => {
@@ -135,15 +135,42 @@ test("HTTP settings compression toggle is sent to backend", async ({ page }) => 
   expect(settings?.compression).toBe(false)
 })
 
-test("HTTP settings reset restores defaults", async ({ page }) => {
+test("successful mocked download saves a history entry, reopens it, and deletes it", async ({ page }) => {
   await installMockTauri(page)
   await page.goto("/#/download-speed")
 
-  await page.click('[data-testid="http-settings-panel"] summary')
-  await page.fill('[data-testid="http-user-agent"]', "temp-agent")
-  await page.fill('[data-testid="http-connect-timeout"]', "42")
-  await page.click('[data-testid="http-settings-reset"]')
+  await page.fill('[data-testid="download-url"]', "https://example.test/file.bin")
+  await page.click('[data-testid="download-start"]')
 
-  await expect(page.locator('[data-testid="http-user-agent"]')).toHaveValue("")
-  await expect(page.locator('[data-testid="http-connect-timeout"]')).toHaveValue("10")
+  await expect(page.locator('[data-testid="download-results"]')).toBeVisible()
+
+  const items = page.locator('[data-testid="download-speed-session-item"]')
+  await expect(items).toHaveCount(1)
+  await expect(
+    page.locator('[data-testid="download-speed-session-panel"]'),
+  ).toContainText("https://example.test/file.bin")
+
+  await page.click('[data-testid="download-reset"]')
+  await expect(page.locator('[data-testid="download-results"]')).toHaveCount(0)
+
+  await page
+    .locator('[data-testid="download-speed-open"]')
+    .first()
+    .click()
+  await expect(page.locator('[data-testid="download-results"]')).toBeVisible()
+  await expect(
+    page.locator('[data-testid="download-results"]'),
+  ).toContainText("8.39 Mbps")
+
+  await page
+    .locator('[data-testid="download-speed-delete"]')
+    .first()
+    .click()
+  await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible()
+  await expect(page.locator('[data-testid="confirm-dialog"]')).toContainText("Delete this speed test?")
+  await page.click('[data-testid="confirm-dialog-confirm"]')
+  await expect(page.locator('[data-testid="download-speed-session-item"]')).toHaveCount(0)
+  await expect(
+    page.locator('[data-testid="download-speed-session-panel"]'),
+  ).toContainText("No saved speed tests yet.")
 })

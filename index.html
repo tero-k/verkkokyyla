@@ -3,7 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>verkkokyyla</title>
+    <title>Verkkokyylä</title>
+    <script>
+      (function () {
+        const stored = localStorage.getItem("verkkokyyla-theme") || "system"
+        const resolved =
+          stored === "system"
+            ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : stored
+        document.documentElement.dataset.theme = resolved
+        document.documentElement.style.colorScheme = resolved
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -33,11 +33,15 @@ describe("loadStoredSettings", () => {
         ...DEFAULT_HTTP_SETTINGS,
         userAgent: "custom-agent/1.0",
         compression: false,
+        ipFamily: "ipv4",
+        readTimeoutSec: 15,
       }),
     })
     const settings = loadStoredSettings(storage)
     expect(settings.userAgent).toBe("custom-agent/1.0")
     expect(settings.compression).toBe(false)
+    expect(settings.ipFamily).toBe("ipv4")
+    expect(settings.readTimeoutSec).toBe(15)
   })
 
   it("falls back to defaults for invalid stored data", () => {
@@ -45,6 +49,16 @@ describe("loadStoredSettings", () => {
       [HTTP_SETTINGS_STORAGE_KEY]: "not-json",
     })
     expect(loadStoredSettings(storage)).toEqual(DEFAULT_HTTP_SETTINGS)
+  })
+
+  it("falls back to default ip family when stored value is invalid", () => {
+    const storage = makeStorage({
+      [HTTP_SETTINGS_STORAGE_KEY]: JSON.stringify({
+        ...DEFAULT_HTTP_SETTINGS,
+        ipFamily: "ipv9",
+      }),
+    })
+    expect(loadStoredSettings(storage).ipFamily).toBe(DEFAULT_HTTP_SETTINGS.ipFamily)
   })
 
   it("falls back to defaults for missing fields", () => {

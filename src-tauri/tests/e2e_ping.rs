@@ -246,10 +246,8 @@ async fn e2e_persistence_across_restart() -> Result<(), Box<dyn std::error::Erro
     drop(manager);
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let pool = SqlitePool::connect_with(
-        SqliteConnectOptions::new().filename(&dir.db_file()),
-    )
-    .await?;
+    let pool =
+        SqlitePool::connect_with(SqliteConnectOptions::new().filename(dir.db_file())).await?;
     let row = sqlx::query("SELECT COUNT(*) AS n FROM probes WHERE session_id = ?")
         .bind(info.session_id)
         .fetch_one(&pool)
@@ -295,7 +293,10 @@ async fn e2e_loopback_v6_graceful_skip() {
     };
 
     let (on_probe, mut probe_rx, _total) = probe_sink();
-    let info = match manager.start("::1", "v6", 32, false, on_probe, status_sink()).await {
+    let info = match manager
+        .start("::1", "v6", 32, false, on_probe, status_sink())
+        .await
+    {
         Ok(info) => info,
         Err(err) => {
             eprintln!("skipping IPv6 test: start failed: {err}");

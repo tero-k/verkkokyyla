@@ -44,6 +44,65 @@ type ActiveTrace = {
   timerIds: number[]
 }
 
+type MockInterface = {
+  name: string
+  description: string
+  ipv4: string
+  prefixLen: number
+  isPrimary: boolean
+}
+
+type OpenPort = {
+  port: number
+  service: string
+}
+
+type MockScanHost = {
+  ip: string
+  mac: string | null
+  vendor: string | null
+  hostname: string | null
+  foundBy: string
+  at: string
+  openPorts: OpenPort[]
+}
+
+type MockScanSummary = {
+  id: number
+  interfaceName: string
+  cidr: string
+  tcpFallback: boolean
+  portsEnabled: boolean
+  startedAt: string
+  endedAt: string | null
+  status: string
+  hostCount: number
+}
+
+type MockScan = {
+  scan: MockScanSummary
+  hosts: MockScanHost[]
+}
+
+type MockDownloadSpeedSession = {
+  id: number
+  url: string
+  mode: string
+  startedAt: string
+  endedAt: string
+  status: string
+  averageMbps: number
+  totalTimeMs: number
+  resultJson: string
+}
+
+type ActiveScan = {
+  scan: MockScan
+  onEventChannel: { onmessage?: (message: unknown) => void }
+  onStatusChannel: { onmessage?: (message: unknown) => void }
+  timerIds: number[]
+}
+
 type MockSession = {
   id: number
   targetInput: string
@@ -111,6 +170,10 @@ export async function installMockTauri(page: Page): Promise<void> {
         0,
       )
       let activeTrace: ActiveTrace | null = null
+      let nextScanId = 0
+      let activeScan: ActiveScan | null = null
+      let endedScans: MockScan[] = []
+      let endedDownloadSpeedSessions: MockDownloadSpeedSession[] = []
 
       function transformCallback(
         cb: (rawMessage: unknown) => void,
@@ -213,6 +276,46 @@ export async function installMockTauri(page: Page): Promise<void> {
         trace.trace.trace.reachedTarget = reachedTarget
         trace.trace.trace.hopCount = trace.trace.hops.length
         endedTraces.push(trace.trace)
+      }
+
+      function scanTimestamp(): string {
+        return new Date().toISOString()
+      }
+
+      function sendScanHost(scan: ActiveScan, host: MockScanHost): void {
+        scan.scan.hosts.push(host)
+        sendChannel(scan.onEventChannel, {
+          event: "host",
+          ip: host.ip,
+          mac: host.mac,
+          vendor: host.vendor,
+          hostname: host.hostname,
+          foundBy: host.foundBy,
+          openPorts: host.openPorts,
+          at: host.at,
+        })
+      }
+
+      function clearScanTimers(scan: ActiveScan): void {
+        for (const timerId of scan.timerIds) {
+          window.clearTimeout(timerId)
+        }
+        scan.timerIds = []
+      }
+
+      function persistScan(scan: ActiveScan, status: string): void {
+        scan.scan.scan.endedAt = scanTimestamp()
+        scan.scan.scan.status = status
+        scan.scan.scan.hostCount = scan.scan.hosts.length
+        endedScans.push(scan.scan)
+      }
+
+      function scheduleScanStep(
+        scan: ActiveScan,
+        delayMs: number,
+        step: () => void,
+      ): void {
+        scan.timerIds.push(window.setTimeout(step, delayMs))
       }
 
       function startExampleTrace(trace: ActiveTrace): void {
@@ -714,6 +817,257 @@ export async function installMockTauri(page: Page): Promise<void> {
               averageMbps: 0.3,
               resources,
             }
+          }
+          case "list_interfaces": {
+            return [
+              {
+                name: "eth0",
+                description: "Primary Ethernet",
+                ipv4: "192.168.1.10",
+                prefixLen: 24,
+                isPrimary: true,
+              },
+              {
+                name: "wlan0",
+                description: "Wi-Fi",
+                ipv4: "192.168.2.5",
+                prefixLen: 24,
+                isPrimary: false,
+              },
+            ]
+          }
+          case "start_scan": {
+            const interfaceName = String(args.interfaceName)
+            const cidr = String(args.cidr)
+            const tcpFallback =
+              typeof args.tcpFallback === "boolean" ? args.tcpFallback : true
+            const portsEnabled =
+              typeof args.portsEnabled === "boolean" ? args.portsEnabled : false
+            if (activeScan !== null) {
+              throw {
+                kind: "already-running",
+                message: "a scan is already running",
+              }
+            }
+            nextScanId += 1
+            const scanId = nextScanId
+            const startedAt = scanTimestamp()
+            const scan: MockScan = {
+              scan: {
+                id: scanId,
+                interfaceName,
+                cidr,
+                tcpFallback,
+                portsEnabled,
+                startedAt,
+                endedAt: null,
+                status: "running",
+                hostCount: 0,
+              },
+              hosts: [],
+            }
+            activeScan = {
+              scan,
+              onEventChannel: args.onEvent as {
+                onmessage?: (message: unknown) => void
+              },
+              onStatusChannel: args.onStatus as {
+                onmessage?: (message: unknown) => void
+              },
+              timerIds: [],
+            }
+            const currentScan = activeScan
+            const host1: MockScanHost = {
+              ip: "192.168.1.1",
+              mac: "AA:BB:CC:DD:EE:01",
+              vendor: "Router Corp",
+              hostname: "router.local",
+              foundBy: "ping",
+              at: startedAt,
+              openPorts: [],
+            }
+            const host2: MockScanHost = {
+              ip: "192.168.1.42",
+              mac: "AA:BB:CC:DD:EE:02",
+              vendor: "Example Devices",
+              hostname: "laptop.local",
+              foundBy: "ping",
+              at: startedAt,
+              openPorts: portsEnabled
+                ? [
+                    { port: 22, service: "ssh" },
+                    { port: 80, service: "http" },
+                  ]
+                : [],
+            }
+            scheduleScanStep(currentScan, 0, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              sendChannel(currentScan.onStatusChannel, {
+                event: "engine",
+                engine: "ping+arp",
+                tcpFallback,
+              })
+            })
+            scheduleScanStep(currentScan, 5, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              sendChannel(currentScan.onStatusChannel, {
+                event: "progress",
+                done: 0,
+                total: 2,
+              })
+            })
+            scheduleScanStep(currentScan, 10, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              sendScanHost(currentScan, host1)
+            })
+            scheduleScanStep(currentScan, 15, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              sendChannel(currentScan.onStatusChannel, {
+                event: "progress",
+                done: 1,
+                total: 2,
+              })
+            })
+            scheduleScanStep(currentScan, 20, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              sendScanHost(currentScan, host2)
+            })
+            scheduleScanStep(currentScan, 25, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              sendChannel(currentScan.onStatusChannel, {
+                event: "progress",
+                done: 2,
+                total: 2,
+              })
+            })
+            scheduleScanStep(currentScan, 30, () => {
+              if (activeScan?.scan.scan.id !== scanId) return
+              persistScan(currentScan, "completed")
+              sendChannel(currentScan.onStatusChannel, {
+                event: "completed",
+                scanId,
+                hostCount: currentScan.scan.hosts.length,
+              })
+              activeScan = null
+            })
+            return {
+              scanId,
+              interfaceName,
+              cidr,
+              tcpFallback,
+              portsEnabled,
+            }
+          }
+          case "stop_scan": {
+            if (activeScan === null) {
+              throw {
+                kind: "no-active-scan",
+                message: "no scan is running",
+              }
+            }
+            const scan = activeScan
+            clearScanTimers(scan)
+            persistScan(scan, "stopped")
+            const endedAt = scan.scan.scan.endedAt
+            const hostCount = scan.scan.hosts.length
+            sendChannel(scan.onStatusChannel, {
+              event: "stopped",
+              scanId: scan.scan.scan.id,
+              hostCount,
+            })
+            activeScan = null
+            return {
+              scanId: scan.scan.scan.id,
+              hostCount,
+              endedAt,
+            }
+          }
+          case "list_scans":
+            return [...endedScans].reverse().map((scan) => scan.scan)
+          case "load_scan": {
+            const scan = endedScans.find((entry) => entry.scan.id === args.id)
+            if (scan === undefined) {
+              throw {
+                kind: "scan-not-found",
+                message: `no scan with id ${args.id}`,
+              }
+            }
+            return { scan: scan.scan, hosts: scan.hosts }
+          }
+          case "delete_scan": {
+            endedScans = endedScans.filter((scan) => scan.scan.id !== args.id)
+            return null
+          }
+          case "save_download_speed_session": {
+            const payload = args.request ?? args
+            const url = String(payload.url)
+            const mode = String(payload.mode)
+            const resultJson = String(payload.resultJson)
+            const averageMbps = Number(payload.averageMbps)
+            const totalTimeMs = Number(payload.totalTimeMs)
+            const startedAt = new Date().toISOString()
+            const id = endedDownloadSpeedSessions.length + 1
+            endedDownloadSpeedSessions.push({
+              id,
+              url,
+              mode,
+              startedAt,
+              endedAt: startedAt,
+              status: "completed",
+              averageMbps,
+              totalTimeMs,
+              resultJson,
+            })
+            return {
+              id,
+              url,
+              mode,
+              startedAt,
+              endedAt: startedAt,
+              status: "completed",
+              averageMbps,
+              totalTimeMs,
+            }
+          }
+          case "list_download_speed_sessions": {
+            return [...endedDownloadSpeedSessions].reverse().map((s) => ({
+              id: s.id,
+              url: s.url,
+              mode: s.mode,
+              startedAt: s.startedAt,
+              endedAt: s.endedAt,
+              status: s.status,
+              averageMbps: s.averageMbps,
+              totalTimeMs: s.totalTimeMs,
+            }))
+          }
+          case "load_download_speed_session": {
+            const session = endedDownloadSpeedSessions.find((s) => s.id === args.id)
+            if (session === undefined) {
+              throw {
+                kind: "session-not-found",
+                message: `no download speed session with id ${args.id}`,
+              }
+            }
+            return {
+              session: {
+                id: session.id,
+                url: session.url,
+                mode: session.mode,
+                startedAt: session.startedAt,
+                endedAt: session.endedAt,
+                status: session.status,
+                averageMbps: session.averageMbps,
+                totalTimeMs: session.totalTimeMs,
+              },
+              resultJson: session.resultJson,
+            }
+          }
+          case "delete_download_speed_session": {
+            endedDownloadSpeedSessions = endedDownloadSpeedSessions.filter(
+              (s) => s.id !== args.id,
+            )
+            return null
           }
           default:
             throw new Error(`unknown command ${cmd}`)

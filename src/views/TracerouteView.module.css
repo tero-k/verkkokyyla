@@ -4,9 +4,9 @@
   gap: 1rem;
   min-height: 0;
   padding: 1rem;
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
-  background: #18181b;
+  background: var(--bg);
 }
 
 .header h1 {
@@ -30,17 +30,17 @@
 
 .field label {
   font-size: 0.8rem;
-  color: #a1a1aa;
+  color: var(--text-muted);
 }
 
 .field input,
 .field select {
   min-width: 220px;
   padding: 0.45rem 0.6rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #18181b;
-  color: #e4e4e7;
+  background: var(--bg);
+  color: var(--text);
   font-size: 0.9rem;
 }
 
@@ -56,16 +56,16 @@
 
 .actions button {
   padding: 0.5rem 1rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.9rem;
   cursor: pointer;
 }
 
 .actions button:hover:not(:disabled) {
-  background: #3f3f46;
+  background: var(--surface-3);
 }
 
 .actions button:disabled {
@@ -78,23 +78,23 @@
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
-  background: #1c1c1f;
+  background: var(--surface-1);
 }
 
 .status {
-  color: #38bdf8;
+  color: var(--accent);
   font-size: 0.85rem;
 }
 
 .error {
-  color: #f87171;
+  color: var(--danger);
   font-size: 0.85rem;
 }
 
 .progress {
-  color: #e4e4e7;
+  color: var(--text);
   font-size: 0.9rem;
   font-weight: 600;
 }

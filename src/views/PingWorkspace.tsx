@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import PingView from "./PingView"
 import { PingSessionPanel } from "../components/PingSessionPanel"
 import { deleteSession, listSessions } from "../lib/ipc"
+import { useConfirmDialog } from "../hooks/useConfirmDialog"
 import type { SessionSummaryDto } from "../lib/types"
 
 import styles from "./PingWorkspace.module.css"
@@ -17,6 +18,7 @@ export default function PingWorkspace() {
   const [tabs, setTabs] = useState<SessionTab[]>([])
   const [pastSessions, setPastSessions] = useState<SessionSummaryDto[]>([])
   const [ready, setReady] = useState(false)
+  const { confirm, dialog: confirmDialog } = useConfirmDialog()
 
   const refreshPast = useCallback(async () => {
     try {
@@ -70,10 +72,11 @@ export default function PingWorkspace() {
 
   const handleDelete = useCallback(
     async (id: number) => {
+      if (!(await confirm("Delete this session?"))) return
       await deleteSession(id)
       void refreshPast()
     },
-    [refreshPast],
+    [refreshPast, confirm],
   )
 
   const isEmpty = tabs.length === 0
@@ -116,6 +119,7 @@ export default function PingWorkspace() {
           ))}
         </div>
       )}
+      {confirmDialog}
     </div>
   )
 }

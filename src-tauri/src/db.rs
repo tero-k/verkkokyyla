@@ -6,12 +6,12 @@
 //! stats/engine layers; the session layer (todo 7) maps domain types onto
 //! [`NewSession`] / [`ProbeRow`].
 
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
+use thiserror::Error;
 
 /// File name of the production database inside the Tauri app data dir.
 const DB_FILE_NAME: &str = "verkkokyyla.db";
@@ -26,34 +26,17 @@ pub fn db_path(app_data_dir: &Path) -> PathBuf {
 }
 
 /// Errors produced by the persistence layer.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DbError {
     /// Filesystem failure while preparing the database file location.
+    #[error("database file error: {0}")]
     Io(std::io::Error),
     /// Failure from a SQL statement or pool operation.
+    #[error("database query error: {0}")]
     Sqlx(sqlx::Error),
     /// Migration failure (includes checksum mismatch on tampered DBs).
+    #[error("database migration error: {0}")]
     Migrate(sqlx::migrate::MigrateError),
-}
-
-impl fmt::Display for DbError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(e) => write!(f, "database file error: {e}"),
-            Self::Sqlx(e) => write!(f, "database query error: {e}"),
-            Self::Migrate(e) => write!(f, "database migration error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for DbError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(e) => Some(e),
-            Self::Sqlx(e) => Some(e),
-            Self::Migrate(e) => Some(e),
-        }
-    }
 }
 
 impl From<std::io::Error> for DbError {
@@ -163,6 +146,118 @@ pub struct TraceHopRow {
     pub at: String,
 }
 
+/// Parameters for starting a persisted LAN scan.
+#[derive(Debug, Clone)]
+pub struct NewScan {
+    pub interface_name: String,
+    pub cidr: String,
+    pub tcp_fallback: bool,
+    /// RFC 3339 scan start timestamp.
+    pub started_at: String,
+}
+
+/// Scan row joined with persisted host count.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScanSummary {
+    pub id: i64,
+    pub interface_name: String,
+    pub cidr: String,
+    pub tcp_fallback: bool,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: String,
+    pub host_count: i64,
+}
+
+/// Host row stored for a LAN scan.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScanHostRow {
+    pub scan_id: i64,
+    pub ip: String,
+    pub mac: Option<String>,
+    pub vendor: Option<String>,
+    pub hostname: Option<String>,
+    pub found_by: String,
+    pub open_ports: String,
+    /// RFC 3339 timestamp of discovery.
+    pub at: String,
+}
+
+/// Parameters for starting a persisted DNS benchmark or diagnostics run.
+#[derive(Debug, Clone)]
+pub struct NewDnsRun {
+    pub target_input: String,
+    pub kind: String,
+    pub config_json: String,
+    /// RFC 3339 DNS run start timestamp.
+    pub started_at: String,
+}
+
+/// DNS run row joined with persisted target count.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DnsRunSummary {
+    pub id: i64,
+    pub target_input: String,
+    pub kind: String,
+    pub config_json: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: String,
+    pub target_count: i64,
+}
+
+/// Target aggregate row stored for a DNS benchmark or diagnostics run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DnsRunTargetRow {
+    pub run_id: i64,
+    pub target: String,
+    pub protocol: Option<String>,
+    pub metrics_json: String,
+}
+
+/// Loaded DNS run and ordered target aggregate rows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedDnsRun {
+    pub run: DnsRunSummary,
+    pub targets: Vec<DnsRunTargetRow>,
+}
+
+/// Parameters for starting a persisted download speed test session.
+#[derive(Debug, Clone)]
+pub struct NewDownloadSpeedSession {
+    pub url: String,
+    pub mode: String,
+    pub http_settings_json: String,
+    pub started_at: String,
+}
+
+/// Download speed session row with summary metrics.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadSpeedSessionSummary {
+    pub id: i64,
+    pub url: String,
+    pub mode: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: String,
+    pub average_mbps: f64,
+    pub total_time_ms: i64,
+}
+
+/// Loaded download speed session including the full result JSON.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedDownloadSpeedSession {
+    pub session: DownloadSpeedSessionSummary,
+    pub result_json: String,
+}
+
+/// Loaded scan and ordered host rows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedScan {
+    pub scan: ScanSummary,
+    pub hosts: Vec<ScanHostRow>,
+}
+
 /// Connection pool wrapper owning all database access.
 pub struct Database {
     pool: SqlitePool,
@@ -220,6 +315,36 @@ impl Database {
         .bind(&trace.engine)
         .bind(trace.max_hops)
         .bind(&trace.started_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Inserts a scan row and returns its id.
+    pub async fn create_scan(&self, scan: &NewScan) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO scans (interface_name, cidr, tcp_fallback, started_at) \
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(&scan.interface_name)
+        .bind(&scan.cidr)
+        .bind(scan.tcp_fallback)
+        .bind(&scan.started_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Inserts a DNS run row and returns its id.
+    pub async fn create_dns_run(&self, run: &NewDnsRun) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO dns_runs (target_input, kind, config_json, started_at) \
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(&run.target_input)
+        .bind(&run.kind)
+        .bind(&run.config_json)
+        .bind(&run.started_at)
         .execute(&self.pool)
         .await?;
         Ok(result.last_insert_rowid())
@@ -363,6 +488,320 @@ impl Database {
         Ok(())
     }
 
+    /// Finalizes a DNS run and writes target aggregate rows in one transaction.
+    pub async fn finish_dns_run(
+        &self,
+        id: i64,
+        ended_at: &str,
+        status: &str,
+        targets: &[DnsRunTargetRow],
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE dns_runs SET ended_at = ?, status = ? WHERE id = ?")
+            .bind(ended_at)
+            .bind(status)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        for target in targets {
+            sqlx::query(
+                "INSERT INTO dns_run_targets (run_id, target, protocol, metrics_json) \
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(target.run_id)
+            .bind(&target.target)
+            .bind(&target.protocol)
+            .bind(&target.metrics_json)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Inserts a batch of scan host rows in one transaction.
+    pub async fn insert_scan_hosts_batch(
+        &self,
+        scan_id: i64,
+        hosts: &[ScanHostRow],
+    ) -> Result<(), DbError> {
+        let mut tx = self.pool.begin().await?;
+        for host in hosts {
+            sqlx::query(
+                "INSERT INTO scan_hosts (scan_id, ip, mac, vendor, hostname, found_by, open_ports, at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(scan_id)
+            .bind(&host.ip)
+            .bind(&host.mac)
+            .bind(&host.vendor)
+            .bind(&host.hostname)
+            .bind(&host.found_by)
+            .bind(&host.open_ports)
+            .bind(&host.at)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Finalizes a scan and stores its terminal status.
+    pub async fn finish_scan(&self, id: i64, ended_at: &str, status: &str) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE scans SET ended_at = ?, status = ?, \
+             host_count = (SELECT COUNT(*) FROM scan_hosts WHERE scan_id = ?) WHERE id = ?",
+        )
+        .bind(ended_at)
+        .bind(status)
+        .bind(id)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Lists all scans newest first.
+    pub async fn list_scans(&self) -> Result<Vec<ScanSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, interface_name, cidr, tcp_fallback, started_at, ended_at, status, \
+                    COALESCE((SELECT COUNT(*) FROM scan_hosts h WHERE h.scan_id = scans.id), host_count) AS host_count \
+             FROM scans ORDER BY id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| scan_summary_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads one scan summary with its hosts ordered by IP text.
+    pub async fn load_scan(&self, scan_id: i64) -> Result<LoadedScan, DbError> {
+        let scan = self
+            .list_scans()
+            .await?
+            .into_iter()
+            .find(|scan| scan.id == scan_id)
+            .unwrap_or_else(|| ScanSummary {
+                id: scan_id,
+                interface_name: String::new(),
+                cidr: String::new(),
+                tcp_fallback: false,
+                started_at: String::new(),
+                ended_at: None,
+                status: String::new(),
+                host_count: 0,
+            });
+        let hosts = self.load_scan_hosts(scan_id).await?;
+        Ok(LoadedScan { scan, hosts })
+    }
+
+    /// Loads all host rows of a scan ordered by IP text.
+    pub async fn load_scan_hosts(&self, scan_id: i64) -> Result<Vec<ScanHostRow>, DbError> {
+        let rows = sqlx::query(
+            "SELECT scan_id, ip, mac, vendor, hostname, found_by, open_ports, at \
+             FROM scan_hosts WHERE scan_id = ? ORDER BY ip",
+        )
+        .bind(scan_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(ScanHostRow {
+                    scan_id: row.try_get("scan_id")?,
+                    ip: row.try_get("ip")?,
+                    mac: row.try_get("mac")?,
+                    vendor: row.try_get("vendor")?,
+                    hostname: row.try_get("hostname")?,
+                    found_by: row.try_get("found_by")?,
+                    open_ports: row.try_get("open_ports")?,
+                    at: row.try_get("at")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Deletes a scan; its hosts are removed via ON DELETE CASCADE.
+    pub async fn delete_scan(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM scans WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Lists all DNS runs newest first.
+    pub async fn list_dns_runs(&self) -> Result<Vec<DnsRunSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT r.id, r.target_input, r.kind, r.config_json, r.started_at, r.ended_at, r.status, \
+                    COALESCE((SELECT COUNT(*) FROM dns_run_targets t WHERE t.run_id = r.id), 0) AS target_count \
+             FROM dns_runs r ORDER BY r.id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| dns_run_summary_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads one DNS run summary with its target aggregate rows ordered by id.
+    pub async fn load_dns_run(&self, run_id: i64) -> Result<LoadedDnsRun, DbError> {
+        let run = self
+            .list_dns_runs()
+            .await?
+            .into_iter()
+            .find(|run| run.id == run_id)
+            .unwrap_or_else(|| DnsRunSummary {
+                id: run_id,
+                target_input: String::new(),
+                kind: String::new(),
+                config_json: String::new(),
+                started_at: String::new(),
+                ended_at: None,
+                status: String::new(),
+                target_count: 0,
+            });
+        let targets = self.load_dns_run_targets(run_id).await?;
+        Ok(LoadedDnsRun { run, targets })
+    }
+
+    /// Loads all target aggregate rows for a DNS run ordered by insertion id.
+    pub async fn load_dns_run_targets(&self, run_id: i64) -> Result<Vec<DnsRunTargetRow>, DbError> {
+        let rows = sqlx::query(
+            "SELECT run_id, target, protocol, metrics_json \
+             FROM dns_run_targets WHERE run_id = ? ORDER BY id",
+        )
+        .bind(run_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(DnsRunTargetRow {
+                    run_id: row.try_get("run_id")?,
+                    target: row.try_get("target")?,
+                    protocol: row.try_get("protocol")?,
+                    metrics_json: row.try_get("metrics_json")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Deletes a DNS run; its target rows are removed via ON DELETE CASCADE.
+    pub async fn delete_dns_run(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM dns_runs WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Inserts a download speed session row and returns its id.
+    pub async fn create_download_speed_session(
+        &self,
+        session: &NewDownloadSpeedSession,
+    ) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO download_speed_sessions \
+             (url, mode, http_settings_json, started_at, status, result_json) \
+             VALUES (?, ?, ?, ?, 'running', '{}')",
+        )
+        .bind(&session.url)
+        .bind(&session.mode)
+        .bind(&session.http_settings_json)
+        .bind(&session.started_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Finalizes a download speed session with its result.
+    pub async fn finish_download_speed_session(
+        &self,
+        id: i64,
+        ended_at: &str,
+        status: &str,
+        average_mbps: f64,
+        total_time_ms: i64,
+        result_json: &str,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE download_speed_sessions \
+             SET ended_at = ?, status = ?, average_mbps = ?, total_time_ms = ?, result_json = ? \
+             WHERE id = ?",
+        )
+        .bind(ended_at)
+        .bind(status)
+        .bind(average_mbps)
+        .bind(total_time_ms)
+        .bind(result_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Lists all download speed sessions newest first.
+    pub async fn list_download_speed_sessions(&self) -> Result<Vec<DownloadSpeedSessionSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, url, mode, started_at, ended_at, status, average_mbps, total_time_ms \
+             FROM download_speed_sessions ORDER BY id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(DownloadSpeedSessionSummary {
+                    id: row.try_get("id")?,
+                    url: row.try_get("url")?,
+                    mode: row.try_get("mode")?,
+                    started_at: row.try_get("started_at")?,
+                    ended_at: row.try_get("ended_at")?,
+                    status: row.try_get("status")?,
+                    average_mbps: row.try_get("average_mbps")?,
+                    total_time_ms: row.try_get("total_time_ms")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Loads one download speed session including its stored result JSON.
+    pub async fn load_download_speed_session(&self, id: i64) -> Result<LoadedDownloadSpeedSession, DbError> {
+        let session = self
+            .list_download_speed_sessions()
+            .await?
+            .into_iter()
+            .find(|session| session.id == id)
+            .unwrap_or_else(|| DownloadSpeedSessionSummary {
+                id,
+                url: String::new(),
+                mode: String::new(),
+                started_at: String::new(),
+                ended_at: None,
+                status: String::new(),
+                average_mbps: 0.0,
+                total_time_ms: 0,
+            });
+        let result_json: String = sqlx::query_scalar(
+            "SELECT result_json FROM download_speed_sessions WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(LoadedDownloadSpeedSession {
+            session,
+            result_json,
+        })
+    }
+
+    /// Deletes a download speed session.
+    pub async fn delete_download_speed_session(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM download_speed_sessions WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Updates a trace hop hostname by trace id and hop number.
     pub async fn update_trace_hop_hostname(
         &self,
@@ -442,6 +881,32 @@ impl Database {
             .await?;
         Ok(())
     }
+}
+
+fn scan_summary_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ScanSummary, sqlx::Error> {
+    Ok(ScanSummary {
+        id: row.try_get("id")?,
+        interface_name: row.try_get("interface_name")?,
+        cidr: row.try_get("cidr")?,
+        tcp_fallback: row.try_get("tcp_fallback")?,
+        started_at: row.try_get("started_at")?,
+        ended_at: row.try_get("ended_at")?,
+        status: row.try_get("status")?,
+        host_count: row.try_get("host_count")?,
+    })
+}
+
+fn dns_run_summary_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<DnsRunSummary, sqlx::Error> {
+    Ok(DnsRunSummary {
+        id: row.try_get("id")?,
+        target_input: row.try_get("target_input")?,
+        kind: row.try_get("kind")?,
+        config_json: row.try_get("config_json")?,
+        started_at: row.try_get("started_at")?,
+        ended_at: row.try_get("ended_at")?,
+        status: row.try_get("status")?,
+        target_count: row.try_get("target_count")?,
+    })
 }
 
 /// Formats a `SystemTime` as an RFC 3339 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`).
@@ -544,6 +1009,24 @@ mod tests {
         }
     }
 
+    fn sample_dns_run() -> NewDnsRun {
+        NewDnsRun {
+            target_input: "example.com benchmark".to_string(),
+            kind: "benchmark".to_string(),
+            config_json: r#"{"profile":"everyday"}"#.to_string(),
+            started_at: now_rfc3339(),
+        }
+    }
+
+    fn dns_target(run_id: i64, target: &str, protocol: Option<&str>) -> DnsRunTargetRow {
+        DnsRunTargetRow {
+            run_id,
+            target: target.to_string(),
+            protocol: protocol.map(std::string::ToString::to_string),
+            metrics_json: r#"{"medianMs":12.5}"#.to_string(),
+        }
+    }
+
     fn trace_hop(
         trace_id: i64,
         hop: i64,
@@ -572,10 +1055,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v3() {
+    async fn fresh_db_migrates_to_v9() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 3);
+        assert_eq!(migration_count(&db).await, 9);
         let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&db.pool)
             .await
@@ -584,7 +1067,7 @@ mod tests {
             .iter()
             .map(|row| row.try_get::<i64, _>("version").expect("version"))
             .collect();
-        assert_eq!(versions, vec![1, 2, 3]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
         let tables =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -597,6 +1080,11 @@ mod tests {
             .collect();
         assert!(tables.contains(&"traces".to_string()));
         assert!(tables.contains(&"trace_hops".to_string()));
+        assert!(tables.contains(&"scans".to_string()));
+        assert!(tables.contains(&"scan_hosts".to_string()));
+        assert!(tables.contains(&"dns_runs".to_string()));
+        assert!(tables.contains(&"dns_run_targets".to_string()));
+        assert!(tables.contains(&"download_speed_sessions".to_string()));
 
         let indexes =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
@@ -608,6 +1096,8 @@ mod tests {
             .map(|row| row.try_get::<String, _>("name").expect("index name"))
             .collect();
         assert!(indexes.contains(&"idx_trace_hops_trace".to_string()));
+        assert!(indexes.contains(&"idx_scan_hosts_scan".to_string()));
+        assert!(indexes.contains(&"idx_dns_run_targets_run".to_string()));
     }
 
     #[tokio::test]
@@ -615,10 +1105,118 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 3);
+        assert_eq!(migration_count(&db).await, 9);
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 3);
+        assert_eq!(migration_count(&db).await, 9);
+    }
+
+    #[tokio::test]
+    async fn dns_run_round_trip_and_delete_cascades_targets() {
+        let dir = TestDir::new("dns-round-trip");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let run_id = db
+            .create_dns_run(&sample_dns_run())
+            .await
+            .expect("create dns run");
+        let targets = [
+            dns_target(run_id, "cloudflare", Some("udp")),
+            dns_target(run_id, "google", Some("tcp")),
+            dns_target(run_id, "quad9", None),
+        ];
+
+        db.finish_dns_run(run_id, &now_rfc3339(), "completed", &targets)
+            .await
+            .expect("finish dns run");
+
+        let runs = db.list_dns_runs().await.expect("list dns runs");
+        assert_eq!(runs.len(), 1);
+        let run = &runs[0];
+        assert_eq!(run.id, run_id);
+        assert_eq!(run.target_input, "example.com benchmark");
+        assert_eq!(run.kind, "benchmark");
+        assert_eq!(run.config_json, r#"{"profile":"everyday"}"#);
+        assert_eq!(run.status, "completed");
+        assert_eq!(run.target_count, 3);
+        assert!(run.ended_at.is_some());
+
+        let loaded = db.load_dns_run(run_id).await.expect("load dns run");
+        assert_eq!(loaded.run, *run);
+        assert_eq!(loaded.targets, targets);
+
+        db.delete_dns_run(run_id).await.expect("delete dns run");
+
+        assert!(db.list_dns_runs().await.expect("list dns runs").is_empty());
+        assert!(db
+            .load_dns_run_targets(run_id)
+            .await
+            .expect("load dns targets")
+            .is_empty());
+        let row = sqlx::query("SELECT COUNT(*) AS n FROM dns_run_targets WHERE run_id = ?")
+            .bind(run_id)
+            .fetch_one(&db.pool)
+            .await
+            .expect("count dns targets");
+        assert_eq!(row.try_get::<i64, _>("n").expect("n"), 0);
+    }
+
+    #[tokio::test]
+    async fn dns_run_accepts_lookup_kind() {
+        let dir = TestDir::new("dns-lookup-kind");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let run_id = db
+            .create_dns_run(&NewDnsRun {
+                target_input: "example.com via cloudflare".to_string(),
+                kind: "lookup".to_string(),
+                config_json: r#"{"name":"example.com"}"#.to_string(),
+                started_at: now_rfc3339(),
+            })
+            .await
+            .expect("create lookup dns run");
+        db.finish_dns_run(
+            run_id,
+            &now_rfc3339(),
+            "completed",
+            &[dns_target(run_id, "A", Some("udp"))],
+        )
+        .await
+        .expect("finish lookup dns run");
+
+        let runs = db.list_dns_runs().await.expect("list dns runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].kind, "lookup");
+        assert_eq!(runs[0].target_count, 1);
+    }
+
+    #[tokio::test]
+    async fn finish_dns_run_rolls_back_on_bad_target_run_id() {
+        let dir = TestDir::new("dns-rollback");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let run_id = db
+            .create_dns_run(&sample_dns_run())
+            .await
+            .expect("create dns run");
+        let targets = [
+            dns_target(run_id, "cloudflare", Some("udp")),
+            dns_target(run_id + 1, "google", Some("tcp")),
+        ];
+
+        let result = db
+            .finish_dns_run(run_id, &now_rfc3339(), "completed", &targets)
+            .await;
+        assert!(result.is_err(), "bad target should fail the transaction");
+
+        let runs = db.list_dns_runs().await.expect("list dns runs");
+        assert_eq!(runs.len(), 1);
+        let run = &runs[0];
+        assert_eq!(run.status, "running");
+        assert!(run.ended_at.is_none());
+        assert_eq!(run.target_count, 0);
+        assert!(db
+            .load_dns_run_targets(run_id)
+            .await
+            .expect("load dns targets")
+            .is_empty());
     }
 
     #[tokio::test]

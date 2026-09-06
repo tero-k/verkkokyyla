@@ -53,7 +53,10 @@ async fn trickling_fake_yields_first_hop_before_child_exits() {
         vec!["/C".to_owned(), script.display().to_string()],
         target(),
     )
-    .with_limits(TraceLimits::new(Duration::from_secs(5), Duration::from_secs(2)));
+    .with_limits(TraceLimits::new(
+        Duration::from_secs(5),
+        Duration::from_secs(2),
+    ));
     let mut stream = engine.start().expect("stream");
 
     let hop = stream.next().await.expect("hop").expect("some hop");
@@ -66,10 +69,17 @@ async fn trickling_fake_yields_first_hop_before_child_exits() {
 async fn hung_fake_hits_watchdog_with_short_limits() {
     let engine = crate::engine::TracertWin::with_program(
         PathBuf::from("powershell.exe"),
-        vec!["-NoProfile".to_owned(), "-Command".to_owned(), "Start-Sleep -Seconds 999".to_owned()],
+        vec![
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "Start-Sleep -Seconds 999".to_owned(),
+        ],
         target(),
     )
-    .with_limits(TraceLimits::new(Duration::from_millis(100), Duration::from_millis(250)));
+    .with_limits(TraceLimits::new(
+        Duration::from_millis(100),
+        Duration::from_millis(250),
+    ));
     let mut stream = engine.start().expect("stream");
 
     let err = stream.next().await.expect_err("watchdog error");
@@ -91,7 +101,10 @@ async fn absolute_ceiling_ends_a_long_running_fake() {
         vec!["/C".to_owned(), script.display().to_string()],
         target(),
     )
-    .with_limits(TraceLimits::new(Duration::from_secs(5), Duration::from_millis(100)));
+    .with_limits(TraceLimits::new(
+        Duration::from_secs(5),
+        Duration::from_millis(100),
+    ));
     let mut stream = engine.start().expect("stream");
 
     let hop = stream.next().await.expect("first hop").expect("some hop");
@@ -106,7 +119,9 @@ async fn missing_binary_yields_unavailable() {
     let resolved = TraceOs::resolve_program(
         "traceroute",
         &[PathBuf::from(r"C:\definitely-missing-path")],
-        &[PathBuf::from(r"C:\definitely-missing-binary\traceroute.exe")],
+        &[PathBuf::from(
+            r"C:\definitely-missing-binary\traceroute.exe",
+        )],
     );
 
     assert!(matches!(resolved, Err(TraceEngineError::Unavailable(_))));

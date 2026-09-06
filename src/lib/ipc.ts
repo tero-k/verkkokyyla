@@ -1,24 +1,45 @@
 import { Channel, invoke } from "@tauri-apps/api/core"
 import type {
+  BenchmarkProfile,
+  BenchmarkRunDto,
+  DnsDiagnosticsDto,
+  DnsRunSummaryDto,
   DownloadProgressEvent,
   DownloadSpeedResultDto,
+  EmailSecurityReportDto,
   Family,
   HttpSettings,
-  LoadedTraceDto,
+  InterfaceDto,
+  LoadedDnsRunDto,
+  LoadedScanDto,
+  LoadedDownloadSpeedSessionDto,
+  DownloadSpeedSessionSummaryDto,
   LoadedSessionDto,
+  LoadedTraceDto,
+  LookupEventDto,
+  LookupSummaryDto,
   PageProgressEvent,
   PageSpeedResultDto,
   ProbeEvent,
+  ResolverEndpointDto,
+  SampleCell,
+  ScanEvent,
+  ScanStatusEvent,
+  ScanSummaryDto,
   SessionSummaryDto,
   SnapshotDto,
   StartInfoDto,
+  StartScanDto,
   StartTraceDto,
   StatusEvent,
-  StoppedTraceDto,
+  StoppedScanDto,
   StoppedSessionDto,
+  StoppedTraceDto,
   TraceEvent,
   TraceStatusEvent,
   TraceSummaryDto,
+  WebBenchmarkConfig,
+  WebBenchmarkResult,
 } from "./types"
 
 export function startSession(
@@ -121,4 +142,173 @@ export function runPageSpeedTest(
     settings,
     onProgress: onProgressChannel,
   })
+}
+
+export function runWebBenchmark(
+  config: WebBenchmarkConfig,
+): Promise<WebBenchmarkResult> {
+  return invoke<WebBenchmarkResult>("run_web_benchmark", { config })
+}
+
+export function listInterfaces(): Promise<InterfaceDto[]> {
+  return invoke<InterfaceDto[]>("list_interfaces")
+}
+
+export function startScan(
+  interfaceName: string,
+  cidr: string,
+  tcpFallback: boolean,
+  portsEnabled: boolean,
+  onEvent: (event: ScanEvent) => void,
+  onStatus: (event: ScanStatusEvent) => void,
+): Promise<StartScanDto> {
+  const onEventChannel = new Channel<ScanEvent>(onEvent)
+  const onStatusChannel = new Channel<ScanStatusEvent>(onStatus)
+  return invoke<StartScanDto>("start_scan", {
+    interfaceName,
+    cidr,
+    tcpFallback,
+    portsEnabled,
+    onEvent: onEventChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function stopScan(): Promise<StoppedScanDto> {
+  return invoke<StoppedScanDto>("stop_scan")
+}
+
+export function listScans(): Promise<ScanSummaryDto[]> {
+  return invoke<ScanSummaryDto[]>("list_scans")
+}
+
+export function loadScan(id: number): Promise<LoadedScanDto> {
+  return invoke<LoadedScanDto>("load_scan", { id })
+}
+
+export function deleteScan(id: number): Promise<void> {
+  return invoke<void>("delete_scan", { id })
+}
+
+// DNS Tester IPC wrappers
+
+export function runDnsLookup(
+  name: string,
+  recordTypes: string[],
+  endpoint: ResolverEndpointDto,
+  onEvent: (event: LookupEventDto) => void,
+): Promise<LookupSummaryDto> {
+  const onEventChannel = new Channel<LookupEventDto>(onEvent)
+  return invoke<LookupSummaryDto>("dns_lookup", {
+    name,
+    recordTypes,
+    endpoint,
+    onEvent: onEventChannel,
+  })
+}
+
+export function runDnsDiagnostics(
+  endpoint: ResolverEndpointDto,
+  domain: string,
+): Promise<DnsDiagnosticsDto> {
+  return invoke<DnsDiagnosticsDto>("dns_diagnostics", { endpoint, domain })
+}
+
+export function runDnsEmailCheck(
+  endpoint: ResolverEndpointDto,
+  domain: string,
+  dkimSelectors: string[],
+): Promise<EmailSecurityReportDto> {
+  return invoke<EmailSecurityReportDto>("dns_email_check", { endpoint, domain, dkimSelectors })
+}
+
+export function runDnsBenchmark(
+  endpoint: ResolverEndpointDto,
+  profile: BenchmarkProfile,
+  onCell: (cell: SampleCell) => void,
+): Promise<BenchmarkRunDto> {
+  const onCellChannel = new Channel<SampleCell>(onCell)
+  return invoke<BenchmarkRunDto>("dns_benchmark", {
+    endpoint,
+    profileJson: JSON.stringify(profile),
+    onCell: onCellChannel,
+  })
+}
+
+export function listDnsRuns(): Promise<DnsRunSummaryDto[]> {
+  return invoke<DnsRunSummaryDto[]>("list_dns_runs")
+}
+
+export function loadDnsRun(id: number): Promise<LoadedDnsRunDto> {
+  return invoke<LoadedDnsRunDto>("load_dns_run", { id })
+}
+
+export function deleteDnsRun(id: number): Promise<void> {
+  return invoke<void>("delete_dns_run", { id })
+}
+
+// Download speed history IPC wrappers
+
+type SpeedSessionResult =
+  | DownloadSpeedResultDto
+  | PageSpeedResultDto
+  | WebBenchmarkResult
+
+function sessionMetrics(result: SpeedSessionResult): {
+  averageMbps: number
+  totalTimeMs: number
+} {
+  if ("averageMbps" in result) {
+    return {
+      averageMbps: result.averageMbps,
+      totalTimeMs:
+        "totalTimeMs" in result
+          ? (result as DownloadSpeedResultDto).totalTimeMs
+          : (result as PageSpeedResultDto).totalDurationMs,
+    }
+  }
+
+  const summary = result.summaries[0]
+  if (!summary) {
+    return { averageMbps: 0, totalTimeMs: 0 }
+  }
+  const maxTotalMs = result.summaries.reduce(
+    (max, s) => Math.max(max, s.totalMs.average),
+    0,
+  )
+  return {
+    averageMbps: (summary.throughputBytesPerSecond.average * 8) / 1_000_000,
+    totalTimeMs: Math.round(maxTotalMs),
+  }
+}
+
+export function saveDownloadSpeedSession(
+  url: string,
+  mode: string,
+  httpSettings: HttpSettings,
+  result: SpeedSessionResult,
+): Promise<DownloadSpeedSessionSummaryDto> {
+  const metrics = sessionMetrics(result)
+  return invoke<DownloadSpeedSessionSummaryDto>("save_download_speed_session", {
+    request: {
+      url,
+      mode,
+      httpSettingsJson: JSON.stringify(httpSettings),
+      resultJson: JSON.stringify(result),
+      averageMbps: metrics.averageMbps,
+      totalTimeMs: metrics.totalTimeMs,
+    },
+  })
+}
+
+export function listDownloadSpeedSessions(): Promise<DownloadSpeedSessionSummaryDto[]> {
+  return invoke<DownloadSpeedSessionSummaryDto[]>("list_download_speed_sessions")
+}
+
+export function loadDownloadSpeedSession(id: number): Promise<LoadedDownloadSpeedSessionDto> {
+  return invoke<LoadedDownloadSpeedSessionDto>("load_download_speed_session", { id })
+}
+
+export function deleteDownloadSpeedSession(id: number): Promise<void> {
+  return invoke<void>("delete_download_speed_session", { id })
 }

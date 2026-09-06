@@ -1,20 +1,20 @@
 .wrapper {
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
   padding: 0.75rem;
-  background: #1c1c1f;
+  background: var(--surface-1);
 }
 
 .wrapper h2 {
   margin: 0 0 0.75rem;
   font-size: 0.95rem;
   font-weight: 600;
-  color: #e4e4e7;
+  color: var(--text);
 }
 
 .empty {
   margin: 0;
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
@@ -33,9 +33,9 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.6rem;
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
-  background: #18181b;
+  background: var(--bg);
 }
 
 .summary {
@@ -47,7 +47,7 @@
 
 .target {
   font-weight: 600;
-  color: #e4e4e7;
+  color: var(--text);
   font-size: 0.9rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -55,7 +55,7 @@
 }
 
 .meta {
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -70,16 +70,16 @@
 
 .actions button {
   padding: 0.35rem 0.55rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .actions button:hover:not(:disabled) {
-  background: #3f3f46;
+  background: var(--surface-3);
 }
 
 .actions button:disabled {
@@ -97,16 +97,16 @@
 
 .compareHeader button {
   padding: 0.35rem 0.55rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .compareHeader button:hover:not(:disabled) {
-  background: #3f3f46;
+  background: var(--surface-3);
 }
 
 .compareHeader button:disabled {
@@ -115,7 +115,7 @@
 }
 
 .compareHint {
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 

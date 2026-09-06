@@ -6,9 +6,11 @@ use std::time::Duration;
 use tokio::sync::{watch, Mutex, Semaphore};
 use tokio::time::timeout;
 
-use crate::db::{now_rfc3339, Database, TraceHopRow};
 use super::manager::TraceManager;
-use super::types::{TraceEvent, TraceResolver, TraceStatusEvent, TraceStatusSink, TraceStream, StoppedTraceDto};
+use super::types::{
+    StoppedTraceDto, TraceEvent, TraceResolver, TraceStatusEvent, TraceStatusSink, TraceStream,
+};
+use crate::db::{now_rfc3339, Database, TraceHopRow};
 
 struct RunState {
     hops: Vec<TraceHopRow>,
@@ -21,8 +23,22 @@ pub async fn run_trace(
     mut stream: Box<dyn TraceStream>,
     ctx: TraceRunContext,
 ) -> Result<StoppedTraceDto, super::types::TraceError> {
-    let TraceRunContext { manager, db, trace_id, resolved_ip, resolver, on_event, on_status, mut stop_rx } = ctx;
-    let state = Arc::new(Mutex::new(RunState { hops: Vec::new(), cache: HashMap::new(), pending: HashSet::new(), hops_by_address: HashMap::new() }));
+    let TraceRunContext {
+        manager,
+        db,
+        trace_id,
+        resolved_ip,
+        resolver,
+        on_event,
+        on_status,
+        mut stop_rx,
+    } = ctx;
+    let state = Arc::new(Mutex::new(RunState {
+        hops: Vec::new(),
+        cache: HashMap::new(),
+        pending: HashSet::new(),
+        hops_by_address: HashMap::new(),
+    }));
     let semaphore = Arc::new(Semaphore::new(4));
     let mut reached_target = false;
     let mut cancelled = false;
@@ -79,12 +95,24 @@ pub async fn run_trace(
 
     let ended_at = now_rfc3339();
     let hops = { state.lock().await.hops.clone() };
-    let dto = StoppedTraceDto { trace_id, hop_count: hops.len() as u64, ended_at: ended_at.clone() };
+    let dto = StoppedTraceDto {
+        trace_id,
+        hop_count: hops.len() as u64,
+        ended_at: ended_at.clone(),
+    };
     let status = if cancelled { "cancelled" } else { "completed" };
-    db.complete_trace_with_hops(trace_id, &ended_at, status, reached_target, &hops).await?;
+    db.complete_trace_with_hops(trace_id, &ended_at, status, reached_target, &hops)
+        .await?;
     on_status(match cancelled {
-        true => TraceStatusEvent::Cancelled { trace_id, hop_count: dto.hop_count },
-        false => TraceStatusEvent::Completed { trace_id, hop_count: dto.hop_count, reached_target },
+        true => TraceStatusEvent::Cancelled {
+            trace_id,
+            hop_count: dto.hop_count,
+        },
+        false => TraceStatusEvent::Completed {
+            trace_id,
+            hop_count: dto.hop_count,
+            reached_target,
+        },
     });
     manager.clear_active(trace_id).await;
     Ok(dto)
@@ -110,7 +138,10 @@ async fn spawn_hostname_lookup(
     on_event: Arc<dyn Fn(TraceEvent) + Send + Sync>,
     semaphore: Arc<Semaphore>,
 ) {
-    let permit = match semaphore.clone().acquire_owned().await { Ok(permit) => permit, Err(_) => return };
+    let permit = match semaphore.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => return,
+    };
     tokio::spawn(async move {
         let _permit = permit;
         let mut lookup = (resolver)(address);
@@ -132,11 +163,25 @@ async fn emit_hostname_event(
 ) {
     let hops = {
         let mut guard = state.lock().await;
-        let hops = guard.hops_by_address.get(&address).cloned().unwrap_or_default();
+        let hops = guard
+            .hops_by_address
+            .get(&address)
+            .cloned()
+            .unwrap_or_default();
         let mut updated = Vec::new();
         for hop in hops {
-            if let Some(row) = guard.hops.iter_mut().find(|row| row.hop == hop && row.address.as_ref().and_then(|value| value.parse::<IpAddr>().ok()) == Some(address) && row.hostname.is_none()) {
-                if hostname.is_some() { row.hostname = hostname.clone(); }
+            if let Some(row) = guard.hops.iter_mut().find(|row| {
+                row.hop == hop
+                    && row
+                        .address
+                        .as_ref()
+                        .and_then(|value| value.parse::<IpAddr>().ok())
+                        == Some(address)
+                    && row.hostname.is_none()
+            }) {
+                if hostname.is_some() {
+                    row.hostname = hostname.clone();
+                }
                 updated.push(hop);
             }
         }
@@ -144,7 +189,13 @@ async fn emit_hostname_event(
     };
 
     for hop in hops {
-        let _ = db.update_trace_hop_hostname(trace_id, hop, hostname.as_deref()).await;
-        on_event(TraceEvent::Hostname { hop: hop as u32, address: address.to_string(), hostname: hostname.clone() });
+        let _ = db
+            .update_trace_hop_hostname(trace_id, hop, hostname.as_deref())
+            .await;
+        on_event(TraceEvent::Hostname {
+            hop: hop as u32,
+            address: address.to_string(),
+            hostname: hostname.clone(),
+        });
     }
 }

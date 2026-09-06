@@ -11,11 +11,11 @@
 //! closures. The Tauri commands in `lib.rs` are thin wrappers that adapt
 //! `tauri::ipc::Channel`s into those sinks.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -24,14 +24,14 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::db::{now_rfc3339, Database, DbError, NewSession, ProbeRow, SessionSummary};
-use crate::engine::{
-    resolve_target, run_probe_loop, EngineError, Family, LoopProbe, PingEngine, ProbeResult,
-    SurgePinger, PING_INTERVAL_MS, PING_TIMEOUT_MS,
-};
 #[cfg(unix)]
 use crate::engine::OsPinger;
 #[cfg(windows)]
 use crate::engine::WinIcmpPinger;
+use crate::engine::{
+    resolve_target, run_probe_loop, EngineError, Family, LoopProbe, PingEngine, ProbeResult,
+    SurgePinger, PING_INTERVAL_MS, PING_TIMEOUT_MS,
+};
 use crate::stats::{ProbeOutcome, StatsEngine, StatsSnapshot};
 
 /// Flush the write-behind batch once it reaches this many probes.
@@ -58,7 +58,11 @@ pub struct ProbeEvent {
 
 /// Lifecycle event streamed over the `on_status` channel.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "event", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "event",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum StatusEvent {
     /// Engine chosen at session start; `fallback` is true when the primary
     /// (surge) engine was denied and the platform fallback was selected.
@@ -302,8 +306,7 @@ pub fn engine_name(choice: EngineChoice) -> &'static str {
     }
 }
 
-type EngineFactoryFuture =
-    Pin<Box<dyn Future<Output = Result<PingEngine, EngineError>> + Send>>;
+type EngineFactoryFuture = Pin<Box<dyn Future<Output = Result<PingEngine, EngineError>> + Send>>;
 
 /// Injectable engine constructor. Tests substitute a Mock-scripted factory
 /// (including one that simulates a permission-denied primary).
@@ -315,9 +318,11 @@ pub fn default_engine_factory() -> EngineFactory {
     Arc::new(|addr, scope_id, choice, payload_size, dont_fragment| {
         Box::pin(async move {
             match choice {
-                EngineChoice::Primary => SurgePinger::new(addr, scope_id, payload_size, dont_fragment)
-                    .await
-                    .map(PingEngine::Surge),
+                EngineChoice::Primary => {
+                    SurgePinger::new(addr, scope_id, payload_size, dont_fragment)
+                        .await
+                        .map(PingEngine::Surge)
+                }
                 #[cfg(windows)]
                 EngineChoice::Fallback => Ok(PingEngine::WinIcmp(WinIcmpPinger::new(
                     addr,
@@ -409,7 +414,12 @@ impl SessionManager {
         let family = parse_family(family)?;
         let resolved = resolve_target(target, family).await?;
         let (mut engine, choice) = self
-            .select_engine(resolved.selected, resolved.scope_id, payload_size, dont_fragment)
+            .select_engine(
+                resolved.selected,
+                resolved.scope_id,
+                payload_size,
+                dont_fragment,
+            )
             .await?;
         let engine_label = engine_name(choice).to_owned();
 
@@ -482,12 +492,17 @@ impl SessionManager {
         payload_size: usize,
         dont_fragment: bool,
     ) -> Result<(PingEngine, EngineChoice), SessionError> {
-        match (self.factory)(addr, scope_id, EngineChoice::Primary, payload_size, dont_fragment).await
+        match (self.factory)(
+            addr,
+            scope_id,
+            EngineChoice::Primary,
+            payload_size,
+            dont_fragment,
+        )
+        .await
         {
             Ok(engine) => Ok((engine, EngineChoice::Primary)),
-            Err(EngineError::Socket(err))
-                if err.kind() == std::io::ErrorKind::PermissionDenied =>
-            {
+            Err(EngineError::Socket(err)) if err.kind() == std::io::ErrorKind::PermissionDenied => {
                 let engine = (self.factory)(
                     addr,
                     scope_id,
@@ -741,9 +756,9 @@ mod tests {
             let script = script.clone();
             Box::pin(async move {
                 match choice {
-                    EngineChoice::Primary => Err(EngineError::Socket(
-                        std::io::Error::from(std::io::ErrorKind::PermissionDenied),
-                    )),
+                    EngineChoice::Primary => Err(EngineError::Socket(std::io::Error::from(
+                        std::io::ErrorKind::PermissionDenied,
+                    ))),
                     EngineChoice::Fallback => Ok(PingEngine::Mock(MockPinger::new(script))),
                 }
             })
@@ -755,7 +770,9 @@ mod tests {
     }
 
     async fn test_manager(dir: &TestDir, factory: EngineFactory) -> SessionManager {
-        let db = Database::connect(&dir.db_file()).await.expect("connect test db");
+        let db = Database::connect(&dir.db_file())
+            .await
+            .expect("connect test db");
         SessionManager::new(db, factory)
     }
 
@@ -765,16 +782,22 @@ mod tests {
         UnboundedReceiver<ProbeEvent>,
     ) {
         let (tx, rx) = mpsc::unbounded_channel();
-        (move |event| {
-            let _ = tx.send(event);
-        }, rx)
+        (
+            move |event| {
+                let _ = tx.send(event);
+            },
+            rx,
+        )
     }
 
     fn status_sink() -> (StatusSink, UnboundedReceiver<StatusEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        (Arc::new(move |event: StatusEvent| {
-            let _ = tx.send(event);
-        }), rx)
+        (
+            Arc::new(move |event: StatusEvent| {
+                let _ = tx.send(event);
+            }),
+            rx,
+        )
     }
 
     async fn next_probe(rx: &mut UnboundedReceiver<ProbeEvent>) -> ProbeEvent {
@@ -846,7 +869,9 @@ mod tests {
             event,
             StatusEvent::SessionStopped { session_id, .. } if *session_id == info.session_id
         )));
-        assert!(!events.iter().any(|event| matches!(event, StatusEvent::Error { .. })));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, StatusEvent::Error { .. })));
 
         // Direct DB verification.
         let probes = manager
@@ -855,7 +880,9 @@ mod tests {
             .await
             .expect("load probes");
         assert_eq!(probes.len(), 5);
-        assert!(probes.iter().all(|row| row.rtt_ms == Some(10.0) && !row.loss));
+        assert!(probes
+            .iter()
+            .all(|row| row.rtt_ms == Some(10.0) && !row.loss));
         assert_eq!(probes.first().map(|row| row.seq), Some(1));
         assert_eq!(probes.last().map(|row| row.seq), Some(5));
 
@@ -864,7 +891,10 @@ mod tests {
         let row = &sessions[0];
         assert_eq!(row.engine, "surge");
         assert_eq!(row.family, "v4");
-        assert_eq!(row.interval_ms, i64::try_from(PING_INTERVAL_MS).unwrap_or(0));
+        assert_eq!(
+            row.interval_ms,
+            i64::try_from(PING_INTERVAL_MS).unwrap_or(0)
+        );
         assert_eq!(row.timeout_ms, i64::try_from(PING_TIMEOUT_MS).unwrap_or(0));
         assert_eq!(row.probe_count, 5);
         assert!(row.ended_at.is_some());
@@ -887,7 +917,9 @@ mod tests {
         let (on_probe, _pr) = probe_sink();
         let (on_status, _sr) = status_sink();
         assert!(matches!(
-            manager.start("127.0.0.1", "bogus", 32, false, on_probe, on_status).await,
+            manager
+                .start("127.0.0.1", "bogus", 32, false, on_probe, on_status)
+                .await,
             Err(SessionError::InvalidFamily(_))
         ));
 
@@ -982,7 +1014,10 @@ mod tests {
                 .len(),
         )
         .unwrap_or(0);
-        assert!(persisted <= received, "persisted {persisted} > received {received}");
+        assert!(
+            persisted <= received,
+            "persisted {persisted} > received {received}"
+        );
         assert!(
             received - persisted <= 1,
             "lost {} probes; the unflushed window allows at most 1",
@@ -991,7 +1026,10 @@ mod tests {
 
         let sessions = manager.db.list_sessions().await.expect("list sessions");
         assert_eq!(sessions.len(), 1);
-        assert!(sessions[0].ended_at.is_none(), "crash must not stamp ended_at");
+        assert!(
+            sessions[0].ended_at.is_none(),
+            "crash must not stamp ended_at"
+        );
 
         // The session slot is released after a crash.
         let (on_probe2, _pr2) = probe_sink();
@@ -1000,7 +1038,10 @@ mod tests {
             .start("127.0.0.1", "v4", 32, false, on_probe2, on_status2)
             .await
             .expect("restart after crash");
-        manager.stop(info2.session_id).await.expect("stop after restart");
+        manager
+            .stop(info2.session_id)
+            .await
+            .expect("stop after restart");
         assert_ne!(info.session_id, info2.session_id);
     }
 
@@ -1038,7 +1079,10 @@ mod tests {
             Err(SessionError::SessionNotFound(999_999))
         ));
 
-        manager.delete_session(info.session_id).await.expect("delete");
+        manager
+            .delete_session(info.session_id)
+            .await
+            .expect("delete");
         assert!(manager.list_sessions().await.expect("list").is_empty());
     }
 }

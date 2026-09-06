@@ -10,8 +10,8 @@
   flex-wrap: wrap;
   gap: 1rem;
   padding: 0.6rem 0.75rem;
-  background: #1c1c1f;
-  border: 1px solid #27272a;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
 }
 
@@ -23,7 +23,7 @@
 
 .metricLabel {
   font-size: 0.75rem;
-  color: #a1a1aa;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -31,7 +31,7 @@
 .metricValue {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #e4e4e7;
+  color: var(--text);
 }
 
 .toggle {
@@ -41,23 +41,23 @@
 
 .toggle button {
   padding: 0.35rem 0.75rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.85rem;
   cursor: pointer;
 }
 
 .toggle button:hover {
-  background: #3f3f46;
+  background: var(--surface-3);
 }
 
 .tableWrapper {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
 }
 
@@ -77,8 +77,8 @@
   display: table;
   width: 100%;
   table-layout: fixed;
-  background: #1c1c1f;
-  color: #a1a1aa;
+  background: var(--surface-1);
+  color: var(--text-muted);
 }
 
 .table tbody {
@@ -95,9 +95,9 @@
 }
 
 .table tbody tr:nth-child(even) {
-  background: #1c1c1f;
+  background: var(--surface-1);
 }
 
 .lost td {
-  color: #f87171;
+  color: var(--danger);
 }

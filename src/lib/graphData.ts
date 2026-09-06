@@ -9,7 +9,8 @@ type GraphPoint = {
 
 function probeX(probe: ProbeRow): number {
   const time = new Date(probe.at).getTime()
-  return Number.isNaN(time) ? probe.seq : time
+  // uPlot's time scale expects Unix seconds, not milliseconds.
+  return Number.isNaN(time) ? probe.seq : time / 1000
 }
 
 export function buildGraphData(probes: readonly ProbeRow[], canvasWidth: number) {

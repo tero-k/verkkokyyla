@@ -22,7 +22,10 @@ pub struct TraceLimits {
 
 impl TraceLimits {
     pub const fn new(inactivity: Duration, ceiling: Duration) -> Self {
-        Self { inactivity, ceiling }
+        Self {
+            inactivity,
+            ceiling,
+        }
     }
 }
 
@@ -152,7 +155,9 @@ impl RawHopStream {
             let wait_for = remaining_ceiling.min(remaining_inactivity);
             if wait_for.is_zero() {
                 self.child.start_kill().ok();
-                return Err(TraceEngineError::Spawn("trace exceeded the watchdog".to_owned()));
+                return Err(TraceEngineError::Spawn(
+                    "trace exceeded the watchdog".to_owned(),
+                ));
             }
 
             let line = match timeout(wait_for, self.lines.next_line()).await {
@@ -171,7 +176,9 @@ impl RawHopStream {
                             "trace exceeded the absolute ceiling".to_owned(),
                         ));
                     }
-                    return Err(TraceEngineError::Spawn("trace exceeded the watchdog".to_owned()));
+                    return Err(TraceEngineError::Spawn(
+                        "trace exceeded the watchdog".to_owned(),
+                    ));
                 }
             };
 
@@ -187,7 +194,9 @@ impl RawHopStream {
         self.child
             .try_wait()
             .map(|status| status.is_none())
-            .map_err(|err| TraceEngineError::Spawn(format!("failed to query traceroute child: {err}")))
+            .map_err(|err| {
+                TraceEngineError::Spawn(format!("failed to query traceroute child: {err}"))
+            })
     }
 }
 

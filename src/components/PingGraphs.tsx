@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import UPlot from "uplot/dist/uPlot.esm.js"
 import { buildGraphData } from "../lib/graphData"
 import type { ProbeRow } from "../lib/types"
+import { useTheme } from "../theme"
 
 import "uplot/dist/uPlot.min.css"
 import styles from "./PingGraphs.module.css"
@@ -10,12 +11,29 @@ type PingGraphsProps = {
   readonly probes: readonly ProbeRow[]
 }
 
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+function graphAxisConfig(label: string): object {
+  return {
+    stroke: cssVar("--graph-axis"),
+    grid: { stroke: cssVar("--graph-grid") },
+    ticks: { stroke: cssVar("--graph-grid") },
+    font: `12px system-ui, sans-serif`,
+    label,
+    labelColor: cssVar("--graph-axis"),
+    labelSize: 12,
+  }
+}
+
 export function PingGraphs({ probes }: PingGraphsProps) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const rttRef = useRef<HTMLDivElement>(null)
   const lossRef = useRef<HTMLDivElement>(null)
   const jitterRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
+  const { resolved } = useTheme()
   const chartsRef = useRef<{
     rtt: UPlot | null
     loss: UPlot | null
@@ -51,19 +69,19 @@ export function PingGraphs({ probes }: PingGraphsProps) {
         height: 160,
         title: "RTT",
         scales: { x: { time: true }, y: {} },
-        axes: [{}, { label: "ms" }],
+        axes: [graphAxisConfig(""), graphAxisConfig("ms")],
         series: [
           {},
           {
             label: "RTT",
-            stroke: "#38bdf8",
+            stroke: cssVar("--graph-rtt"),
             spanGaps: false,
             points: { show: false },
           },
           {
             label: "Loss",
-            stroke: "#ef4444",
-            points: { show: true, size: 3, fill: "#ef4444" },
+            stroke: cssVar("--graph-loss"),
+            points: { show: true, size: 3, fill: cssVar("--graph-loss") },
           },
         ],
       },
@@ -77,13 +95,13 @@ export function PingGraphs({ probes }: PingGraphsProps) {
         height: 120,
         title: "Loss %",
         scales: { x: { time: true }, y: {} },
-        axes: [{}, { label: "%" }],
+        axes: [graphAxisConfig(""), graphAxisConfig("%")],
         series: [
           {},
           {
             label: "Loss %",
-            stroke: "#f87171",
-            fill: "rgba(248, 113, 113, 0.2)",
+            stroke: cssVar("--graph-loss"),
+            fill: cssVar("--graph-loss-fill"),
             points: { show: false },
           },
         ],
@@ -98,12 +116,12 @@ export function PingGraphs({ probes }: PingGraphsProps) {
         height: 120,
         title: "Jitter",
         scales: { x: { time: true }, y: {} },
-        axes: [{}, { label: "ms" }],
+        axes: [graphAxisConfig(""), graphAxisConfig("ms")],
         series: [
           {},
           {
             label: "Jitter",
-            stroke: "#a78bfa",
+            stroke: cssVar("--graph-jitter"),
             points: { show: false },
           },
         ],
@@ -120,7 +138,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
       jitterChart.destroy()
       chartsRef.current = { rtt: null, loss: null, jitter: null }
     }
-  }, [width])
+  }, [width, resolved])
 
   useEffect(() => {
     const { rtt: rttChart, loss: lossChart, jitter: jitterChart } =

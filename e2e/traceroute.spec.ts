@@ -39,7 +39,6 @@ test("error path shows unavailable message and no traces", async ({ page }) => {
 
 test("history can reopen and delete a saved trace", async ({ page }) => {
   await installMockTauri(page)
-  page.on("dialog", (dialog) => void dialog.accept())
   await page.goto("/#/traceroute")
 
   await page.fill('[data-testid="trace-target"]', "example.com")
@@ -56,6 +55,8 @@ test("history can reopen and delete a saved trace", async ({ page }) => {
   await expect(reopenedRows.nth(2)).toContainText("203.0.113.9")
 
   await page.click('[data-testid="trace-delete"]')
+  await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible()
+  await page.click('[data-testid="confirm-dialog-confirm"]')
   await expect(page.locator('[data-testid="trace-session-item"]')).toHaveCount(0)
 })
 

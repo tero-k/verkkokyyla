@@ -17,11 +17,11 @@ use tokio::time::timeout;
 
 use verkkokyyla_lib::db::Database;
 use verkkokyyla_lib::engine::trace_parse::RawHop;
-use verkkokyyla_lib::engine::{RawHopStream, TraceEngineError};
 #[cfg(unix)]
 use verkkokyyla_lib::engine::TracePosix;
 #[cfg(windows)]
 use verkkokyyla_lib::engine::TracertWin;
+use verkkokyyla_lib::engine::{RawHopStream, TraceEngineError};
 use verkkokyyla_lib::trace::{
     TraceEvent, TraceFactory, TraceManager, TraceResolver, TraceStatusEvent, TraceStream,
 };
@@ -56,9 +56,7 @@ impl Drop for TestDir {
 struct OsStream(RawHopStream);
 
 impl TraceStream for OsStream {
-    fn next<'a>(
-        &'a mut self,
-    ) -> BoxFuture<'a, Result<Option<RawHop>, TraceEngineError>> {
+    fn next<'a>(&'a mut self) -> BoxFuture<'a, Result<Option<RawHop>, TraceEngineError>> {
         Box::pin(async move { self.0.next().await })
     }
 }
@@ -99,8 +97,7 @@ async fn e2e_trace_loopback() -> Result<(), Box<dyn std::error::Error>> {
     let manager = TraceManager::new(db, os_factory(), resolver());
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel::<TraceEvent>();
-    let (status_tx, mut status_rx) =
-        tokio::sync::mpsc::unbounded_channel::<TraceStatusEvent>();
+    let (status_tx, mut status_rx) = tokio::sync::mpsc::unbounded_channel::<TraceStatusEvent>();
     let on_event = move |event: TraceEvent| {
         let _ = event_tx.send(event);
     };

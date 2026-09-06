@@ -26,7 +26,10 @@ const TIMEOUT: Duration = Duration::from_millis(1000);
 
 fn print_result(method: &str, target: &str, result: Result<Duration, String>) {
     match result {
-        Ok(rtt) => println!("{method} -> {target}: PASS rtt={:.3}ms", rtt.as_secs_f64() * 1000.0),
+        Ok(rtt) => println!(
+            "{method} -> {target}: PASS rtt={:.3}ms",
+            rtt.as_secs_f64() * 1000.0
+        ),
         Err(err) => println!("{method} -> {target}: FAIL {err}"),
     }
 }
@@ -72,7 +75,7 @@ mod winicmp {
         Icmp6CreateFile, Icmp6ParseReplies, Icmp6SendEcho2, IcmpCloseHandle, IcmpCreateFile,
         IcmpParseReplies, IcmpSendEcho, ICMPV6_ECHO_REPLY_LH, ICMP_ECHO_REPLY, IP_SUCCESS,
     };
-    use windows::Win32::Networking::WinSock::{IN6_ADDR, IN6_ADDR_0, SOCKADDR_IN6, AF_INET6};
+    use windows::Win32::Networking::WinSock::{AF_INET6, IN6_ADDR, IN6_ADDR_0, SOCKADDR_IN6};
 
     fn last_error(context: &str) -> String {
         // SAFETY: GetLastError only reads the calling thread's error slot.
@@ -84,7 +87,10 @@ mod winicmp {
         )
     }
 
-    fn create_handle(context: &str, raw: windows::core::Result<HANDLE>) -> Result<IcmpHandle, String> {
+    fn create_handle(
+        context: &str,
+        raw: windows::core::Result<HANDLE>,
+    ) -> Result<IcmpHandle, String> {
         match raw {
             Ok(h) => Ok(IcmpHandle(h)),
             Err(e) => Err(format!("{context} failed: {e}; {}", last_error(context))),
@@ -95,7 +101,9 @@ mod winicmp {
 
     impl Drop for IcmpHandle {
         fn drop(&mut self) {
-            unsafe { let _ = IcmpCloseHandle(self.0); }
+            unsafe {
+                let _ = IcmpCloseHandle(self.0);
+            }
         }
     }
 
@@ -190,7 +198,11 @@ mod winicmp {
 #[tokio::main]
 async fn main() {
     println!("ping_spike: unprivileged ICMP echo probe");
-    println!("os={} arch={}", std::env::consts::OS, std::env::consts::ARCH);
+    println!(
+        "os={} arch={}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     println!(
         "surge-ping=0.9 force_raw={}",
         std::env::var_os("PING_SPIKE_FORCE_RAW").is_some()

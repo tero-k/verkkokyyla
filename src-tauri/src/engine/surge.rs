@@ -100,7 +100,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "real ICMP echo; run with --ignored for evidence"]
     async fn integration_ping_surge_loopback_v6() {
-        let Ok(mut pinger) = SurgePinger::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0, 32, false).await else {
+        let Ok(mut pinger) = SurgePinger::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0, 32, false).await
+        else {
             eprintln!("SKIP: cannot create ICMPv6 client on this host");
             return;
         };

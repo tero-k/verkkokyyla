@@ -1,11 +1,17 @@
+pub mod bench;
+pub mod bench_stats;
 pub mod db;
+pub mod dns;
 pub mod download;
+pub mod download_manager;
 pub mod engine;
 pub mod http_client;
 pub mod page_speed;
+pub mod scan;
+mod scan_commands;
 pub mod session;
-pub mod trace;
 pub mod stats;
+pub mod trace;
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -14,21 +20,31 @@ use futures_util::future::BoxFuture;
 use tauri::Manager;
 use tokio::task::spawn_blocking;
 
-use session::{
-    LoadedSessionDto, ProbeEvent, SessionError, SessionManager, SessionSummaryDto, SnapshotDto,
-    StartInfoDto, StatusEvent, StoppedSessionDto,
+use dns::manager::DnsManager;
+use download_manager::{
+    DownloadSpeedHistoryError, DownloadSpeedManager, DownloadSpeedSessionSummaryDto,
+    LoadedDownloadSpeedSessionDto, SaveDownloadSpeedSessionRequest,
 };
+
+
 #[cfg(unix)]
 use engine::TracePosix;
 #[cfg(windows)]
 use engine::TracertWin;
+use scan::ScanManager;
+use session::{
+    LoadedSessionDto, ProbeEvent, SessionError, SessionManager, SessionSummaryDto, SnapshotDto,
+    StartInfoDto, StatusEvent, StoppedSessionDto,
+};
 use trace::{
     LoadedTraceDto, StartTraceDto, StoppedTraceDto, TraceError, TraceEvent, TraceManager,
     TraceStatusEvent, TraceSummaryDto,
 };
 
 impl trace::TraceStream for engine::RawHopStream {
-    fn next<'a>(&'a mut self) -> BoxFuture<'a, Result<Option<engine::trace_parse::RawHop>, engine::TraceEngineError>> {
+    fn next<'a>(
+        &'a mut self,
+    ) -> BoxFuture<'a, Result<Option<engine::trace_parse::RawHop>, engine::TraceEngineError>> {
         Box::pin(async move { engine::RawHopStream::next(self).await })
     }
 }
@@ -151,18 +167,12 @@ async fn load_trace(
 }
 
 #[tauri::command]
-async fn delete_trace(
-    manager: tauri::State<'_, TraceManager>,
-    id: i64,
-) -> Result<(), TraceError> {
+async fn delete_trace(manager: tauri::State<'_, TraceManager>, id: i64) -> Result<(), TraceError> {
     manager.delete_trace(id).await
 }
 
 #[tauri::command]
-fn get_snapshot(
-    manager: tauri::State<'_, SessionManager>,
-    session_id: i64,
-) -> SnapshotDto {
+fn get_snapshot(manager: tauri::State<'_, SessionManager>, session_id: i64) -> SnapshotDto {
     manager.snapshot(session_id)
 }
 
@@ -206,6 +216,119 @@ async fn run_page_speed_test(
     .await
 }
 
+#[tauri::command]
+async fn run_web_benchmark(
+    config: bench::BenchmarkConfig,
+) -> Result<bench::BenchmarkResult, bench::BenchmarkError> {
+    bench::run_benchmark(config).await
+}
+
+#[tauri::command]
+async fn dns_lookup(
+    name: String,
+    record_types: Vec<String>,
+    endpoint: dns::client::ResolverEndpointDto,
+    on_event: tauri::ipc::Channel<dns::manager::LookupEventDto>,
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<dns::manager::LookupSummaryDto, dns::error::DnsError> {
+    manager
+        .run_lookup(&name, record_types, endpoint, move |event| {
+            let _ = on_event.send(event);
+        })
+        .await
+}
+
+#[tauri::command]
+async fn dns_diagnostics(
+    endpoint: dns::client::ResolverEndpointDto,
+    domain: String,
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<dns::diagnostics::DnsDiagnosticsDto, dns::error::DnsError> {
+    let report = manager.run_diagnostics(endpoint.clone(), &domain).await?;
+    let _ = manager.persist_diagnostics(&endpoint.name, &domain, &report).await;
+    Ok(report)
+}
+
+#[tauri::command]
+async fn dns_email_check(
+    endpoint: dns::client::ResolverEndpointDto,
+    domain: String,
+    dkim_selectors: Vec<String>,
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<dns::email::EmailSecurityReportDto, dns::error::DnsError> {
+    manager.run_email_check(endpoint, &domain, dkim_selectors).await
+}
+
+#[tauri::command]
+async fn dns_benchmark(
+    endpoint: dns::client::ResolverEndpointDto,
+    profile_json: String,
+    on_cell: tauri::ipc::Channel<dns::bench::scheduler::SampleCell>,
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<dns::manager::BenchmarkRunDto, dns::error::DnsError> {
+    let profile: dns::bench::profiles::BenchmarkProfile = serde_json::from_str(&profile_json)
+        .map_err(|e| dns::error::DnsError::InvalidInput(format!("invalid profile: {e}")))?;
+    manager
+        .run_benchmark(endpoint, profile, move |cell| {
+            let _ = on_cell.send(cell);
+        })
+        .await
+}
+
+#[tauri::command]
+async fn list_dns_runs(
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<Vec<dns::manager::DnsRunSummaryDto>, dns::error::DnsError> {
+    manager.list_runs().await
+}
+
+#[tauri::command]
+async fn load_dns_run(
+    id: i64,
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<dns::manager::LoadedDnsRunDto, dns::error::DnsError> {
+    manager.load_run(id).await
+}
+
+#[tauri::command]
+async fn delete_dns_run(
+    id: i64,
+    manager: tauri::State<'_, DnsManager>,
+) -> Result<(), dns::error::DnsError> {
+    manager.delete_run(id).await
+}
+
+#[tauri::command]
+async fn save_download_speed_session(
+    manager: tauri::State<'_, DownloadSpeedManager>,
+    request: SaveDownloadSpeedSessionRequest,
+) -> Result<DownloadSpeedSessionSummaryDto, DownloadSpeedHistoryError> {
+    manager.save_session(request).await
+}
+
+#[tauri::command]
+async fn list_download_speed_sessions(
+    manager: tauri::State<'_, DownloadSpeedManager>,
+) -> Result<Vec<DownloadSpeedSessionSummaryDto>, DownloadSpeedHistoryError> {
+    manager.list_sessions().await
+}
+
+#[tauri::command]
+async fn load_download_speed_session(
+    manager: tauri::State<'_, DownloadSpeedManager>,
+    id: i64,
+) -> Result<LoadedDownloadSpeedSessionDto, DownloadSpeedHistoryError> {
+    manager.load_session(id).await
+}
+
+#[tauri::command]
+async fn delete_download_speed_session(
+    manager: tauri::State<'_, DownloadSpeedManager>,
+    id: i64,
+) -> Result<(), DownloadSpeedHistoryError> {
+    manager.delete_session(id).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -214,8 +337,22 @@ pub fn run() {
             let db_path = db::db_path(&data_dir);
             let session_db = tauri::async_runtime::block_on(db::Database::connect(&db_path))?;
             let trace_db = tauri::async_runtime::block_on(db::Database::connect(&db_path))?;
-            app.manage(SessionManager::new(session_db, session::default_engine_factory()));
-            app.manage(TraceManager::new(trace_db, os_trace_factory(), trace_resolver()));
+            let scan_db = tauri::async_runtime::block_on(db::Database::connect(&db_path))?;
+            let dns_db = tauri::async_runtime::block_on(db::Database::connect(&db_path))?;
+            app.manage(SessionManager::new(
+                session_db,
+                session::default_engine_factory(),
+            ));
+            app.manage(TraceManager::new(
+                trace_db,
+                os_trace_factory(),
+                trace_resolver(),
+            ));
+            app.manage(ScanManager::new(scan_db));
+            app.manage(DnsManager::new(Arc::new(dns_db)));
+            app.manage(DownloadSpeedManager::new(Arc::new(
+                tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -226,13 +363,31 @@ pub fn run() {
             list_traces,
             load_trace,
             delete_trace,
+            scan_commands::list_interfaces,
+            scan_commands::start_scan,
+            scan_commands::stop_scan,
+            scan_commands::list_scans,
+            scan_commands::load_scan,
+            scan_commands::delete_scan,
             get_snapshot,
             list_active_sessions,
             list_sessions,
             load_session,
             delete_session,
             run_download_speed_test,
-            run_page_speed_test
+            run_page_speed_test,
+            run_web_benchmark,
+            save_download_speed_session,
+            list_download_speed_sessions,
+            load_download_speed_session,
+            delete_download_speed_session,
+            dns_lookup,
+            dns_diagnostics,
+            dns_email_check,
+            dns_benchmark,
+            list_dns_runs,
+            load_dns_run,
+            delete_dns_run
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

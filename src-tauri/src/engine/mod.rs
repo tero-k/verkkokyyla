@@ -12,9 +12,9 @@ mod mock;
 #[cfg(unix)]
 mod osping;
 mod surge;
+pub mod trace_os;
 #[cfg(test)]
 mod trace_os_tests;
-pub mod trace_os;
 pub mod trace_parse;
 #[cfg(unix)]
 mod trace_posix;
@@ -29,8 +29,8 @@ pub use dns::{resolve_target, Family, ResolveResult};
 pub use mock::MockPinger;
 #[cfg(unix)]
 pub use osping::{EngineWarning, OsPinger};
-pub use trace_os::{RawHopStream, TraceEngineError, TraceLimits, TraceOs};
 pub use surge::SurgePinger;
+pub use trace_os::{RawHopStream, TraceEngineError, TraceLimits, TraceOs};
 #[cfg(unix)]
 pub use trace_posix::TracePosix;
 #[cfg(windows)]

@@ -1,4 +1,4 @@
-# NetDebug Ping
+# Verkkokyylä
 
 A small Tauri 2 desktop ping utility for Windows, macOS, and Linux. It pings a target, streams results over Tauri Channels, and keeps a local SQLite history of sessions.
 

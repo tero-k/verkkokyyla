@@ -225,7 +225,6 @@ export function usePingSession() {
   const deleteSession = useCallback(
     async (id: number) => {
       if (isRunning) return
-      if (!window.confirm("Delete this session?")) return
       try {
         await deleteSessionCommand(id)
         if (pastSession?.session.id === id) {

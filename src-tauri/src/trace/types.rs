@@ -20,18 +20,47 @@ pub type TraceResolver = Arc<dyn Fn(IpAddr) -> TraceResolverFuture + Send + Sync
 pub type TraceStatusSink = Arc<dyn Fn(TraceStatusEvent) + Send + Sync>;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "event", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "event",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TraceEvent {
-    Hop { hop: u32, address: Option<String>, rtt1_ms: Option<f64>, rtt2_ms: Option<f64>, rtt3_ms: Option<f64>, annotation: Option<String>, at: String },
-    Hostname { hop: u32, address: String, hostname: Option<String> },
+    Hop {
+        hop: u32,
+        address: Option<String>,
+        rtt1_ms: Option<f64>,
+        rtt2_ms: Option<f64>,
+        rtt3_ms: Option<f64>,
+        annotation: Option<String>,
+        at: String,
+    },
+    Hostname {
+        hop: u32,
+        address: String,
+        hostname: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "event", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "event",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TraceStatusEvent {
-    Completed { trace_id: i64, hop_count: u64, reached_target: bool },
-    Cancelled { trace_id: i64, hop_count: u64 },
-    Error { message: String },
+    Completed {
+        trace_id: i64,
+        hop_count: u64,
+        reached_target: bool,
+    },
+    Cancelled {
+        trace_id: i64,
+        hop_count: u64,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -117,7 +146,9 @@ impl fmt::Display for TraceError {
         match self {
             Self::AlreadyRunning => f.write_str("a trace is already running"),
             Self::NoActiveTrace => f.write_str("no trace is running"),
-            Self::InvalidFamily(input) => write!(f, "invalid family {input:?}; expected auto|v4|v6"),
+            Self::InvalidFamily(input) => {
+                write!(f, "invalid family {input:?}; expected auto|v4|v6")
+            }
             Self::TraceNotFound(id) => write!(f, "no trace with id {id}"),
             Self::Resolve(err) => write!(f, "{err}"),
             Self::Stream(err) => write!(f, "{err:?}"),
@@ -147,17 +178,46 @@ impl Serialize for TraceError {
     }
 }
 
-impl From<DbError> for TraceError { fn from(err: DbError) -> Self { Self::Db(err) } }
-impl From<TraceEngineError> for TraceError { fn from(err: TraceEngineError) -> Self { Self::Stream(err) } }
+impl From<DbError> for TraceError {
+    fn from(err: DbError) -> Self {
+        Self::Db(err)
+    }
+}
+impl From<TraceEngineError> for TraceError {
+    fn from(err: TraceEngineError) -> Self {
+        Self::Stream(err)
+    }
+}
 
 impl From<TraceSummary> for TraceSummaryDto {
     fn from(row: TraceSummary) -> Self {
-        Self { id: row.id, target_input: row.target_input, resolved_ip: row.resolved_ip, family: row.family, engine: row.engine, max_hops: row.max_hops, started_at: row.started_at, ended_at: row.ended_at, status: row.status, reached_target: row.reached_target, hop_count: row.hop_count }
+        Self {
+            id: row.id,
+            target_input: row.target_input,
+            resolved_ip: row.resolved_ip,
+            family: row.family,
+            engine: row.engine,
+            max_hops: row.max_hops,
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+            status: row.status,
+            reached_target: row.reached_target,
+            hop_count: row.hop_count,
+        }
     }
 }
 
 impl From<TraceHopRow> for TraceHopDto {
     fn from(row: TraceHopRow) -> Self {
-        Self { hop: row.hop, address: row.address, hostname: row.hostname, rtt1_ms: row.rtt1_ms, rtt2_ms: row.rtt2_ms, rtt3_ms: row.rtt3_ms, annotation: row.annotation, at: row.at }
+        Self {
+            hop: row.hop,
+            address: row.address,
+            hostname: row.hostname,
+            rtt1_ms: row.rtt1_ms,
+            rtt2_ms: row.rtt2_ms,
+            rtt3_ms: row.rtt3_ms,
+            annotation: row.annotation,
+            at: row.at,
+        }
     }
 }

@@ -314,7 +314,10 @@ mod tests {
         assert_eq!(history.len(), usize::try_from(N).expect("fits"));
         assert_eq!(history.first().map(|r| r.seq), Some(1));
         assert_eq!(history.last().map(|r| r.seq), Some(N));
-        assert_eq!(history[1999].outcome, ProbeOutcome::Rtt(Duration::from_millis(2000)));
+        assert_eq!(
+            history[1999].outcome,
+            ProbeOutcome::Rtt(Duration::from_millis(2000))
+        );
     }
 
     // Given an all-lost session,
@@ -341,7 +344,13 @@ mod tests {
         assert!(!snap.loss_fraction.is_nan());
 
         // Every RTT aggregate is None; no NaN anywhere among produced floats.
-        let nullable = [snap.min_ms, snap.avg_ms, snap.max_ms, snap.stddev_ms, snap.jitter_ms];
+        let nullable = [
+            snap.min_ms,
+            snap.avg_ms,
+            snap.max_ms,
+            snap.stddev_ms,
+            snap.jitter_ms,
+        ];
         assert!(nullable.iter().all(Option::is_none));
         assert!(nullable.into_iter().flatten().all(|v| !v.is_nan()));
     }
@@ -357,7 +366,13 @@ mod tests {
         assert_eq!(snap.loss_count, 0);
         assert_eq!(snap.loss_fraction, 0.0);
         assert!(!snap.loss_fraction.is_nan());
-        let nullable = [snap.min_ms, snap.avg_ms, snap.max_ms, snap.stddev_ms, snap.jitter_ms];
+        let nullable = [
+            snap.min_ms,
+            snap.avg_ms,
+            snap.max_ms,
+            snap.stddev_ms,
+            snap.jitter_ms,
+        ];
         assert!(nullable.iter().all(Option::is_none));
     }
 }

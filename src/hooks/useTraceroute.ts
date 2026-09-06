@@ -238,7 +238,6 @@ export function useTraceroute() {
   const deleteTraceById = useCallback(
     async (id: number) => {
       if (isRunning) return
-      if (!window.confirm("Delete this trace?")) return
       try {
         await deleteTrace(id)
         if (pastTrace?.trace.id === id) {

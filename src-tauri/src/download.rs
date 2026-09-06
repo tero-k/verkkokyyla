@@ -199,20 +199,22 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::time::sleep;
 
-    use crate::http_client::{HttpSettingsDto, HttpVersion};
+    use crate::http_client::{HttpSettingsDto, HttpVersion, IpFamily};
 
     fn default_settings() -> HttpSettingsDto {
         HttpSettingsDto {
             version: HttpVersion::Auto,
             connect_timeout_sec: 10,
             request_timeout_sec: 60,
+            read_timeout_sec: 0,
             follow_redirects: true,
             max_redirects: 10,
             compression: true,
+            ip_family: IpFamily::Auto,
             user_agent: String::new(),
         }
     }
@@ -225,6 +227,8 @@ mod tests {
 
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf).await;
             let _ = stream.write_all(&response).await;
             let _ = stream.shutdown().await;
         });
@@ -280,9 +284,10 @@ mod tests {
 
     #[tokio::test]
     async fn ftp_scheme_is_invalid() {
-        let err = run_download_speed_test("ftp://example.com/file", default_settings(), |_event| {})
-            .await
-            .unwrap_err();
+        let err =
+            run_download_speed_test("ftp://example.com/file", default_settings(), |_event| {})
+                .await
+                .unwrap_err();
         assert!(matches!(err, DownloadError::InvalidScheme));
     }
 
@@ -300,7 +305,9 @@ mod tests {
         let port = local_server(response).await;
         let url = format!("http://127.0.0.1:{port}/missing");
 
-        let result = run_download_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
+        let result = run_download_speed_test(&url, default_settings(), |_event| {})
+            .await
+            .unwrap();
         assert_eq!(result.status_code, 404);
         assert_eq!(result.bytes_received, 5);
         assert!(result.average_mbps.is_finite());
@@ -312,7 +319,9 @@ mod tests {
         let port = local_server(response).await;
         let url = format!("http://127.0.0.1:{port}/chunked");
 
-        let result = run_download_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
+        let result = run_download_speed_test(&url, default_settings(), |_event| {})
+            .await
+            .unwrap();
         assert_eq!(result.status_code, 200);
         assert_eq!(result.bytes_received, 5);
         assert_eq!(result.content_length, None);

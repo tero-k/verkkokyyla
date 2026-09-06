@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use futures_util::{StreamExt, stream};
+use futures_util::{stream, StreamExt};
 use serde::Serialize;
 
 use crate::download::{mbps_from, parse_url, DownloadError};
@@ -106,7 +106,11 @@ fn classify_resource(element: &scraper::ElementRef<'_>) -> PageResourceType {
                 .attr("rel")
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            let as_attr = element.value().attr("as").unwrap_or("").to_ascii_lowercase();
+            let as_attr = element
+                .value()
+                .attr("as")
+                .unwrap_or("")
+                .to_ascii_lowercase();
             if rel.contains("stylesheet") {
                 PageResourceType::Stylesheet
             } else if as_attr == "font" {
@@ -341,32 +345,33 @@ where
     let mut last_progress = Instant::now();
 
     // Fetch and parse the main document.
-    let (document_resource, html, final_url) = match fetch_document(&client, &parsed, page_started).await {
-        Ok((res, html, final_url)) => (res, html, final_url),
-        Err(e) => {
-            let duration_ms = page_started.elapsed().as_millis() as u64;
-            let resource = PageResource::failed(
-                parsed.to_string(),
-                PageResourceType::Document,
-                e.to_string(),
-            );
-            return Ok(PageSpeedResultDto {
-                url: url.to_owned(),
-                final_url: parsed.to_string(),
-                status_code: 0,
-                total_resources: 1,
-                successful_resources: 0,
-                failed_resources: 1,
-                total_content_length: None,
-                total_bytes_received: 0,
-                total_duration_ms: duration_ms,
-                time_to_first_byte_ms: None,
-                average_mbps: 0.0,
-                resources: vec![resource],
-                parse_error: None,
-            });
-        }
-    };
+    let (document_resource, html, final_url) =
+        match fetch_document(&client, &parsed, page_started).await {
+            Ok((res, html, final_url)) => (res, html, final_url),
+            Err(e) => {
+                let duration_ms = page_started.elapsed().as_millis() as u64;
+                let resource = PageResource::failed(
+                    parsed.to_string(),
+                    PageResourceType::Document,
+                    e.to_string(),
+                );
+                return Ok(PageSpeedResultDto {
+                    url: url.to_owned(),
+                    final_url: parsed.to_string(),
+                    status_code: 0,
+                    total_resources: 1,
+                    successful_resources: 0,
+                    failed_resources: 1,
+                    total_content_length: None,
+                    total_bytes_received: 0,
+                    total_duration_ms: duration_ms,
+                    time_to_first_byte_ms: None,
+                    average_mbps: 0.0,
+                    resources: vec![resource],
+                    parse_error: None,
+                });
+            }
+        };
 
     on_progress(PageProgressEvent {
         event: "progress",
@@ -458,16 +463,20 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::time::sleep;
 
-    use crate::http_client::{HttpSettingsDto, HttpVersion};
+    use crate::http_client::{HttpSettingsDto, HttpVersion, IpFamily};
+
+    type TestHandler = Arc<dyn Fn(&str) -> Vec<u8> + Send + Sync>;
 
     fn default_settings() -> HttpSettingsDto {
         HttpSettingsDto {
             version: HttpVersion::Auto,
             connect_timeout_sec: 10,
             request_timeout_sec: 60,
+            read_timeout_sec: 0,
             follow_redirects: true,
             max_redirects: 10,
             compression: true,
+            ip_family: IpFamily::Auto,
             user_agent: String::new(),
         }
     }
@@ -483,9 +492,7 @@ mod tests {
         .collect()
     }
 
-    async fn start_server(
-        handler: Arc<dyn Fn(&str) -> Vec<u8> + Send + Sync>,
-    ) -> u16 {
+    async fn start_server(handler: TestHandler) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
 
@@ -545,11 +552,13 @@ mod tests {
                 "/app.js" => b"console.log('hi');",
                 _ => b"not found",
             };
-            let status = if path == "/" || path == "/style.css" || path == "/image.png" || path == "/app.js" {
-                "200 OK"
-            } else {
-                "404 Not Found"
-            };
+            let status =
+                if path == "/" || path == "/style.css" || path == "/image.png" || path == "/app.js"
+                {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
             http_response(status, body)
         });
         let port = start_server(handler).await;
@@ -595,7 +604,9 @@ mod tests {
         let port = start_server(handler).await;
         let url = format!("http://127.0.0.1:{port}/");
 
-        let result = run_page_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
+        let result = run_page_speed_test(&url, default_settings(), |_event| {})
+            .await
+            .unwrap();
         assert_eq!(result.total_resources, 2);
         assert_eq!(result.resources.len(), 2);
     }
@@ -608,13 +619,19 @@ mod tests {
                 "/" => html,
                 _ => b"not found",
             };
-            let status = if path == "/" { "200 OK" } else { "404 Not Found" };
+            let status = if path == "/" {
+                "200 OK"
+            } else {
+                "404 Not Found"
+            };
             http_response(status, body)
         });
         let port = start_server(handler).await;
         let url = format!("http://127.0.0.1:{port}/");
 
-        let result = run_page_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
+        let result = run_page_speed_test(&url, default_settings(), |_event| {})
+            .await
+            .unwrap();
         assert_eq!(result.total_resources, 2);
         assert_eq!(result.successful_resources, 1);
         assert_eq!(result.failed_resources, 1);
@@ -646,7 +663,9 @@ mod tests {
         let port = start_server(handler).await;
         let url = format!("http://127.0.0.1:{port}/");
 
-        let result = run_page_speed_test(&url, default_settings(), |_event| {}).await.unwrap();
+        let result = run_page_speed_test(&url, default_settings(), |_event| {})
+            .await
+            .unwrap();
         assert_eq!(result.total_resources, 2);
         assert!(result
             .resources

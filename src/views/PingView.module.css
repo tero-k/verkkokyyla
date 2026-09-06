@@ -4,9 +4,9 @@
   gap: 1rem;
   min-height: 0;
   padding: 1rem;
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
-  background: #18181b;
+  background: var(--bg);
 }
 
 .cardHeader {
@@ -24,18 +24,18 @@
 
 .closeButton {
   padding: 0.1rem 0.4rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .closeButton:hover {
-  color: #e4e4e7;
-  background: #27272a;
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 .controls {
@@ -53,16 +53,16 @@
 
 .field label {
   font-size: 0.8rem;
-  color: #a1a1aa;
+  color: var(--text-muted);
 }
 
 .field input,
 .field select {
   padding: 0.45rem 0.6rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #18181b;
-  color: #e4e4e7;
+  background: var(--bg);
+  color: var(--text);
   font-size: 0.9rem;
   min-width: 220px;
 }
@@ -76,7 +76,7 @@
   align-items: center;
   gap: 0.4rem;
   font-size: 0.9rem;
-  color: #e4e4e7;
+  color: var(--text);
   cursor: pointer;
   min-width: auto;
 }
@@ -94,7 +94,7 @@
 
 .inlineError {
   font-size: 0.8rem;
-  color: #f87171;
+  color: var(--danger);
 }
 
 .actions {
@@ -104,16 +104,16 @@
 
 .actions button {
   padding: 0.5rem 1rem;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--surface-3);
   border-radius: 4px;
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.9rem;
   cursor: pointer;
 }
 
 .actions button:hover:not(:disabled) {
-  background: #3f3f46;
+  background: var(--surface-3);
 }
 
 .actions button:disabled {
@@ -126,18 +126,18 @@
   flex-direction: column;
   gap: 0.4rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid #27272a;
+  border: 1px solid var(--surface-2);
   border-radius: 4px;
-  background: #1c1c1f;
+  background: var(--surface-1);
 }
 
 .status {
-  color: #38bdf8;
+  color: var(--accent);
   font-size: 0.85rem;
 }
 
 .error {
-  color: #f87171;
+  color: var(--danger);
   font-size: 0.85rem;
 }
 
@@ -147,29 +147,29 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid #7f1d1d;
+  border: 1px solid var(--status-error-bg);
   border-radius: 4px;
-  background: #2a0f0f;
+  background: var(--status-error-panel-bg);
 }
 
 .pauseMessage {
-  color: #fca5a5;
+  color: var(--status-error-text);
   font-size: 0.85rem;
 }
 
 .pauseBanner button {
   padding: 0.45rem 0.9rem;
-  border: 1px solid #7f1d1d;
+  border: 1px solid var(--status-error-bg);
   border-radius: 4px;
-  background: #450a0a;
-  color: #fee2e2;
+  background: var(--status-error-subtle-bg);
+  color: var(--status-error-subtle-text);
   font-size: 0.85rem;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .pauseBanner button:hover:not(:disabled) {
-  background: #7f1d1d;
+  background: var(--status-error-bg);
 }
 
 .pauseBanner button:disabled {
@@ -179,17 +179,17 @@
 
 .resolved {
   font-size: 0.85rem;
-  color: #a1a1aa;
+  color: var(--text-muted);
 }
 
 .resolvedIp {
-  color: #e4e4e7;
+  color: var(--text);
   font-weight: 600;
 }
 
 .answers {
   margin-left: 0.5rem;
-  color: #71717a;
+  color: var(--text-faint);
 }
 
 .tableWrapper {

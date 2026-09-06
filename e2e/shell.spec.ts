@@ -1,12 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-test("sidebar shows Ping, Traceroute, and Download speed test nav items", async ({ page }) => {
+test("sidebar shows all tool nav items", async ({ page }) => {
   await page.goto("/");
   const navItems = page.locator("nav[aria-label='Tools'] a");
-  await expect(navItems).toHaveCount(3);
+  await expect(navItems).toHaveCount(5);
   await expect(navItems.nth(0)).toHaveText("Ping");
   await expect(navItems.nth(1)).toHaveText("Traceroute");
-  await expect(navItems.nth(2)).toHaveText("Web page speed test");
+    await expect(navItems.nth(2)).toHaveText("Web Benchmark");
+  await expect(navItems.nth(3)).toHaveText("Network scanner");
+  await expect(navItems.nth(4)).toHaveText("DNS Toolkit");
 });
 
 test("unknown hash renders the Ping view", async ({ page }) => {

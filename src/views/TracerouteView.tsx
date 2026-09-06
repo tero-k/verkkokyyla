@@ -1,4 +1,5 @@
 import { useTraceroute } from "../hooks/useTraceroute"
+import { useConfirmDialog } from "../hooks/useConfirmDialog"
 import { FAMILIES, type Family } from "../lib/types"
 import { TraceSessionPanel } from "../components/TraceSessionPanel"
 import { TracerouteComparison } from "../components/TracerouteComparison"
@@ -41,6 +42,13 @@ export default function TracerouteView() {
     openTrace,
     deleteTrace,
   } = useTraceroute()
+
+  const { confirm, dialog: confirmDialog } = useConfirmDialog()
+  const handleDeleteTrace = async (id: number) => {
+    if (await confirm("Delete this trace?")) {
+      await deleteTrace(id)
+    }
+  }
 
   const canStart = target.trim().length > 0 && !isRunning
   const compareMode = viewMode === "compare" || isCompareSelecting
@@ -147,7 +155,7 @@ export default function TracerouteView() {
             sessions={pastTraces}
             disabled={isRunning}
             onOpen={openTrace}
-            onDelete={deleteTrace}
+            onDelete={handleDeleteTrace}
             compareMode={isCompareSelecting}
             compareSelection={compareSelection}
             onToggleCompare={toggleCompareSelection}
@@ -157,6 +165,7 @@ export default function TracerouteView() {
           />
         </div>
       </div>
+      {confirmDialog}
     </section>
   )
 }

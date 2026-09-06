@@ -129,7 +129,9 @@ mod tests {
         assert_eq!(plain.selected, v6);
         assert_eq!(plain.scope_id, 0);
 
-        let scoped = resolve_target("fe80::1%3", Family::V6).await.expect("literal");
+        let scoped = resolve_target("fe80::1%3", Family::V6)
+            .await
+            .expect("literal");
         assert_eq!(scoped.selected, IpAddr::V6("fe80::1".parse().expect("lit")));
         assert_eq!(scoped.scope_id, 3);
     }
