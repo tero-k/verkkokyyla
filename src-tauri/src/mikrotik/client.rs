@@ -21,6 +21,7 @@ use crate::mikrotik::parse::{
     BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, FileEntryDto, InterfaceDto,
     ResourceDto, RouterboardDto, SensorDto, UpdateStatusDto, VlanDto,
 };
+use crate::mikrotik::types::MikrotikApi;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -361,6 +362,44 @@ impl MikrotikClient {
 /// the `*` needs encoding (`*1` -> `%2A1`); the alphanumerics pass through.
 fn encode_record_id(id: &str) -> String {
     id.replace('*', "%2A")
+}
+
+#[async_trait::async_trait]
+impl MikrotikApi for MikrotikClient {
+    async fn get_resource(&self) -> Result<ResourceDto, MikrotikError> {
+        MikrotikClient::get_resource(self).await
+    }
+
+    async fn get_interfaces(&self) -> Result<Vec<InterfaceDto>, MikrotikError> {
+        MikrotikClient::get_interfaces(self).await
+    }
+
+    async fn get_health(&self) -> Result<Vec<SensorDto>, MikrotikError> {
+        MikrotikClient::get_health(self).await
+    }
+
+    async fn get_interface_stats_detail(&self) -> Result<Vec<InterfaceDto>, MikrotikError> {
+        MikrotikClient::get_interface_stats_detail(self).await
+    }
+
+    async fn get_ethernet_stats(&self) -> Result<Vec<EthernetStatsDto>, MikrotikError> {
+        MikrotikClient::get_ethernet_stats(self).await
+    }
+
+    async fn get_ethernet_monitor(
+        &self,
+        name: &str,
+    ) -> Result<Vec<EthernetMonitorDto>, MikrotikError> {
+        MikrotikClient::get_ethernet_monitor(self, name).await
+    }
+
+    async fn get_vlans(&self) -> Result<Vec<VlanDto>, MikrotikError> {
+        MikrotikClient::get_vlans(self).await
+    }
+
+    async fn get_bridge_vlans(&self) -> Result<Vec<BridgeVlanDto>, MikrotikError> {
+        MikrotikClient::get_bridge_vlans(self).await
+    }
 }
 
 /// RouterOS's version-requirement hint, split by transport scheme: a 404 on

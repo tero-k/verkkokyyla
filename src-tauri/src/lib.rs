@@ -40,6 +40,7 @@ use trace::{
     LoadedTraceDto, StartTraceDto, StoppedTraceDto, TraceError, TraceEvent, TraceManager,
     TraceStatusEvent, TraceSummaryDto,
 };
+use mikrotik::manager::MikrotikManager;
 
 impl trace::TraceStream for engine::RawHopStream {
     fn next<'a>(
@@ -169,6 +170,106 @@ async fn load_trace(
 #[tauri::command]
 async fn delete_trace(manager: tauri::State<'_, TraceManager>, id: i64) -> Result<(), TraceError> {
     manager.delete_trace(id).await
+}
+
+#[tauri::command]
+async fn mikrotik_list_profiles(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+) -> Result<Vec<mikrotik::types::MikrotikProfileDto>, mikrotik::types::MikrotikManagerError> {
+    manager.list_profiles().await
+}
+
+#[tauri::command]
+async fn mikrotik_create_profile(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    request: mikrotik::types::CreateMikrotikProfileRequest,
+) -> Result<mikrotik::types::MikrotikProfileDto, mikrotik::types::MikrotikManagerError> {
+    manager.create_profile(&request).await
+}
+
+#[tauri::command]
+async fn mikrotik_update_profile(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    request: mikrotik::types::UpdateMikrotikProfileRequest,
+) -> Result<mikrotik::types::MikrotikProfileDto, mikrotik::types::MikrotikManagerError> {
+    manager.update_profile(&request).await
+}
+
+#[tauri::command]
+async fn mikrotik_delete_profile(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    id: i64,
+) -> Result<mikrotik::types::DeleteProfileResultDto, mikrotik::types::MikrotikManagerError> {
+    manager.delete_profile(id).await
+}
+
+#[tauri::command]
+async fn mikrotik_set_profile_password(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    id: i64,
+    password: String,
+) -> Result<(), mikrotik::types::MikrotikManagerError> {
+    manager.set_profile_password(id, &password).await
+}
+
+#[tauri::command]
+async fn mikrotik_test_connection(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    id: i64,
+) -> Result<mikrotik::types::MikrotikTestConnectionDto, mikrotik::types::MikrotikManagerError>
+{
+    manager.test_connection(id).await
+}
+
+#[tauri::command]
+async fn mikrotik_start(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    profile_id: i64,
+    on_event: tauri::ipc::Channel<mikrotik::types::MikrotikEvent>,
+    on_status: tauri::ipc::Channel<mikrotik::types::MikrotikStatusEvent>,
+) -> Result<mikrotik::types::MikrotikStartDto, mikrotik::types::MikrotikManagerError> {
+    manager
+        .start(
+            profile_id,
+            move |event| {
+                let _ = on_event.send(event);
+            },
+            Arc::new(move |event| {
+                let _ = on_status.send(event);
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn mikrotik_stop(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+) -> Result<mikrotik::types::MikrotikStoppedDto, mikrotik::types::MikrotikManagerError> {
+    manager.stop().await
+}
+
+#[tauri::command]
+async fn mikrotik_list_sessions(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+) -> Result<Vec<mikrotik::types::MikrotikSessionSummaryDto>, mikrotik::types::MikrotikManagerError>
+{
+    manager.list_sessions().await
+}
+
+#[tauri::command]
+async fn mikrotik_load_session(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    id: i64,
+) -> Result<mikrotik::types::LoadedMikrotikSessionDto, mikrotik::types::MikrotikManagerError> {
+    manager.load_session(id).await
+}
+
+#[tauri::command]
+async fn mikrotik_delete_session(
+    manager: tauri::State<'_, mikrotik::manager::MikrotikManager>,
+    id: i64,
+) -> Result<(), mikrotik::types::MikrotikManagerError> {
+    manager.delete_session(id).await
 }
 
 #[tauri::command]
@@ -358,6 +459,19 @@ pub fn run() {
             app.manage(DownloadSpeedManager::new(Arc::new(
                 tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
             )));
+            app.manage(mikrotik::backup::MikrotikBackupState::new(
+                tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
+            ));
+            app.manage(MikrotikManager::new(
+                tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
+                Arc::new(mikrotik::secrets::KeyringStore::new()),
+                Arc::new(move |conn| {
+                    Box::pin(async move {
+                        Ok(Arc::new(mikrotik::client::MikrotikClient::new(&conn)?)
+                            as Arc<dyn mikrotik::types::MikrotikApi>)
+                    })
+                }),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -386,13 +500,25 @@ pub fn run() {
             list_download_speed_sessions,
             load_download_speed_session,
             delete_download_speed_session,
+            mikrotik_list_profiles,
+            mikrotik_create_profile,
+            mikrotik_update_profile,
+            mikrotik_delete_profile,
+            mikrotik_set_profile_password,
+            mikrotik_test_connection,
+            mikrotik_start,
+            mikrotik_stop,
+            mikrotik_list_sessions,
+            mikrotik_load_session,
+            mikrotik_delete_session,
             dns_lookup,
             dns_diagnostics,
             dns_email_check,
             dns_benchmark,
             list_dns_runs,
             load_dns_run,
-            delete_dns_run
+            delete_dns_run,
+            mikrotik::backup::mikrotik_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
