@@ -400,6 +400,18 @@ impl MikrotikApi for MikrotikClient {
     async fn get_bridge_vlans(&self) -> Result<Vec<BridgeVlanDto>, MikrotikError> {
         MikrotikClient::get_bridge_vlans(self).await
     }
+
+    async fn get_update_status(&self) -> Result<UpdateStatusDto, MikrotikError> {
+        MikrotikClient::get_update_status(self).await
+    }
+
+    async fn check_for_updates(&self) -> Result<UpdateStatusDto, MikrotikError> {
+        MikrotikClient::check_for_updates(self).await
+    }
+
+    async fn get_routerboard(&self) -> Result<RouterboardDto, MikrotikError> {
+        MikrotikClient::get_routerboard(self).await
+    }
 }
 
 /// RouterOS's version-requirement hint, split by transport scheme: a 404 on

@@ -9,6 +9,7 @@ use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 
 use super::runtime::{run_mikrotik_session, MikrotikRunContext};
+use super::version::{self, ActiveVersionTarget, VersionFirmwareResultDto};
 use super::types::{
     CreateMikrotikProfileRequest, DeleteProfileResultDto, LoadedMikrotikSessionDto,
     MikrotikApiFactory, MikrotikManagerError, MikrotikProfileDto, MikrotikSessionSummaryDto,
@@ -39,6 +40,7 @@ struct MikrotikInner {
 struct ActiveSession {
     session_id: i64,
     profile_id: i64,
+    on_status: MikrotikStatusSink,
     stop_tx: watch::Sender<bool>,
     join_handle: JoinHandle<Result<MikrotikStoppedDto, MikrotikManagerError>>,
 }
@@ -242,6 +244,7 @@ impl MikrotikManager {
         let (stop_tx, stop_rx) = watch::channel(false);
         let manager = self.clone();
         let db = Arc::clone(&self.db);
+        let active_status = Arc::clone(&on_status);
         let on_event: Arc<dyn Fn(crate::mikrotik::types::MikrotikEvent) + Send + Sync> =
             Arc::new(on_event);
         let join_handle = tokio::spawn(async move {
@@ -254,13 +257,14 @@ impl MikrotikManager {
                 on_event,
                 on_status,
                 stop_rx,
-                run_version_probe: None,
+                run_version_probe: Some(version::run_version_probe()),
             })
             .await
         });
         inner.active = Some(ActiveSession {
             session_id,
             profile_id,
+            on_status: active_status,
             stop_tx,
             join_handle,
         });
@@ -347,6 +351,35 @@ impl MikrotikManager {
         {
             inner.active.take();
         }
+    }
+
+    pub(crate) async fn active_version_target(&self, profile_id: i64) -> Option<ActiveVersionTarget> {
+        self.inner.lock().await.active.as_ref().and_then(|active| {
+            (active.profile_id == profile_id).then(|| ActiveVersionTarget {
+                session_id: active.session_id,
+                on_status: Arc::clone(&active.on_status),
+            })
+        })
+    }
+
+    pub(crate) async fn is_active_session(&self, session_id: i64) -> bool {
+        self.inner
+            .lock()
+            .await
+            .active
+            .as_ref()
+            .is_some_and(|active| active.session_id == session_id)
+    }
+
+    pub async fn check_updates(
+        &self,
+        profile_id: i64,
+    ) -> Result<VersionFirmwareResultDto, MikrotikManagerError> {
+        let target = self.active_version_target(profile_id).await;
+        let profile = self.require_profile(profile_id).await?;
+        let conn = self.connection_for(&profile).await?;
+        let api = (self.factory)(conn).await?;
+        Ok(version::manual_check(self.clone(), Arc::clone(&self.db), api, target).await?)
     }
 }
 

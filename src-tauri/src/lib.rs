@@ -472,6 +472,9 @@ pub fn run() {
                     })
                 }),
             ));
+            app.manage(mikrotik::changelog::ChangelogService::new(Arc::new(
+                mikrotik::changelog::CachedChangelogFetcher::new()?,
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -511,6 +514,8 @@ pub fn run() {
             mikrotik_list_sessions,
             mikrotik_load_session,
             mikrotik_delete_session,
+            mikrotik::version::mikrotik_check_updates,
+            mikrotik::changelog::mikrotik_changelog,
             dns_lookup,
             dns_diagnostics,
             dns_email_check,

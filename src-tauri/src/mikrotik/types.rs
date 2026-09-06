@@ -18,7 +18,7 @@ use crate::mikrotik::client::MikrotikConnection;
 use crate::mikrotik::error::MikrotikError;
 use crate::mikrotik::parse::{
     BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, ResourceDto, SensorDto,
-    VlanDto,
+    RouterboardDto, UpdateStatusDto, VlanDto,
 };
 
 pub use crate::mikrotik::secrets::SecretError;
@@ -45,6 +45,24 @@ pub trait MikrotikApi: Send + Sync {
     ) -> Result<Vec<EthernetMonitorDto>, MikrotikError>;
     async fn get_vlans(&self) -> Result<Vec<VlanDto>, MikrotikError>;
     async fn get_bridge_vlans(&self) -> Result<Vec<BridgeVlanDto>, MikrotikError>;
+    async fn get_update_status(&self) -> Result<UpdateStatusDto, MikrotikError> {
+        Err(MikrotikError::Api {
+            status: 404,
+            message: "update endpoint not implemented".to_owned(),
+        })
+    }
+    async fn check_for_updates(&self) -> Result<UpdateStatusDto, MikrotikError> {
+        Err(MikrotikError::Api {
+            status: 404,
+            message: "update endpoint not implemented".to_owned(),
+        })
+    }
+    async fn get_routerboard(&self) -> Result<RouterboardDto, MikrotikError> {
+        Err(MikrotikError::Api {
+            status: 404,
+            message: "routerboard endpoint not implemented".to_owned(),
+        })
+    }
 }
 
 /// One tick's core resource sample (`/system/resource`).
@@ -163,6 +181,11 @@ pub enum MikrotikStatusEvent {
     Error {
         session_id: i64,
         message: String,
+    },
+    VersionFirmware {
+        session_id: i64,
+        update_status: crate::mikrotik::version::UpdateStatusResultDto,
+        firmware_status: crate::mikrotik::version::FirmwareStatusDto,
     },
 }
 
@@ -382,5 +405,8 @@ pub struct VersionProbeArgs {
     pub session_id: i64,
     pub profile_id: i64,
     pub db: Arc<Database>,
+    pub manager: crate::mikrotik::manager::MikrotikManager,
+    pub api: Arc<dyn MikrotikApi>,
     pub on_status: MikrotikStatusSink,
+    pub stop_rx: tokio::sync::watch::Receiver<bool>,
 }

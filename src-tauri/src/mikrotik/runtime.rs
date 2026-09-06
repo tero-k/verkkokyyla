@@ -381,7 +381,10 @@ pub async fn run_mikrotik_session(
             session_id,
             profile_id,
             db: Arc::clone(&db),
+            manager: manager.clone(),
+            api: Arc::clone(&api),
             on_status: Arc::clone(&on_status),
+            stop_rx: stop_rx.clone(),
         });
     }
 
@@ -416,6 +419,7 @@ pub async fn run_mikrotik_session(
                     message: message.clone(),
                 });
                 if core_failures >= MAX_CORE_FAILURES {
+                    manager.clear_active(session_id).await;
                     (on_status)(MikrotikStatusEvent::Error {
                         session_id,
                         message,
@@ -433,14 +437,15 @@ pub async fn run_mikrotik_session(
         // onto the session row so history renders them.
         if !version_persisted {
             version_persisted = true;
+            let loaded = db.load_mikrotik_session(session_id).await?;
             db.set_mikrotik_session_version_status(
                 session_id,
                 &MikrotikSessionVersionStatus {
                     board_name: resource.board_name.clone(),
                     routeros_version: resource.version.clone(),
                     architecture_name: resource.architecture_name.clone(),
-                    update_status_json: None,
-                    firmware_status_json: None,
+                    update_status_json: loaded.session.update_status_json,
+                    firmware_status_json: loaded.session.firmware_status_json,
                 },
             )
             .await?;
