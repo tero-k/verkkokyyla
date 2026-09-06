@@ -1,0 +1,104 @@
+.wrapper {
+  overflow: auto;
+  border: 1px solid var(--surface-2);
+  border-radius: 0.25rem;
+  background: var(--surface-1);
+}
+
+.table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.table th,
+.table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--surface-2);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table thead {
+  background: var(--surface-1);
+  color: var(--text-muted);
+}
+
+.table th {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.table tbody tr:nth-child(odd) {
+  background: var(--surface-0);
+}
+
+.table tbody tr:nth-child(even) {
+  background: var(--surface-1);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.selectableRow {
+  cursor: pointer;
+}
+
+.table tbody .selectableRow:hover,
+.table tbody .selectableRow:focus-within {
+  background: var(--surface-2);
+}
+
+.interfaceButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary {
+  color: var(--text-muted);
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 1em;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.running {
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+.disabled {
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+}
+
+.down {
+  background: var(--status-error-bg);
+  color: var(--status-error-text);
+}
+
+.warning {
+  color: var(--warning);
+  font-weight: 600;
+}
