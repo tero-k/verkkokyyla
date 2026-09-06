@@ -132,6 +132,81 @@ type Snapshot = {
   jitterMs: number | null
 }
 
+type MockMikrotikProfile = {
+  id: number
+  name: string
+  host: string
+  port: number
+  useTls: boolean
+  allowInvalidCerts: boolean
+  username: string
+  hasPassword: boolean
+  createdAt: string
+}
+
+type MockMikrotikInterface = {
+  name: string
+  type: string | null
+  running: boolean | null
+  disabled: boolean | null
+  rxByte: number | null
+  txByte: number | null
+  rxPacket: number | null
+  txPacket: number | null
+  txQueueDrop: number | null
+  linkDowns: number | null
+  rxError: number | null
+  txError: number | null
+  rxDrop: number | null
+  rxErrorEvents: number | null
+  txErrorEvents: number | null
+  rxFcsError: number | null
+  rxAlignError: number | null
+  txCollision: number | null
+  txDrop: number | null
+  rate: string | null
+  fullDuplex: boolean | null
+  rxBitsPerSecond: number | null
+  txBitsPerSecond: number | null
+}
+
+type MockMikrotikSnapshot = {
+  event: "snapshot"
+  sessionId: number
+  at: string
+  resources: { cpuLoad: number | null; memUsedBytes: number | null; memTotalBytes: number | null; uptime: string | null } | null
+  sensors: { name: string; value: number; unit: string | null; kind: string }[] | null
+  sensorsSupported: boolean
+  interfaces: MockMikrotikInterface[]
+  vlans: { name: string; vlanId: number | null; interface: string | null; running: boolean | null; disabled: boolean | null }[] | null
+  bridgeVlans: { bridge: string | null; vlanIds: string[]; tagged: string[]; untagged: string[]; currentTagged: string[]; currentUntagged: string[] }[] | null
+  warning: string | null
+}
+
+type MockMikrotikSession = {
+  session: {
+    id: number
+    profileId: number
+    startedAt: string
+    endedAt: string | null
+    status: string
+    boardName: string | null
+    routerosVersion: string | null
+    architectureName: string | null
+    updateStatusJson: string | null
+    firmwareStatusJson: string | null
+    snapshotCount: number
+  }
+  snapshots: MockMikrotikSnapshot[]
+}
+
+type ActiveMikrotik = {
+  session: MockMikrotikSession
+  onEventChannel: { onmessage?: (message: unknown) => void }
+  onStatusChannel: { onmessage?: (message: unknown) => void }
+  timerIds: number[]
+}
+
 export async function installMockTauri(page: Page): Promise<void> {
   await page.addInitScript(() => {
     ;(() => {
@@ -174,6 +249,33 @@ export async function installMockTauri(page: Page): Promise<void> {
       let activeScan: ActiveScan | null = null
       let endedScans: MockScan[] = []
       let endedDownloadSpeedSessions: MockDownloadSpeedSession[] = []
+      let nextMikrotikProfileId = 1
+      let nextMikrotikSessionId = 50
+      let mikrotikDialogConfirm = true
+      let mikrotikTestConnectionUnauthorized = false
+      let mikrotikRouterboard = true
+      let mikrotikVersionVariant = "available"
+      let mikrotikBackupSshUnreachable = false
+      let lastMikrotikBackup: Record<string, unknown> | null = null
+      let mikrotikBackupCount = 0
+      const mikrotikCredentials = new Map<number, string>()
+      let mikrotikProfiles: MockMikrotikProfile[] = [
+        {
+          id: nextMikrotikProfileId,
+          name: "Lab router",
+          host: "router.lab",
+          port: 443,
+          useTls: true,
+          allowInvalidCerts: true,
+          username: "admin",
+          hasPassword: true,
+          createdAt: "2026-09-06T10:00:00.000Z",
+        },
+      ]
+      mikrotikCredentials.set(nextMikrotikProfileId, "lab-secret")
+      nextMikrotikProfileId += 1
+      let activeMikrotik: ActiveMikrotik | null = null
+      let endedMikrotikSessions: MockMikrotikSession[] = []
 
       function transformCallback(
         cb: (rawMessage: unknown) => void,
@@ -426,6 +528,105 @@ export async function installMockTauri(page: Page): Promise<void> {
           stddevMs: stddev,
           jitterMs: jitter,
         }
+      }
+
+      function mikrotikTimestamp(index: number): string {
+        return new Date(Date.UTC(2026, 8, 6, 11, 0, index)).toISOString()
+      }
+
+      function mikrotikVersionStatus() {
+        if (mikrotikVersionVariant === "up-to-date") {
+          return {
+            updateStatus: { installedVersion: "7.17", latestVersion: "7.17", channel: "stable", status: "up-to-date" },
+            firmwareStatus: { state: "unknown", currentFirmware: "7.17", upgradeFirmware: null, model: mikrotikRouterboard ? "RB5009" : null },
+          }
+        }
+        if (mikrotikVersionVariant === "unknown") {
+          return {
+            updateStatus: { installedVersion: "7.16", latestVersion: null, channel: "stable", status: "unknown" },
+            firmwareStatus: { state: "unknown", currentFirmware: null, upgradeFirmware: null, model: mikrotikRouterboard ? "RB5009" : null },
+          }
+        }
+        if (mikrotikVersionVariant === "na") {
+          return {
+            updateStatus: { installedVersion: "7.16", latestVersion: null, channel: null, status: "unknown" },
+            firmwareStatus: { state: "not-applicable", currentFirmware: null, upgradeFirmware: null, model: null },
+          }
+        }
+        return {
+          updateStatus: { installedVersion: "7.16", latestVersion: "7.17", channel: "stable", status: "available" },
+          firmwareStatus: { state: "available", currentFirmware: "7.16", upgradeFirmware: "7.17", model: mikrotikRouterboard ? "RB5009" : null },
+        }
+      }
+
+      function mikrotikInterface(name: string, index: number, fullCounters: boolean): MockMikrotikInterface {
+        const base = index * 100_000
+        return {
+          name,
+          type: name.startsWith("ether") ? "ether" : "vlan",
+          running: true,
+          disabled: false,
+          rxByte: base + 1_000_000,
+          txByte: base + 2_000_000,
+          rxPacket: base / 100 + 10,
+          txPacket: base / 100 + 20,
+          txQueueDrop: fullCounters ? 1 : null,
+          linkDowns: fullCounters ? 2 : null,
+          rxError: fullCounters ? 3 : null,
+          txError: fullCounters ? 4 : null,
+          rxDrop: fullCounters ? 5 : null,
+          rxErrorEvents: fullCounters ? 6 : null,
+          txErrorEvents: fullCounters ? 7 : null,
+          rxFcsError: fullCounters ? 8 : null,
+          rxAlignError: fullCounters ? 0 : null,
+          txCollision: fullCounters ? 9 : null,
+          txDrop: fullCounters ? 10 : null,
+          rate: "1Gbps",
+          fullDuplex: true,
+          rxBitsPerSecond: 800_000 * index,
+          txBitsPerSecond: 500_000 * index,
+        }
+      }
+
+      function mikrotikSnapshot(sessionId: number, index: number): MockMikrotikSnapshot {
+        const sensors = index === 2 ? null : [
+          { name: "cpu-temperature", value: 44 + index, unit: "C", kind: "temperature" },
+          { name: "fan1", value: 3200 + index, unit: "RPM", kind: "fan" },
+          { name: "voltage", value: 24.1, unit: "V", kind: "voltage" },
+        ]
+        return {
+          event: "snapshot",
+          sessionId,
+          at: mikrotikTimestamp(index),
+          resources: { cpuLoad: 18 + index, memUsedBytes: 268_435_456 + index, memTotalBytes: 1_073_741_824, uptime: `${index}h 10m` },
+          sensors,
+          sensorsSupported: sensors !== null,
+          interfaces: [mikrotikInterface("ether1", index, true), mikrotikInterface("sfp1", index + 1, false)],
+          vlans: [{ name: "vlan20-guests", vlanId: 20, interface: "bridge", running: true, disabled: false }],
+          bridgeVlans: [{ bridge: "bridge", vlanIds: ["20"], tagged: ["sfp1"], untagged: ["ether1"], currentTagged: ["sfp1"], currentUntagged: ["ether1"] }],
+          warning: null,
+        }
+      }
+
+      function mikrotikSnapshotRow(snapshot: MockMikrotikSnapshot, id: number) {
+        return {
+          id,
+          sessionId: snapshot.sessionId,
+          at: snapshot.at,
+          cpuLoad: snapshot.resources?.cpuLoad ?? null,
+          memUsedBytes: snapshot.resources?.memUsedBytes ?? null,
+          memTotalBytes: snapshot.resources?.memTotalBytes ?? null,
+          uptime: snapshot.resources?.uptime ?? null,
+          warning: snapshot.warning,
+          sensorsJson: snapshot.sensors === null ? null : JSON.stringify(snapshot.sensors),
+          interfacesJson: JSON.stringify(snapshot.interfaces),
+          vlansJson: snapshot.vlans === null ? null : JSON.stringify(snapshot.vlans),
+          bridgeVlansJson: snapshot.bridgeVlans === null ? null : JSON.stringify(snapshot.bridgeVlans),
+        }
+      }
+
+      function scheduleMikrotikStep(active: ActiveMikrotik, delayMs: number, step: () => void): void {
+        active.timerIds.push(window.setTimeout(step, delayMs))
       }
 
       function defaultSessionId(): number {
@@ -1069,6 +1270,113 @@ export async function installMockTauri(page: Page): Promise<void> {
             )
             return null
           }
+          case "plugin:dialog|open":
+            return mikrotikDialogConfirm ? "C:/verkkokyyla-e2e/backups" : null
+          case "mikrotik_list_profiles":
+            return mikrotikProfiles
+          case "mikrotik_create_profile": {
+            const request = args.request as Record<string, unknown>
+            const profile: MockMikrotikProfile = {
+              id: nextMikrotikProfileId,
+              name: String(request.name),
+              host: String(request.host),
+              port: Number(request.port),
+              useTls: Boolean(request.useTls),
+              allowInvalidCerts: Boolean(request.allowInvalidCerts),
+              username: String(request.username),
+              hasPassword: false,
+              createdAt: mikrotikTimestamp(nextMikrotikProfileId),
+            }
+            nextMikrotikProfileId += 1
+            mikrotikProfiles.push(profile)
+            return profile
+          }
+          case "mikrotik_update_profile": {
+            const request = args.request as Record<string, unknown>
+            const id = Number(request.id)
+            const existing = mikrotikProfiles.find((profile) => profile.id === id)
+            if (existing === undefined) throw { kind: "NotFound", message: "MikroTik profile not found" }
+            const updated = { ...existing, name: String(request.name), host: String(request.host), port: Number(request.port), useTls: Boolean(request.useTls), allowInvalidCerts: Boolean(request.allowInvalidCerts), username: String(request.username) }
+            mikrotikProfiles = mikrotikProfiles.map((profile) => profile.id === id ? updated : profile)
+            return updated
+          }
+          case "mikrotik_delete_profile": {
+            const id = Number(args.id)
+            mikrotikProfiles = mikrotikProfiles.filter((profile) => profile.id !== id)
+            const secretDeleted = mikrotikCredentials.delete(id)
+            return { deleted: true, secretDeleted, warning: null }
+          }
+          case "mikrotik_set_profile_password": {
+            const id = Number(args.id)
+            mikrotikCredentials.set(id, String(args.password))
+            mikrotikProfiles = mikrotikProfiles.map((profile) => profile.id === id ? { ...profile, hasPassword: true } : profile)
+            return null
+          }
+          case "mikrotik_test_connection": {
+            if (mikrotikTestConnectionUnauthorized) throw { kind: "HttpStatus", status: 401, message: "MikroTik API returned 401 Unauthorized" }
+            return { boardName: mikrotikRouterboard ? "RB5009" : null, routerosVersion: "7.16", architectureName: "arm64" }
+          }
+          case "mikrotik_start": {
+            const profileId = Number(args.profileId)
+            nextMikrotikSessionId += 1
+            const status = mikrotikVersionStatus()
+            const session: MockMikrotikSession = { session: { id: nextMikrotikSessionId, profileId, startedAt: mikrotikTimestamp(0), endedAt: null, status: "running", boardName: mikrotikRouterboard ? "RB5009" : null, routerosVersion: "7.16", architectureName: "arm64", updateStatusJson: null, firmwareStatusJson: null, snapshotCount: 0 }, snapshots: [] }
+            activeMikrotik = { session, onEventChannel: args.onEvent as { onmessage?: (message: unknown) => void }, onStatusChannel: args.onStatus as { onmessage?: (message: unknown) => void }, timerIds: [] }
+            const current = activeMikrotik
+            sendChannel(current.onStatusChannel, { event: "started", sessionId: session.session.id, profileId })
+            scheduleMikrotikStep(current, 10, () => {
+              if (activeMikrotik?.session.session.id !== session.session.id) return
+              sendChannel(current.onStatusChannel, { event: "version-firmware", sessionId: session.session.id, updateStatus: status.updateStatus, firmwareStatus: status.firmwareStatus })
+              session.session.updateStatusJson = JSON.stringify(status.updateStatus)
+              session.session.firmwareStatusJson = JSON.stringify(status.firmwareStatus)
+            })
+            for (let index = 1; index <= 3; index += 1) {
+              scheduleMikrotikStep(current, 15 * index, () => {
+                if (activeMikrotik?.session.session.id !== session.session.id) return
+                const snapshot = mikrotikSnapshot(session.session.id, index)
+                session.snapshots.push(snapshot)
+                session.session.snapshotCount = session.snapshots.length
+                sendChannel(current.onEventChannel, snapshot)
+              })
+            }
+            return { sessionId: session.session.id, profileId }
+          }
+          case "mikrotik_stop": {
+            if (activeMikrotik === null) throw { kind: "NotRunning", message: "no MikroTik session is running" }
+            const stopped = activeMikrotik
+            for (const timerId of stopped.timerIds) window.clearTimeout(timerId)
+            stopped.session.session.endedAt = mikrotikTimestamp(9)
+            stopped.session.session.status = "stopped"
+            stopped.session.session.snapshotCount = stopped.session.snapshots.length
+            endedMikrotikSessions.push(stopped.session)
+            activeMikrotik = null
+            sendChannel(stopped.onStatusChannel, { event: "stopped", sessionId: stopped.session.session.id, snapshotCount: stopped.session.snapshots.length })
+            return { sessionId: stopped.session.session.id, snapshotCount: stopped.session.snapshots.length, endedAt: stopped.session.session.endedAt, status: "stopped" }
+          }
+          case "mikrotik_list_sessions":
+            return [...endedMikrotikSessions].reverse().map((entry) => entry.session)
+          case "mikrotik_load_session": {
+            const entry = endedMikrotikSessions.find((session) => session.session.id === args.id)
+            if (entry === undefined) throw { kind: "NotFound", message: "MikroTik session not found" }
+            return { session: entry.session, snapshots: entry.snapshots.map(mikrotikSnapshotRow) }
+          }
+          case "mikrotik_delete_session": {
+            endedMikrotikSessions = endedMikrotikSessions.filter((session) => session.session.id !== args.id)
+            return null
+          }
+          case "mikrotik_check_updates":
+            return mikrotikVersionStatus()
+          case "mikrotik_changelog":
+            return { version: String(args.version), changelog: "RouterOS mock changelog" }
+          case "mikrotik_backup": {
+            lastMikrotikBackup = args
+            mikrotikBackupCount += 1
+            if (mikrotikBackupSshUnreachable) throw { kind: "SshUnreachable", message: "SSH connection refused" }
+            const name = String(args.backupName)
+            const destination = String(args.destinationDir)
+            if (!Boolean(args.overwrite) && name === "existing") throw { kind: "OutputExists", message: "backup output already exists" }
+            return { backupPath: `${destination}/${name}.backup`, exportPath: Boolean(args.includeRsc) ? `${destination}/${name}.rsc` : null, cleanupWarnings: [] }
+          }
           default:
             throw new Error(`unknown command ${cmd}`)
         }
@@ -1103,6 +1411,30 @@ export async function installMockTauri(page: Page): Promise<void> {
       window.__TAURI_MOCK_SET_FALLBACK__ = (enabled) => {
         nextEngineIsFallback = enabled
       }
+
+      window.__TAURI_MOCK_SET_DIALOG_CONFIRM__ = (enabled) => {
+        mikrotikDialogConfirm = enabled
+      }
+
+      window.__TAURI_MOCK_SET_MIKROTIK_TEST_401__ = (enabled) => {
+        mikrotikTestConnectionUnauthorized = enabled
+      }
+
+      window.__TAURI_MOCK_SET_MIKROTIK_ROUTERBOARD__ = (enabled) => {
+        mikrotikRouterboard = enabled
+      }
+
+      window.__TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__ = (variant) => {
+        mikrotikVersionVariant = variant
+      }
+
+      window.__TAURI_MOCK_SET_MIKROTIK_BACKUP_SSH_ERROR__ = (enabled) => {
+        mikrotikBackupSshUnreachable = enabled
+      }
+
+      window.__TAURI_MOCK_LAST_MIKROTIK_BACKUP__ = () => lastMikrotikBackup
+
+      window.__TAURI_MOCK_MIKROTIK_BACKUP_COUNT__ = () => mikrotikBackupCount
     })()
   })
 }
@@ -1113,6 +1445,13 @@ declare global {
     __TAURI_MOCK_SEND_PROBES__: (events: MockProbeEvent[], sessionId?: number) => void
     __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string, sessionId?: number) => void
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
+    __TAURI_MOCK_SET_DIALOG_CONFIRM__: (enabled: boolean) => void
+    __TAURI_MOCK_SET_MIKROTIK_TEST_401__: (enabled: boolean) => void
+    __TAURI_MOCK_SET_MIKROTIK_ROUTERBOARD__: (enabled: boolean) => void
+    __TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__: (variant: string) => void
+    __TAURI_MOCK_SET_MIKROTIK_BACKUP_SSH_ERROR__: (enabled: boolean) => void
+    __TAURI_MOCK_LAST_MIKROTIK_BACKUP__: () => unknown
+    __TAURI_MOCK_MIKROTIK_BACKUP_COUNT__: () => number
     __TAURI_MOCK_ENDED_SESSIONS__?: MockSession[]
     __TAURI_MOCK_ENDED_TRACES__?: MockTrace[]
     __TAURI_MOCK_LAST_HTTP_SETTINGS__?: Record<string, unknown> | null
