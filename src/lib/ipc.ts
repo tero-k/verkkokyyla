@@ -2,6 +2,9 @@ import { Channel, invoke } from "@tauri-apps/api/core"
 import type {
   BenchmarkProfile,
   BenchmarkRunDto,
+  BackupResultDto,
+  CreateMikrotikProfileRequest,
+  DeleteMikrotikProfileResultDto,
   DnsDiagnosticsDto,
   DnsRunSummaryDto,
   DownloadProgressEvent,
@@ -18,6 +21,16 @@ import type {
   LoadedTraceDto,
   LookupEventDto,
   LookupSummaryDto,
+  MikrotikChangelogDto,
+  MikrotikLoadedSessionDto,
+  MikrotikProfile,
+  MikrotikSnapshotEvent,
+  MikrotikSessionSummaryDto,
+  MikrotikStartDto,
+  MikrotikStatusEvent,
+  MikrotikStoppedDto,
+  MikrotikTestConnectionDto,
+  MikrotikVersionFirmwareResultDto,
   PageProgressEvent,
   PageSpeedResultDto,
   ProbeEvent,
@@ -38,6 +51,7 @@ import type {
   TraceEvent,
   TraceStatusEvent,
   TraceSummaryDto,
+  UpdateMikrotikProfileRequest,
   WebBenchmarkConfig,
   WebBenchmarkResult,
 } from "./types"
@@ -188,6 +202,92 @@ export function loadScan(id: number): Promise<LoadedScanDto> {
 
 export function deleteScan(id: number): Promise<void> {
   return invoke<void>("delete_scan", { id })
+}
+
+// MikroTik IPC wrappers
+
+export function mikrotikListProfiles(): Promise<MikrotikProfile[]> {
+  return invoke<MikrotikProfile[]>("mikrotik_list_profiles")
+}
+
+export function mikrotikCreateProfile(
+  request: CreateMikrotikProfileRequest,
+): Promise<MikrotikProfile> {
+  return invoke<MikrotikProfile>("mikrotik_create_profile", { request })
+}
+
+export function mikrotikUpdateProfile(
+  request: UpdateMikrotikProfileRequest,
+): Promise<MikrotikProfile> {
+  return invoke<MikrotikProfile>("mikrotik_update_profile", { request })
+}
+
+export function mikrotikDeleteProfile(id: number): Promise<DeleteMikrotikProfileResultDto> {
+  return invoke<DeleteMikrotikProfileResultDto>("mikrotik_delete_profile", { id })
+}
+
+export function mikrotikSetProfilePassword(id: number, password: string): Promise<void> {
+  return invoke<void>("mikrotik_set_profile_password", { id, password })
+}
+
+export function mikrotikTestConnection(id: number): Promise<MikrotikTestConnectionDto> {
+  return invoke<MikrotikTestConnectionDto>("mikrotik_test_connection", { id })
+}
+
+export function mikrotikStart(
+  profileId: number,
+  onEvent: (event: MikrotikSnapshotEvent) => void,
+  onStatus: (event: MikrotikStatusEvent) => void,
+): Promise<MikrotikStartDto> {
+  const onEventChannel = new Channel<MikrotikSnapshotEvent>(onEvent)
+  const onStatusChannel = new Channel<MikrotikStatusEvent>(onStatus)
+  return invoke<MikrotikStartDto>("mikrotik_start", {
+    profileId,
+    onEvent: onEventChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function mikrotikStop(): Promise<MikrotikStoppedDto> {
+  return invoke<MikrotikStoppedDto>("mikrotik_stop")
+}
+
+export function mikrotikListSessions(): Promise<MikrotikSessionSummaryDto[]> {
+  return invoke<MikrotikSessionSummaryDto[]>("mikrotik_list_sessions")
+}
+
+export function mikrotikLoadSession(id: number): Promise<MikrotikLoadedSessionDto> {
+  return invoke<MikrotikLoadedSessionDto>("mikrotik_load_session", { id })
+}
+
+export function mikrotikDeleteSession(id: number): Promise<void> {
+  return invoke<void>("mikrotik_delete_session", { id })
+}
+
+export function mikrotikCheckUpdates(profileId: number): Promise<MikrotikVersionFirmwareResultDto> {
+  return invoke<MikrotikVersionFirmwareResultDto>("mikrotik_check_updates", { profileId })
+}
+
+export function mikrotikFetchChangelog(version: string): Promise<MikrotikChangelogDto> {
+  return invoke<MikrotikChangelogDto>("mikrotik_changelog", { version })
+}
+
+export function mikrotikBackup(
+  profileId: number,
+  destinationDir: string,
+  backupName: string,
+  password: string | undefined,
+  includeRsc: boolean,
+  overwrite: boolean,
+): Promise<BackupResultDto> {
+  return invoke<BackupResultDto>("mikrotik_backup", {
+    profileId,
+    destinationDir,
+    backupName,
+    password,
+    includeRsc,
+    overwrite,
+  })
 }
 
 // DNS Tester IPC wrappers

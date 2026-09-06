@@ -301,6 +301,204 @@ export type ScanStatusEvent =
   | { readonly event: "completed"; readonly scanId: number; readonly hostCount: number }
   | { readonly event: "error"; readonly message: string }
 
+export type MikrotikResourcesDto = {
+  readonly cpuLoad: number | null
+  readonly memUsedBytes: number | null
+  readonly memTotalBytes: number | null
+  readonly uptime: string | null
+}
+
+export type MikrotikSensorDto = {
+  readonly name: string
+  readonly value: number
+  readonly unit: string | null
+  readonly kind: string
+}
+
+export type MikrotikInterfaceDto = {
+  readonly name: string
+  readonly type: string | null
+  readonly running: boolean | null
+  readonly disabled: boolean | null
+  readonly rxByte: number | null
+  readonly txByte: number | null
+  readonly rxPacket: number | null
+  readonly txPacket: number | null
+  readonly txQueueDrop: number | null
+  readonly linkDowns: number | null
+  readonly rxError: number | null
+  readonly txError: number | null
+  readonly rxDrop: number | null
+  readonly rxErrorEvents: number | null
+  readonly txErrorEvents: number | null
+  readonly rxFcsError: number | null
+  readonly rxAlignError: number | null
+  readonly txCollision: number | null
+  readonly txDrop: number | null
+  readonly rate: string | null
+  readonly fullDuplex: boolean | null
+  readonly rxBitsPerSecond: number | null
+  readonly txBitsPerSecond: number | null
+}
+
+export type MikrotikVlanDto = {
+  readonly name: string
+  readonly vlanId: number | null
+  readonly interface: string | null
+  readonly running: boolean | null
+  readonly disabled: boolean | null
+}
+
+export type MikrotikBridgeVlanDto = {
+  readonly bridge: string | null
+  readonly vlanIds: readonly string[]
+  readonly tagged: readonly string[]
+  readonly untagged: readonly string[]
+  readonly currentTagged: readonly string[]
+  readonly currentUntagged: readonly string[]
+}
+
+export type MikrotikSnapshotEvent = {
+  readonly event: "snapshot"
+  readonly sessionId: number
+  readonly at: string
+  readonly resources: MikrotikResourcesDto | null
+  readonly sensors: readonly MikrotikSensorDto[] | null
+  readonly sensorsSupported: boolean
+  readonly interfaces: readonly MikrotikInterfaceDto[]
+  readonly vlans: readonly MikrotikVlanDto[] | null
+  readonly bridgeVlans: readonly MikrotikBridgeVlanDto[] | null
+  readonly warning: string | null
+}
+
+export type MikrotikUpdateStatus = {
+  readonly installedVersion: string | null
+  readonly latestVersion: string | null
+  readonly channel: string | null
+  readonly status: string
+}
+
+export type MikrotikFirmwareState = "available" | "not-applicable" | "unknown"
+
+export type MikrotikFirmwareStatus = {
+  readonly state: MikrotikFirmwareState
+  readonly currentFirmware: string | null
+  readonly upgradeFirmware: string | null
+  readonly model: string | null
+}
+
+export type MikrotikStatusEvent =
+  | { readonly event: "started"; readonly sessionId: number; readonly profileId: number }
+  | { readonly event: "stopped"; readonly sessionId: number; readonly snapshotCount: number }
+  | { readonly event: "cancelled"; readonly sessionId: number; readonly snapshotCount: number }
+  | { readonly event: "warning"; readonly sessionId: number; readonly source: string; readonly message: string }
+  | { readonly event: "error"; readonly sessionId: number; readonly message: string }
+  | {
+      readonly event: "version-firmware"
+      readonly sessionId: number
+      readonly updateStatus: MikrotikUpdateStatus
+      readonly firmwareStatus: MikrotikFirmwareStatus
+    }
+
+export type MikrotikProfile = {
+  readonly id: number
+  readonly name: string
+  readonly host: string
+  readonly port: number
+  readonly useTls: boolean
+  readonly allowInvalidCerts: boolean
+  readonly username: string
+  readonly hasPassword: boolean
+  readonly createdAt: string
+}
+
+export type CreateMikrotikProfileRequest = {
+  readonly name: string
+  readonly host: string
+  readonly port: number
+  readonly useTls: boolean
+  readonly allowInvalidCerts: boolean
+  readonly username: string
+}
+
+export type UpdateMikrotikProfileRequest = CreateMikrotikProfileRequest & {
+  readonly id: number
+}
+
+export type DeleteMikrotikProfileResultDto = {
+  readonly deleted: boolean
+  readonly secretDeleted: boolean
+  readonly warning: string | null
+}
+
+export type MikrotikStartDto = {
+  readonly sessionId: number
+  readonly profileId: number
+}
+
+export type MikrotikStoppedDto = {
+  readonly sessionId: number
+  readonly snapshotCount: number
+  readonly endedAt: string
+  readonly status: string
+}
+
+export type MikrotikTestConnectionDto = {
+  readonly boardName: string | null
+  readonly routerosVersion: string | null
+  readonly architectureName: string | null
+}
+
+export type MikrotikSessionSummaryDto = {
+  readonly id: number
+  readonly profileId: number
+  readonly startedAt: string
+  readonly endedAt: string | null
+  readonly status: string
+  readonly boardName: string | null
+  readonly routerosVersion: string | null
+  readonly architectureName: string | null
+  readonly updateStatusJson: string | null
+  readonly firmwareStatusJson: string | null
+  readonly snapshotCount: number
+}
+
+export type MikrotikSnapshotDto = {
+  readonly id: number
+  readonly sessionId: number
+  readonly at: string
+  readonly cpuLoad: number | null
+  readonly memUsedBytes: number | null
+  readonly memTotalBytes: number | null
+  readonly uptime: string | null
+  readonly warning: string | null
+  readonly sensorsJson: string | null
+  readonly interfacesJson: string | null
+  readonly vlansJson: string | null
+  readonly bridgeVlansJson: string | null
+}
+
+export type MikrotikLoadedSessionDto = {
+  readonly session: MikrotikSessionSummaryDto
+  readonly snapshots: readonly MikrotikSnapshotDto[]
+}
+
+export type MikrotikVersionFirmwareResultDto = {
+  readonly updateStatus: MikrotikUpdateStatus
+  readonly firmwareStatus: MikrotikFirmwareStatus
+}
+
+export type MikrotikChangelogDto = {
+  readonly version: string
+  readonly changelog: string
+}
+
+export type BackupResultDto = {
+  readonly backupPath: string
+  readonly exportPath: string | null
+  readonly cleanupWarnings: readonly string[]
+}
+
 export type StartScanDto = {
   readonly scanId: number
   readonly interfaceName: string

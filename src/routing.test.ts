@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { NAV_ITEMS, resolveRoute } from "./routing";
 
 describe("app shell", () => {
-  it("has Ping, Traceroute, Web Benchmark, Network scanner, and DNS Toolkit nav items", () => {
-    expect(NAV_ITEMS).toHaveLength(5);
+  it("has Ping, Traceroute, Web Benchmark, Network scanner, DNS Toolkit, and MikroTik nav items", () => {
+    expect(NAV_ITEMS).toHaveLength(6);
     expect(NAV_ITEMS).toEqual([
       { route: "ping", label: "Ping", hash: "#/ping" },
       { route: "traceroute", label: "Traceroute", hash: "#/traceroute" },
@@ -22,6 +22,11 @@ describe("app shell", () => {
         label: "DNS Toolkit",
         hash: "#/dns-tester",
       },
+      {
+        route: "mikrotik",
+        label: "MikroTik",
+        hash: "#/mikrotik",
+      },
     ]);
   });
 
@@ -39,6 +44,10 @@ describe("app shell", () => {
 
   it("resolves the Network scanner hash to the lan-scan route", () => {
     expect(resolveRoute("#/lan-scan")).toBe("lan-scan");
+  });
+
+  it("resolves the MikroTik hash to the mikrotik route", () => {
+    expect(resolveRoute("#/mikrotik")).toBe("mikrotik");
   });
 
   it("resolves an unknown hash to the ping route", () => {

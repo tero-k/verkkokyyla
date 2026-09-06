@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import DownloadSpeedView from "./views/DownloadSpeedView"
 import DnsTesterView from "./views/DnsTesterView"
 import LanScanView from "./views/LanScanView"
+import MikrotikView from "./views/MikrotikView"
 import PingWorkspace from "./views/PingWorkspace"
 import TracerouteView from "./views/TracerouteView"
 import { NAV_ITEMS, resolveRoute } from "./routing"
@@ -60,6 +61,7 @@ export default function App() {
         {route === "traceroute" && <TracerouteView />}
         {route === "lan-scan" && <LanScanView />}
         {route === "dns-tester" && <DnsTesterView />}
+        {route === "mikrotik" && <MikrotikView />}
       </main>
     </div>
   )

@@ -1,6 +1,6 @@
-// The app has five tools. Route resolution is deliberately trivial:
+// The app has six tools. Route resolution is deliberately trivial:
 // anything unknown still renders the Ping view.
-export type Route = "ping" | "traceroute" | "download-speed" | "lan-scan" | "dns-tester";
+export type Route = "ping" | "traceroute" | "download-speed" | "lan-scan" | "dns-tester" | "mikrotik";
 
 export interface NavItem {
   readonly route: Route;
@@ -14,6 +14,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { route: "download-speed", label: "Web Benchmark", hash: "#/download-speed" },
   { route: "lan-scan", label: "Network scanner", hash: "#/lan-scan" },
   { route: "dns-tester", label: "DNS Toolkit", hash: "#/dns-tester" },
+  { route: "mikrotik", label: "MikroTik", hash: "#/mikrotik" },
 ];
 
 export function resolveRoute(hash: string): Route {
@@ -21,5 +22,6 @@ export function resolveRoute(hash: string): Route {
   if (hash === "#/download-speed") return "download-speed";
   if (hash === "#/lan-scan") return "lan-scan";
   if (hash === "#/dns-tester") return "dns-tester";
+  if (hash === "#/mikrotik") return "mikrotik";
   return "ping";
 }
