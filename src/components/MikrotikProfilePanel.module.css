@@ -1,0 +1,13 @@
+.panel { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(18rem, 1fr); gap: 1rem; }
+.list, .form { display: grid; gap: 0.75rem; align-content: start; }
+.profile, .form { padding: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface-1); }
+.profile { display: flex; justify-content: space-between; gap: 1rem; }
+.profile h3, .form h2 { margin: 0; font-size: 1rem; }
+.profile p, .hint, .error, .success { margin: 0; color: var(--text-muted); }
+.form label { display: grid; gap: 0.25rem; color: var(--text-muted); }
+.checkbox { grid-template-columns: max-content 1fr; align-items: center; }
+.rowActions, .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.hint { color: var(--warning); }
+.error { grid-column: 1 / -1; color: var(--danger); }
+.success { grid-column: 1 / -1; color: var(--success); }
+@media (max-width: 48rem) { .panel { grid-template-columns: 1fr; } }

@@ -1,0 +1,73 @@
+.panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 0.75rem;
+  margin: 1rem 0;
+}
+
+.facts dt {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  border-radius: 1em;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.success { background: var(--status-success-bg); color: var(--status-success-text); }
+.warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+.neutral { background: var(--status-neutral-bg); color: var(--status-neutral-text); }
+
+.mutedError {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.changelog {
+  grid-column: 1 / -1;
+  max-height: 14rem;
+  overflow: auto;
+  margin: 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: var(--surface-0);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+}
