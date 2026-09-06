@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rand::RngCore;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
 use thiserror::Error;
@@ -249,6 +250,90 @@ pub struct DownloadSpeedSessionSummary {
 pub struct LoadedDownloadSpeedSession {
     pub session: DownloadSpeedSessionSummary,
     pub result_json: String,
+}
+
+/// Parameters for a Mikrotik connection profile. Passwords live in the OS keyring.
+#[derive(Debug, Clone)]
+pub struct NewMikrotikProfile {
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub use_tls: bool,
+    pub allow_invalid_certs: bool,
+    pub username: String,
+    pub created_at: String,
+}
+
+/// Persisted Mikrotik connection profile. `secret_key` is the keyring account name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MikrotikProfile {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub use_tls: bool,
+    pub allow_invalid_certs: bool,
+    pub username: String,
+    pub secret_key: String,
+    pub created_at: String,
+}
+
+/// Parameters for a Mikrotik monitoring session.
+#[derive(Debug, Clone)]
+pub struct NewMikrotikSession {
+    pub profile_id: i64,
+    pub started_at: String,
+    pub status: String,
+}
+
+/// Version and firmware metadata attached after the Mikrotik version flow completes.
+#[derive(Debug, Clone)]
+pub struct MikrotikSessionVersionStatus {
+    pub board_name: Option<String>,
+    pub routeros_version: Option<String>,
+    pub architecture_name: Option<String>,
+    pub update_status_json: Option<String>,
+    pub firmware_status_json: Option<String>,
+}
+
+/// Mikrotik monitoring session row joined with persisted snapshot count.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MikrotikSessionSummary {
+    pub id: i64,
+    pub profile_id: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: String,
+    pub board_name: Option<String>,
+    pub routeros_version: Option<String>,
+    pub architecture_name: Option<String>,
+    pub update_status_json: Option<String>,
+    pub firmware_status_json: Option<String>,
+    pub snapshot_count: i64,
+}
+
+/// Snapshot row for one Mikrotik monitoring tick.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MikrotikSnapshotRow {
+    pub id: i64,
+    pub session_id: i64,
+    pub at: String,
+    pub cpu_load: Option<f64>,
+    pub mem_used_bytes: Option<i64>,
+    pub mem_total_bytes: Option<i64>,
+    pub uptime: Option<String>,
+    pub warning: Option<String>,
+    pub sensors_json: Option<String>,
+    pub interfaces_json: Option<String>,
+    pub vlans_json: Option<String>,
+    pub bridge_vlans_json: Option<String>,
+}
+
+/// Loaded Mikrotik session and snapshots ordered by timestamp.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedMikrotikSession {
+    pub session: MikrotikSessionSummary,
+    pub snapshots: Vec<MikrotikSnapshotRow>,
 }
 
 /// Loaded scan and ordered host rows.
@@ -741,7 +826,9 @@ impl Database {
     }
 
     /// Lists all download speed sessions newest first.
-    pub async fn list_download_speed_sessions(&self) -> Result<Vec<DownloadSpeedSessionSummary>, DbError> {
+    pub async fn list_download_speed_sessions(
+        &self,
+    ) -> Result<Vec<DownloadSpeedSessionSummary>, DbError> {
         let rows = sqlx::query(
             "SELECT id, url, mode, started_at, ended_at, status, average_mbps, total_time_ms \
              FROM download_speed_sessions ORDER BY id DESC",
@@ -765,7 +852,10 @@ impl Database {
     }
 
     /// Loads one download speed session including its stored result JSON.
-    pub async fn load_download_speed_session(&self, id: i64) -> Result<LoadedDownloadSpeedSession, DbError> {
+    pub async fn load_download_speed_session(
+        &self,
+        id: i64,
+    ) -> Result<LoadedDownloadSpeedSession, DbError> {
         let session = self
             .list_download_speed_sessions()
             .await?
@@ -781,12 +871,11 @@ impl Database {
                 average_mbps: 0.0,
                 total_time_ms: 0,
             });
-        let result_json: String = sqlx::query_scalar(
-            "SELECT result_json FROM download_speed_sessions WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await?;
+        let result_json: String =
+            sqlx::query_scalar("SELECT result_json FROM download_speed_sessions WHERE id = ?")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(LoadedDownloadSpeedSession {
             session,
             result_json,
@@ -796,6 +885,249 @@ impl Database {
     /// Deletes a download speed session.
     pub async fn delete_download_speed_session(&self, id: i64) -> Result<(), DbError> {
         sqlx::query("DELETE FROM download_speed_sessions WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Inserts a Mikrotik profile and returns the persisted row.
+    pub async fn create_mikrotik_profile(
+        &self,
+        profile: &NewMikrotikProfile,
+    ) -> Result<MikrotikProfile, DbError> {
+        let secret_key = new_mikrotik_secret_key();
+        let result = sqlx::query(
+            "INSERT INTO mikrotik_profiles \
+             (name, host, port, use_tls, allow_invalid_certs, username, secret_key, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&profile.name)
+        .bind(&profile.host)
+        .bind(profile.port)
+        .bind(profile.use_tls)
+        .bind(profile.allow_invalid_certs)
+        .bind(&profile.username)
+        .bind(&secret_key)
+        .bind(&profile.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(MikrotikProfile {
+            id: result.last_insert_rowid(),
+            name: profile.name.clone(),
+            host: profile.host.clone(),
+            port: profile.port,
+            use_tls: profile.use_tls,
+            allow_invalid_certs: profile.allow_invalid_certs,
+            username: profile.username.clone(),
+            secret_key,
+            created_at: profile.created_at.clone(),
+        })
+    }
+
+    /// Updates editable Mikrotik profile fields; the secret key is immutable.
+    pub async fn update_mikrotik_profile(
+        &self,
+        id: i64,
+        profile: &NewMikrotikProfile,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE mikrotik_profiles \
+             SET name = ?, host = ?, port = ?, use_tls = ?, allow_invalid_certs = ?, username = ? \
+             WHERE id = ?",
+        )
+        .bind(&profile.name)
+        .bind(&profile.host)
+        .bind(profile.port)
+        .bind(profile.use_tls)
+        .bind(profile.allow_invalid_certs)
+        .bind(&profile.username)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Lists all Mikrotik profiles newest first.
+    pub async fn list_mikrotik_profiles(&self) -> Result<Vec<MikrotikProfile>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, name, host, port, use_tls, allow_invalid_certs, username, secret_key, created_at \
+             FROM mikrotik_profiles ORDER BY id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| mikrotik_profile_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads one Mikrotik profile by id.
+    pub async fn load_mikrotik_profile(&self, id: i64) -> Result<Option<MikrotikProfile>, DbError> {
+        let row = sqlx::query(
+            "SELECT id, name, host, port, use_tls, allow_invalid_certs, username, secret_key, created_at \
+             FROM mikrotik_profiles WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref()
+            .map(mikrotik_profile_from_row)
+            .transpose()
+            .map_err(DbError::from)
+    }
+
+    /// Deletes a Mikrotik profile; sessions and snapshots cascade.
+    pub async fn delete_mikrotik_profile(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM mikrotik_profiles WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Inserts a Mikrotik monitoring session and returns its id.
+    pub async fn create_mikrotik_session(
+        &self,
+        session: &NewMikrotikSession,
+    ) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO mikrotik_sessions (profile_id, started_at, status) VALUES (?, ?, ?)",
+        )
+        .bind(session.profile_id)
+        .bind(&session.started_at)
+        .bind(&session.status)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Finalizes a Mikrotik monitoring session.
+    pub async fn complete_mikrotik_session(
+        &self,
+        id: i64,
+        ended_at: &str,
+        status: &str,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE mikrotik_sessions SET ended_at = ?, status = ? WHERE id = ?")
+            .bind(ended_at)
+            .bind(status)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Stores Mikrotik version/update/firmware metadata on a session.
+    pub async fn set_mikrotik_session_version_status(
+        &self,
+        id: i64,
+        status: &MikrotikSessionVersionStatus,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE mikrotik_sessions \
+             SET board_name = ?, routeros_version = ?, architecture_name = ?, \
+                 update_status_json = ?, firmware_status_json = ? \
+             WHERE id = ?",
+        )
+        .bind(&status.board_name)
+        .bind(&status.routeros_version)
+        .bind(&status.architecture_name)
+        .bind(&status.update_status_json)
+        .bind(&status.firmware_status_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Inserts a Mikrotik snapshot and returns its id.
+    pub async fn insert_mikrotik_snapshot(
+        &self,
+        snapshot: &MikrotikSnapshotRow,
+    ) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO mikrotik_snapshots \
+             (session_id, at, cpu_load, mem_used_bytes, mem_total_bytes, uptime, warning, \
+              sensors_json, interfaces_json, vlans_json, bridge_vlans_json) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(snapshot.session_id)
+        .bind(&snapshot.at)
+        .bind(snapshot.cpu_load)
+        .bind(snapshot.mem_used_bytes)
+        .bind(snapshot.mem_total_bytes)
+        .bind(&snapshot.uptime)
+        .bind(&snapshot.warning)
+        .bind(&snapshot.sensors_json)
+        .bind(&snapshot.interfaces_json)
+        .bind(&snapshot.vlans_json)
+        .bind(&snapshot.bridge_vlans_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Lists all Mikrotik sessions newest first.
+    pub async fn list_mikrotik_sessions(&self) -> Result<Vec<MikrotikSessionSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT s.id, s.profile_id, s.started_at, s.ended_at, s.status, s.board_name, \
+                    s.routeros_version, s.architecture_name, s.update_status_json, \
+                    s.firmware_status_json, \
+                    COALESCE((SELECT COUNT(*) FROM mikrotik_snapshots m WHERE m.session_id = s.id), 0) AS snapshot_count \
+             FROM mikrotik_sessions s ORDER BY s.id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| mikrotik_session_summary_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads one Mikrotik session with snapshots ordered by timestamp ascending.
+    pub async fn load_mikrotik_session(&self, id: i64) -> Result<LoadedMikrotikSession, DbError> {
+        let session = self
+            .list_mikrotik_sessions()
+            .await?
+            .into_iter()
+            .find(|session| session.id == id)
+            .unwrap_or_else(|| MikrotikSessionSummary {
+                id,
+                profile_id: 0,
+                started_at: String::new(),
+                ended_at: None,
+                status: String::new(),
+                board_name: None,
+                routeros_version: None,
+                architecture_name: None,
+                update_status_json: None,
+                firmware_status_json: None,
+                snapshot_count: 0,
+            });
+        let snapshots = self.load_mikrotik_snapshots(id).await?;
+        Ok(LoadedMikrotikSession { session, snapshots })
+    }
+
+    /// Loads Mikrotik snapshots for a session ordered by timestamp ascending.
+    pub async fn load_mikrotik_snapshots(
+        &self,
+        session_id: i64,
+    ) -> Result<Vec<MikrotikSnapshotRow>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, session_id, at, cpu_load, mem_used_bytes, mem_total_bytes, uptime, warning, \
+                    sensors_json, interfaces_json, vlans_json, bridge_vlans_json \
+             FROM mikrotik_snapshots WHERE session_id = ? ORDER BY at ASC",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| mikrotik_snapshot_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Deletes a Mikrotik monitoring session; snapshots cascade.
+    pub async fn delete_mikrotik_session(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM mikrotik_sessions WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -907,6 +1239,69 @@ fn dns_run_summary_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<DnsRunSumma
         status: row.try_get("status")?,
         target_count: row.try_get("target_count")?,
     })
+}
+
+fn mikrotik_profile_from_row(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<MikrotikProfile, sqlx::Error> {
+    Ok(MikrotikProfile {
+        id: row.try_get("id")?,
+        name: row.try_get("name")?,
+        host: row.try_get("host")?,
+        port: row.try_get("port")?,
+        use_tls: row.try_get("use_tls")?,
+        allow_invalid_certs: row.try_get("allow_invalid_certs")?,
+        username: row.try_get("username")?,
+        secret_key: row.try_get("secret_key")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn mikrotik_session_summary_from_row(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<MikrotikSessionSummary, sqlx::Error> {
+    Ok(MikrotikSessionSummary {
+        id: row.try_get("id")?,
+        profile_id: row.try_get("profile_id")?,
+        started_at: row.try_get("started_at")?,
+        ended_at: row.try_get("ended_at")?,
+        status: row.try_get("status")?,
+        board_name: row.try_get("board_name")?,
+        routeros_version: row.try_get("routeros_version")?,
+        architecture_name: row.try_get("architecture_name")?,
+        update_status_json: row.try_get("update_status_json")?,
+        firmware_status_json: row.try_get("firmware_status_json")?,
+        snapshot_count: row.try_get("snapshot_count")?,
+    })
+}
+
+fn mikrotik_snapshot_from_row(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<MikrotikSnapshotRow, sqlx::Error> {
+    Ok(MikrotikSnapshotRow {
+        id: row.try_get("id")?,
+        session_id: row.try_get("session_id")?,
+        at: row.try_get("at")?,
+        cpu_load: row.try_get("cpu_load")?,
+        mem_used_bytes: row.try_get("mem_used_bytes")?,
+        mem_total_bytes: row.try_get("mem_total_bytes")?,
+        uptime: row.try_get("uptime")?,
+        warning: row.try_get("warning")?,
+        sensors_json: row.try_get("sensors_json")?,
+        interfaces_json: row.try_get("interfaces_json")?,
+        vlans_json: row.try_get("vlans_json")?,
+        bridge_vlans_json: row.try_get("bridge_vlans_json")?,
+    })
+}
+
+fn new_mikrotik_secret_key() -> String {
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut key = String::with_capacity(32);
+    for byte in bytes {
+        key.push_str(&format!("{byte:02x}"));
+    }
+    key
 }
 
 /// Formats a `SystemTime` as an RFC 3339 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`).
@@ -1027,6 +1422,43 @@ mod tests {
         }
     }
 
+    fn sample_mikrotik_profile(name: &str) -> NewMikrotikProfile {
+        NewMikrotikProfile {
+            name: name.to_string(),
+            host: "router.lan".to_string(),
+            port: 8729,
+            use_tls: true,
+            allow_invalid_certs: false,
+            username: "admin".to_string(),
+            created_at: now_rfc3339(),
+        }
+    }
+
+    fn sample_mikrotik_session(profile_id: i64) -> NewMikrotikSession {
+        NewMikrotikSession {
+            profile_id,
+            started_at: now_rfc3339(),
+            status: "running".to_string(),
+        }
+    }
+
+    fn mikrotik_snapshot(session_id: i64, at: &str) -> MikrotikSnapshotRow {
+        MikrotikSnapshotRow {
+            id: 0,
+            session_id,
+            at: at.to_string(),
+            cpu_load: Some(17.5),
+            mem_used_bytes: Some(1_024),
+            mem_total_bytes: Some(4_096),
+            uptime: Some("1d2h".to_string()),
+            warning: Some("fan sensor unavailable".to_string()),
+            sensors_json: Some(r#"[{"name":"temp","value":42}]"#.to_string()),
+            interfaces_json: Some(r#"[{"name":"ether1","running":true}]"#.to_string()),
+            vlans_json: Some(r#"[{"name":"vlan10","id":10}]"#.to_string()),
+            bridge_vlans_json: Some(r#"[{"bridge":"br0","tagged":["ether1"]}]"#.to_string()),
+        }
+    }
+
     fn trace_hop(
         trace_id: i64,
         hop: i64,
@@ -1055,10 +1487,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v9() {
+    async fn fresh_db_migrates_to_v10() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 9);
+        assert_eq!(migration_count(&db).await, 10);
         let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&db.pool)
             .await
@@ -1067,7 +1499,7 @@ mod tests {
             .iter()
             .map(|row| row.try_get::<i64, _>("version").expect("version"))
             .collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
         let tables =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -1085,6 +1517,9 @@ mod tests {
         assert!(tables.contains(&"dns_runs".to_string()));
         assert!(tables.contains(&"dns_run_targets".to_string()));
         assert!(tables.contains(&"download_speed_sessions".to_string()));
+        assert!(tables.contains(&"mikrotik_profiles".to_string()));
+        assert!(tables.contains(&"mikrotik_sessions".to_string()));
+        assert!(tables.contains(&"mikrotik_snapshots".to_string()));
 
         let indexes =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
@@ -1098,6 +1533,7 @@ mod tests {
         assert!(indexes.contains(&"idx_trace_hops_trace".to_string()));
         assert!(indexes.contains(&"idx_scan_hosts_scan".to_string()));
         assert!(indexes.contains(&"idx_dns_run_targets_run".to_string()));
+        assert!(indexes.contains(&"idx_mikrotik_snapshots_session_at".to_string()));
     }
 
     #[tokio::test]
@@ -1105,10 +1541,260 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 9);
+        assert_eq!(migration_count(&db).await, 10);
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 9);
+        assert_eq!(migration_count(&db).await, 10);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_fresh_migrates() {
+        let dir = TestDir::new("mikrotik-fresh");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        assert_eq!(migration_count(&db).await, 10);
+
+        let tables = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .fetch_all(&db.pool)
+            .await
+            .expect("read tables");
+        let tables: Vec<String> = tables
+            .iter()
+            .map(|row| row.try_get::<String, _>("name").expect("table name"))
+            .collect();
+        assert!(tables.contains(&"mikrotik_profiles".to_string()));
+        assert!(tables.contains(&"mikrotik_sessions".to_string()));
+        assert!(tables.contains(&"mikrotik_snapshots".to_string()));
+
+        let indexes = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .fetch_all(&db.pool)
+            .await
+            .expect("read indexes");
+        let indexes: Vec<String> = indexes
+            .iter()
+            .map(|row| row.try_get::<String, _>("name").expect("index name"))
+            .collect();
+        assert!(indexes.contains(&"idx_mikrotik_snapshots_session_at".to_string()));
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_secret_key_populated_and_unique_on_create() {
+        let dir = TestDir::new("mikrotik-secret");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+
+        let first = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("edge"))
+            .await
+            .expect("create first profile");
+        let second = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("core"))
+            .await
+            .expect("create second profile");
+
+        assert_eq!(first.secret_key.len(), 32);
+        assert!(first.secret_key.chars().all(|ch| ch.is_ascii_hexdigit()));
+        assert_ne!(first.secret_key, second.secret_key);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_profile_crud() {
+        let dir = TestDir::new("mikrotik-profile-crud");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("edge"))
+            .await
+            .expect("create profile");
+        assert_eq!(profile.name, "edge");
+        assert_eq!(profile.host, "router.lan");
+
+        let mut update = sample_mikrotik_profile("edge-renamed");
+        update.host = "192.0.2.1".to_string();
+        update.port = 8728;
+        update.use_tls = false;
+        update.allow_invalid_certs = true;
+        update.username = "ops".to_string();
+        db.update_mikrotik_profile(profile.id, &update)
+            .await
+            .expect("update profile");
+
+        let loaded = db
+            .load_mikrotik_profile(profile.id)
+            .await
+            .expect("load profile")
+            .expect("profile exists");
+        assert_eq!(loaded.name, "edge-renamed");
+        assert_eq!(loaded.host, "192.0.2.1");
+        assert_eq!(loaded.port, 8728);
+        assert!(!loaded.use_tls);
+        assert!(loaded.allow_invalid_certs);
+        assert_eq!(loaded.username, "ops");
+        assert_eq!(loaded.secret_key, profile.secret_key);
+        assert_eq!(
+            db.list_mikrotik_profiles().await.expect("list"),
+            vec![loaded]
+        );
+
+        db.delete_mikrotik_profile(profile.id)
+            .await
+            .expect("delete profile");
+        assert!(db
+            .load_mikrotik_profile(profile.id)
+            .await
+            .expect("load after delete")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_session_snapshot_roundtrip_includes_json_columns() {
+        let dir = TestDir::new("mikrotik-roundtrip");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("edge"))
+            .await
+            .expect("create profile");
+        let session_id = db
+            .create_mikrotik_session(&sample_mikrotik_session(profile.id))
+            .await
+            .expect("create session");
+        let version_status = MikrotikSessionVersionStatus {
+            board_name: Some("CCR2004".to_string()),
+            routeros_version: Some("7.16.1".to_string()),
+            architecture_name: Some("arm64".to_string()),
+            update_status_json: Some(
+                r#"{"channel":"stable","status":"System is already up to date"}"#.to_string(),
+            ),
+            firmware_status_json: Some(r#"{"current":"7.16.1","upgrade":"7.16.1"}"#.to_string()),
+        };
+        db.set_mikrotik_session_version_status(session_id, &version_status)
+            .await
+            .expect("set version status");
+        let mut snapshot = mikrotik_snapshot(session_id, "2026-01-01T00:00:02Z");
+        snapshot.id = db
+            .insert_mikrotik_snapshot(&snapshot)
+            .await
+            .expect("insert snapshot");
+        db.complete_mikrotik_session(session_id, "2026-01-01T00:00:03Z", "completed")
+            .await
+            .expect("complete session");
+
+        let sessions = db.list_mikrotik_sessions().await.expect("list sessions");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].profile_id, profile.id);
+        assert_eq!(sessions[0].status, "completed");
+        assert_eq!(sessions[0].board_name.as_deref(), Some("CCR2004"));
+        assert_eq!(sessions[0].routeros_version.as_deref(), Some("7.16.1"));
+        assert_eq!(sessions[0].architecture_name.as_deref(), Some("arm64"));
+        assert_eq!(
+            sessions[0].update_status_json,
+            version_status.update_status_json
+        );
+        assert_eq!(
+            sessions[0].firmware_status_json,
+            version_status.firmware_status_json
+        );
+        assert_eq!(sessions[0].snapshot_count, 1);
+
+        let loaded = db
+            .load_mikrotik_session(session_id)
+            .await
+            .expect("load session");
+        assert_eq!(loaded.session, sessions[0]);
+        assert_eq!(loaded.snapshots, vec![snapshot]);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_delete_profile_cascades_sessions_and_snapshots() {
+        let dir = TestDir::new("mikrotik-cascade");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("edge"))
+            .await
+            .expect("create profile");
+        let session_id = db
+            .create_mikrotik_session(&sample_mikrotik_session(profile.id))
+            .await
+            .expect("create session");
+        db.insert_mikrotik_snapshot(&mikrotik_snapshot(session_id, "2026-01-01T00:00:01Z"))
+            .await
+            .expect("insert snapshot");
+
+        db.delete_mikrotik_profile(profile.id)
+            .await
+            .expect("delete profile");
+
+        let session_row = sqlx::query("SELECT COUNT(*) AS n FROM mikrotik_sessions")
+            .fetch_one(&db.pool)
+            .await
+            .expect("count sessions");
+        let snapshot_row = sqlx::query("SELECT COUNT(*) AS n FROM mikrotik_snapshots")
+            .fetch_one(&db.pool)
+            .await
+            .expect("count snapshots");
+        assert_eq!(session_row.try_get::<i64, _>("n").expect("sessions"), 0);
+        assert_eq!(snapshot_row.try_get::<i64, _>("n").expect("snapshots"), 0);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_delete_session_cascades_snapshots() {
+        let dir = TestDir::new("mikrotik-session-cascade");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("edge"))
+            .await
+            .expect("create profile");
+        let session_id = db
+            .create_mikrotik_session(&sample_mikrotik_session(profile.id))
+            .await
+            .expect("create session");
+        db.insert_mikrotik_snapshot(&mikrotik_snapshot(session_id, "2026-01-01T00:00:01Z"))
+            .await
+            .expect("insert snapshot");
+
+        db.delete_mikrotik_session(session_id)
+            .await
+            .expect("delete session");
+
+        let row = sqlx::query("SELECT COUNT(*) AS n FROM mikrotik_snapshots")
+            .fetch_one(&db.pool)
+            .await
+            .expect("count snapshots");
+        assert_eq!(row.try_get::<i64, _>("n").expect("snapshots"), 0);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_db_snapshots_at_asc() {
+        let dir = TestDir::new("mikrotik-order");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("edge"))
+            .await
+            .expect("create profile");
+        let session_id = db
+            .create_mikrotik_session(&sample_mikrotik_session(profile.id))
+            .await
+            .expect("create session");
+        for at in [
+            "2026-01-01T00:00:03Z",
+            "2026-01-01T00:00:01Z",
+            "2026-01-01T00:00:02Z",
+        ] {
+            db.insert_mikrotik_snapshot(&mikrotik_snapshot(session_id, at))
+                .await
+                .expect("insert snapshot");
+        }
+
+        let loaded = db
+            .load_mikrotik_snapshots(session_id)
+            .await
+            .expect("load snapshots");
+        let timestamps: Vec<&str> = loaded.iter().map(|snapshot| snapshot.at.as_str()).collect();
+        assert_eq!(
+            timestamps,
+            vec![
+                "2026-01-01T00:00:01Z",
+                "2026-01-01T00:00:02Z",
+                "2026-01-01T00:00:03Z"
+            ]
+        );
     }
 
     #[tokio::test]
