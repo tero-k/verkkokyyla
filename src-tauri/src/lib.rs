@@ -6,6 +6,7 @@ pub mod download;
 pub mod download_manager;
 pub mod engine;
 pub mod http_client;
+pub mod mikrotik;
 pub mod page_speed;
 pub mod scan;
 mod scan_commands;
