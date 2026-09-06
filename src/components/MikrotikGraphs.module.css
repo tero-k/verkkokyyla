@@ -1,0 +1,39 @@
+.wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  min-inline-size: 0;
+}
+
+.panel {
+  min-inline-size: 0;
+  padding-block-end: 1rem;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+}
+
+.title {
+  margin: 0;
+  padding: 1rem 1rem 0.5rem;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.chart {
+  min-inline-size: 0;
+  inline-size: 100%;
+}
+
+.chart :global(.u-axis),
+.chart :global(.u-label) {
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart :global(*) {
+    animation: none;
+    transition: none;
+  }
+}
