@@ -26,7 +26,6 @@ use download_manager::{
     LoadedDownloadSpeedSessionDto, SaveDownloadSpeedSessionRequest,
 };
 
-
 #[cfg(unix)]
 use engine::TracePosix;
 #[cfg(windows)]
@@ -245,7 +244,9 @@ async fn dns_diagnostics(
     manager: tauri::State<'_, DnsManager>,
 ) -> Result<dns::diagnostics::DnsDiagnosticsDto, dns::error::DnsError> {
     let report = manager.run_diagnostics(endpoint.clone(), &domain).await?;
-    let _ = manager.persist_diagnostics(&endpoint.name, &domain, &report).await;
+    let _ = manager
+        .persist_diagnostics(&endpoint.name, &domain, &report)
+        .await;
     Ok(report)
 }
 
@@ -256,7 +257,9 @@ async fn dns_email_check(
     dkim_selectors: Vec<String>,
     manager: tauri::State<'_, DnsManager>,
 ) -> Result<dns::email::EmailSecurityReportDto, dns::error::DnsError> {
-    manager.run_email_check(endpoint, &domain, dkim_selectors).await
+    manager
+        .run_email_check(endpoint, &domain, dkim_selectors)
+        .await
 }
 
 #[tauri::command]
@@ -332,6 +335,7 @@ async fn delete_download_speed_session(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let db_path = db::db_path(&data_dir);
