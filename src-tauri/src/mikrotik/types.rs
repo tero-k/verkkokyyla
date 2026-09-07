@@ -73,6 +73,9 @@ pub struct MikrotikResourcesDto {
     pub mem_used_bytes: Option<u64>,
     pub mem_total_bytes: Option<u64>,
     pub uptime: Option<String>,
+    pub board_name: Option<String>,
+    pub routeros_version: Option<String>,
+    pub architecture_name: Option<String>,
 }
 
 /// Flattened health sensor for the wire and for `sensors_json`.

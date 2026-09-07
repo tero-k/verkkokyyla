@@ -393,7 +393,7 @@ pub async fn run_mikrotik_session(
     let mut tick: u64 = 0;
     let mut core_failures = 0u32;
     let mut snapshot_count = 0u64;
-    let mut version_persisted = false;
+    let mut resource_identity_persisted = false;
     let mut cancelled = false;
     let mut rates = RateState::default();
     let mut enrichers = EnricherState::new();
@@ -435,8 +435,8 @@ pub async fn run_mikrotik_session(
 
         // FIRST successful resource sample persists board/version/architecture
         // onto the session row so history renders them.
-        if !version_persisted {
-            version_persisted = true;
+        if !resource_identity_persisted {
+            resource_identity_persisted = true;
             let loaded = db.load_mikrotik_session(session_id).await?;
             db.set_mikrotik_session_version_status(
                 session_id,
@@ -562,6 +562,9 @@ pub async fn run_mikrotik_session(
                 mem_used_bytes: resource.mem_used_bytes,
                 mem_total_bytes: resource.mem_total_bytes,
                 uptime: resource.uptime,
+                board_name: resource.board_name,
+                routeros_version: resource.version,
+                architecture_name: resource.architecture_name,
             }),
             sensors: enrichers.sensors.clone(),
             sensors_supported: enrichers.sensors_supported,

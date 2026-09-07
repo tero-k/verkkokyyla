@@ -79,14 +79,23 @@ mod mikrotik_runtime {
     // ---- Fixture JSON shapes (matching todo 2's defensive parsers) ---------
 
     fn resource_json(cpu_load: f64) -> Value {
+        resource_json_with_identity(cpu_load, "RB5009", "7.16.1", "arm64")
+    }
+
+    fn resource_json_with_identity(
+        cpu_load: f64,
+        board_name: &str,
+        version: &str,
+        architecture_name: &str,
+    ) -> Value {
         json!({
             "cpu-load": cpu_load,
             "total-memory": 1_000_000_u64,
             "free-memory": 400_000_u64,
             "uptime": "1d 02:03:04",
-            "board-name": "RB5009",
-            "version": "7.16.1",
-            "architecture-name": "arm64"
+            "board-name": board_name,
+            "version": version,
+            "architecture-name": architecture_name
         })
     }
 
@@ -434,6 +443,9 @@ mod mikrotik_runtime {
                 mem_used_bytes: Some(600_000),
                 mem_total_bytes: Some(1_000_000),
                 uptime: Some("1d".to_owned()),
+                board_name: Some("RB5009".to_owned()),
+                routeros_version: Some("7.16.1".to_owned()),
+                architecture_name: Some("arm64".to_owned()),
             }),
             sensors: Some(vec![MikrotikSensorDto {
                 name: "cpu-temperature".to_owned(),
@@ -501,6 +513,10 @@ mod mikrotik_runtime {
         }
         assert!(!iface.contains_key("iface_type"));
         assert!(!iface.contains_key("ifaceType"));
+        let resources = obj["resources"].as_object().unwrap();
+        for key in ["boardName", "routerosVersion", "architectureName"] {
+            assert!(resources.contains_key(key), "resources must carry `{key}`");
+        }
         // Round-trip through serialized text keeps the exact tag.
         let reparsed: Value =
             serde_json::from_str(&serde_json::to_string(&value).unwrap()).unwrap();
@@ -652,6 +668,43 @@ mod mikrotik_runtime {
         assert_eq!(dto.snapshots.len(), 3);
         assert_eq!(dto.session.board_name.as_deref(), Some("RB5009"));
         assert_eq!(dto.snapshots[0].cpu_load, Some(50.0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mikrotik_runtime_snapshot_resources_carry_router_identity_every_tick() {
+        let dir = TempDir::new("resource-identity");
+        let mut script = ApiScript::working();
+        script.resource = vec![
+            ok(resource_json_with_identity(10.0, "RB5009", "7.16.1", "arm64")),
+            ok(resource_json_with_identity(20.0, "CCR2004", "7.17.2", "arm64")),
+        ];
+        let api = script.build();
+        let mut h = harness(&dir, api).await;
+        let profile_id = create_profile(&h.manager).await;
+        h.manager
+            .set_profile_password(profile_id, "s3cr3t")
+            .await
+            .unwrap();
+        let start = start_session(&h, profile_id).await;
+        h.statuses.recv().await.expect("started");
+
+        let first = next_snapshot(&mut h.events).await;
+        advance_secs(5).await;
+        let second = next_snapshot(&mut h.events).await;
+
+        let first_resources = first.resources.expect("first resources");
+        assert_eq!(first_resources.board_name.as_deref(), Some("RB5009"));
+        assert_eq!(first_resources.routeros_version.as_deref(), Some("7.16.1"));
+        assert_eq!(first_resources.architecture_name.as_deref(), Some("arm64"));
+        let second_resources = second.resources.expect("second resources");
+        assert_eq!(second_resources.board_name.as_deref(), Some("CCR2004"));
+        assert_eq!(second_resources.routeros_version.as_deref(), Some("7.17.2"));
+        assert_eq!(second_resources.architecture_name.as_deref(), Some("arm64"));
+
+        let loaded = h.manager.load_session(start.session_id).await.expect("load");
+        assert_eq!(loaded.session.board_name.as_deref(), Some("RB5009"));
+        assert!(loaded.snapshots[0].interfaces_json.is_some());
+        h.manager.stop().await.expect("stop");
     }
 
     // ---- Rate math from ACTUAL elapsed time ----------------------------------

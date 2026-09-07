@@ -18,6 +18,15 @@ pub struct UpdateStatusResultDto {
     pub latest_version: Option<String>,
     pub channel: Option<String>,
     pub status: String,
+    pub state: UpdateState,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UpdateState {
+    UpdateAvailable,
+    UpToDate,
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -33,6 +42,7 @@ pub struct FirmwareStatusDto {
 #[serde(rename_all = "kebab-case")]
 pub enum FirmwareState {
     Available,
+    UpToDate,
     NotApplicable,
     Unknown,
 }
@@ -138,7 +148,8 @@ async fn probe_once(api: Arc<dyn MikrotikApi>) -> Result<VersionFirmwareResultDt
 }
 
 fn should_deliver_spawned_probe(result: &VersionFirmwareResultDto) -> bool {
-    let update_unknown = result.update_status.status == "unknown"
+    let update_unknown = result.update_status.state == UpdateState::Unknown
+        && result.update_status.status == "unknown"
         && result.update_status.installed_version.is_none()
         && result.update_status.latest_version.is_none()
         && result.update_status.channel.is_none();
@@ -184,11 +195,13 @@ async fn probe_firmware(api: &Arc<dyn MikrotikApi>) -> FirmwareStatusDto {
 }
 
 fn update_result(dto: UpdateStatusDto) -> UpdateStatusResultDto {
+    let state = update_state(dto.latest_version.as_deref(), dto.status.as_deref());
     UpdateStatusResultDto {
         installed_version: dto.installed_version,
         latest_version: dto.latest_version,
         channel: dto.channel,
         status: dto.status.unwrap_or_else(|| "unknown".to_owned()),
+        state,
     }
 }
 
@@ -198,12 +211,34 @@ fn unknown_update() -> UpdateStatusResultDto {
         latest_version: None,
         channel: None,
         status: "unknown".to_owned(),
+        state: UpdateState::Unknown,
+    }
+}
+
+fn update_state(latest_version: Option<&str>, status: Option<&str>) -> UpdateState {
+    let Some(status) = status else {
+        return UpdateState::Unknown;
+    };
+    if latest_version.is_none() {
+        return UpdateState::Unknown;
+    }
+    let lower = status.to_lowercase();
+    if lower.contains("available") {
+        UpdateState::UpdateAvailable
+    } else if lower.contains("up to date") {
+        UpdateState::UpToDate
+    } else {
+        UpdateState::Unknown
     }
 }
 
 fn firmware_from_routerboard(dto: RouterboardDto) -> FirmwareStatusDto {
     let state = match dto.routerboard {
-        Some(true) => FirmwareState::Available,
+        Some(true) => match (dto.current_firmware.as_deref(), dto.upgrade_firmware.as_deref()) {
+            (Some(current), Some(upgrade)) if current == upgrade => FirmwareState::UpToDate,
+            (Some(_), Some(_)) => FirmwareState::Available,
+            (Some(_), None) | (None, Some(_)) | (None, None) => FirmwareState::Unknown,
+        },
         Some(false) | None => FirmwareState::NotApplicable,
     };
     FirmwareStatusDto {

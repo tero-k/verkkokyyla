@@ -159,12 +159,20 @@ mod mikrotik_version {
     }
 
     fn routerboard(value: bool) -> Step<RouterboardDto> {
+        routerboard_firmware(value, Some("7.18.2"), Some("7.19"))
+    }
+
+    fn routerboard_firmware(
+        value: bool,
+        current_firmware: Option<&str>,
+        upgrade_firmware: Option<&str>,
+    ) -> Step<RouterboardDto> {
         Step::Val(RouterboardDto {
             routerboard: Some(value),
             model: Some("RB5009".to_owned()),
             serial_number: None,
-            current_firmware: Some("7.18.2".to_owned()),
-            upgrade_firmware: Some("7.19".to_owned()),
+            current_firmware: current_firmware.map(str::to_owned),
+            upgrade_firmware: upgrade_firmware.map(str::to_owned),
         })
     }
 
@@ -227,6 +235,7 @@ mod mikrotik_version {
         let result = manager.check_updates(profile_id).await.expect("check");
 
         assert_eq!(result.update_status.latest_version, None);
+        assert_eq!(result.update_status.state, UpdateState::Unknown);
         assert_eq!(result.firmware_status.state, FirmwareState::NotApplicable);
         assert!(manager.list_sessions().await.expect("sessions").is_empty());
     }
@@ -251,6 +260,7 @@ mod mikrotik_version {
 
         assert_eq!(result.update_status.status, "unknown");
         assert_eq!(result.update_status.latest_version, None);
+        assert_eq!(result.update_status.state, UpdateState::Unknown);
         assert_eq!(result.firmware_status.state, FirmwareState::NotApplicable);
         assert!(manager.list_sessions().await.expect("sessions").is_empty());
     }
@@ -273,7 +283,56 @@ mod mikrotik_version {
 
         assert_eq!(result.update_status.status, "New version is available");
         assert_eq!(result.update_status.latest_version.as_deref(), Some("7.19"));
+        assert_eq!(result.update_status.state, UpdateState::UpdateAvailable);
         assert_eq!(result.firmware_status.state, FirmwareState::Available);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_version_update_state_classifies_terminal_status_matrix() {
+        let cases = vec![
+            ("New version is available", Some("7.19"), UpdateState::UpdateAvailable, "update-available"),
+            ("System is already up to date", Some("7.18.2"), UpdateState::UpToDate, "up-to-date"),
+            ("ERROR: no route to host", Some("7.19"), UpdateState::Unknown, "unknown"),
+            ("New version is available", None, UpdateState::Unknown, "unknown"),
+        ];
+        for (idx, (status_text, latest, expected, wire)) in cases.into_iter().enumerate() {
+            let dir = TempDir::new(&format!("update-state-{idx}"));
+            let api = VersionApi::new(vec![status(status_text, latest)], routerboard(false));
+            let manager = manager_for(&dir, api).await;
+            let profile_id = profile(&manager, "edge").await;
+
+            let result = manager.check_updates(profile_id).await.expect("check");
+            let value = serde_json::to_value(&result.update_status).expect("update status json");
+
+            assert_eq!(result.update_status.state, expected);
+            assert_eq!(value["state"], wire);
+            assert_eq!(value["status"], status_text);
+        }
+    }
+
+    #[tokio::test]
+    async fn mikrotik_version_firmware_state_classifies_routerboard_firmware_matrix() {
+        let cases = vec![
+            (routerboard_firmware(true, Some("7.18.2"), Some("7.18.2")), FirmwareState::UpToDate, "up-to-date"),
+            (routerboard_firmware(true, Some("7.18.2"), Some("7.19")), FirmwareState::Available, "available"),
+            (routerboard_firmware(true, Some("7.18.2"), None), FirmwareState::Unknown, "unknown"),
+            (routerboard_firmware(false, Some("7.18.2"), Some("7.19")), FirmwareState::NotApplicable, "not-applicable"),
+        ];
+        for (idx, (routerboard_step, expected, wire)) in cases.into_iter().enumerate() {
+            let dir = TempDir::new(&format!("firmware-state-{idx}"));
+            let api = VersionApi::new(
+                vec![status("System is already up to date", Some("7.18.2"))],
+                routerboard_step,
+            );
+            let manager = manager_for(&dir, api).await;
+            let profile_id = profile(&manager, "edge").await;
+
+            let result = manager.check_updates(profile_id).await.expect("check");
+            let value = serde_json::to_value(&result.firmware_status).expect("firmware json");
+
+            assert_eq!(result.firmware_status.state, expected);
+            assert_eq!(value["state"], wire);
+        }
     }
 
     #[tokio::test]
@@ -523,6 +582,12 @@ mod mikrotik_version {
                 latest_version: latest.map(str::to_owned),
                 channel: Some(label.to_owned()),
                 status: status_text.to_owned(),
+                state: match label {
+                    "update-available" => UpdateState::UpdateAvailable,
+                    "up-to-date" => UpdateState::UpToDate,
+                    "unknown" => UpdateState::Unknown,
+                    _ => unreachable!(),
+                },
             };
             let firmware = FirmwareStatusDto {
                 state: FirmwareState::NotApplicable,
