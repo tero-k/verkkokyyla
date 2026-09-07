@@ -19,14 +19,18 @@
 }
 
 .tableWrapper {
+  max-inline-size: 100%;
+  min-inline-size: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--surface-2);
   border-radius: 0.25rem;
 }
 
 .table {
-  width: max-content;
-  min-width: 100%;
+  inline-size: 100%;
+  min-inline-size: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   color: var(--text);
   font-size: 0.875rem;
@@ -39,6 +43,24 @@
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
+}
+
+.table th {
+  white-space: normal;
+}
+
+.table td {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.tableWrapper::-webkit-scrollbar {
+  block-size: 0.75rem;
+}
+
+.tableWrapper::-webkit-scrollbar-thumb {
+  border-radius: 1em;
+  background: var(--surface-3);
 }
 
 .table thead {
@@ -110,4 +132,20 @@
   margin: 0;
   color: var(--text-faint);
   font-size: 0.875rem;
+}
+
+@media (max-width: 1100px) {
+  .table {
+    font-size: 0.8125rem;
+  }
+
+  .table th,
+  .table td {
+    padding: 0.45rem;
+  }
+
+  .table th:nth-child(n + 5),
+  .table td:nth-child(n + 5) {
+    display: none;
+  }
 }

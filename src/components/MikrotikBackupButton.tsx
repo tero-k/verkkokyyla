@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog"
 import { useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import { mikrotikBackup } from "../lib/ipc"
 import { ConfirmDialog } from "./ConfirmDialog"
 import styles from "./MikrotikBackupButton.module.css"
@@ -42,6 +43,7 @@ export function MikrotikBackupButton({ profileId }: Props) {
   const [result, setResult] = useState<BackupResult | null>(null)
   const [confirmOverwrite, setConfirmOverwrite] = useState(false)
   const canSubmit = profileId !== null && destination !== "" && validName(name) && !busy
+  const overlayMinHeight = Math.max(document.documentElement.scrollHeight, window.innerHeight)
 
   const savedPaths = useMemo(() => {
     if (result === null) return []
@@ -81,8 +83,14 @@ export function MikrotikBackupButton({ profileId }: Props) {
   return (
     <div className={styles.wrapper}>
       <button type="button" data-testid="mikrotik-backup-button" disabled={profileId === null} onClick={() => setOpenDialog(true)}>Backup</button>
-      {openDialog ? (
-        <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Create MikroTik backup">
+      {openDialog ? createPortal(
+        <div
+          className={styles.overlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Create MikroTik backup"
+          style={{ minHeight: overlayMinHeight }}
+        >
           <section className={styles.dialog}>
             <h2>Create backup</h2>
             <label>Backup name<input value={name} onChange={(event) => setName(event.currentTarget.value)} /></label>
@@ -94,7 +102,8 @@ export function MikrotikBackupButton({ profileId }: Props) {
             {error ? <p className={styles.error}>{error}</p> : null}
             <div className={styles.actions}><button type="button" onClick={resetDialog}>Cancel</button><button type="button" disabled={!canSubmit} onClick={() => void run(false)}>{busy ? "Creating..." : "Create backup"}</button></div>
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {confirmOverwrite ? <ConfirmDialog message="Backup output already exists. Overwrite it?" confirmLabel="Overwrite" onCancel={() => setConfirmOverwrite(false)} onConfirm={() => { setConfirmOverwrite(false); void run(true) }} /> : null}
       {savedPaths.length > 0 ? <ul className={styles.paths}>{savedPaths.map((path) => <li key={path}>{path}</li>)}</ul> : null}

@@ -1,5 +1,6 @@
 import { formatMetric } from "../lib/format"
 import type {
+  MikrotikResourcesDto,
   MikrotikSensorDto,
   MikrotikSessionSummaryDto,
   MikrotikSnapshotEvent,
@@ -14,6 +15,7 @@ const UNSUPPORTED = "Not supported on this device"
 type MikrotikDeviceMetadata =
   | MikrotikSessionSummaryDto
   | MikrotikTestConnectionDto
+  | MikrotikResourcesDto
 
 export type MikrotikStatusCardsProps = {
   readonly snapshot: MikrotikSnapshotEvent | null
@@ -129,21 +131,21 @@ export function MikrotikStatusCards({
     {
       id: "board",
       label: "BOARD NAME",
-      value: metadata?.boardName ?? "-",
+      value: resources?.boardName ?? metadata?.boardName ?? "-",
       highlighted: false,
       unsupported: false,
     },
     {
       id: "routeros",
       label: "ROUTEROS VERSION",
-      value: metadata?.routerosVersion ?? "-",
+      value: resources?.routerosVersion ?? metadata?.routerosVersion ?? "-",
       highlighted: false,
       unsupported: false,
     },
     {
       id: "architecture",
       label: "ARCHITECTURE",
-      value: metadata?.architectureName ?? "-",
+      value: resources?.architectureName ?? metadata?.architectureName ?? "-",
       highlighted: false,
       unsupported: false,
     },
@@ -181,6 +183,7 @@ export function MikrotikStatusCards({
           <dt className={styles.label}>{card.label}</dt>
           <dd
             className={`${styles.value}${card.highlighted ? ` ${styles.highlighted}` : ""}${card.unsupported ? ` ${styles.unsupported}` : ""}`}
+            title={card.value}
           >
             {card.value}
           </dd>

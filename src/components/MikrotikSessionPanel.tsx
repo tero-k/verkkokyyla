@@ -45,11 +45,11 @@ export function MikrotikSessionPanel({
               data-testid="mikrotik-session-item"
             >
               <div className={styles.summary}>
-                <span className={styles.target}>{formatDevice(session)}</span>
-                <span className={styles.meta}>
+                <span className={styles.target} title={formatDevice(session)}>{formatDevice(session)}</span>
+                <span className={styles.meta} title={`${formatDateTime(session.startedAt)} - ${formatEnded(session.endedAt)}`}>
                   {formatDateTime(session.startedAt)} - {formatEnded(session.endedAt)}
                 </span>
-                <span className={styles.meta}>
+                <span className={styles.meta} title={`${session.snapshotCount} snapshots - ${session.status}`}>
                   {session.snapshotCount} snapshots - {session.status}
                 </span>
               </div>

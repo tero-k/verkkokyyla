@@ -21,15 +21,29 @@ function messageFrom(error: unknown): string {
 }
 
 function routerosBadge(status: MikrotikUpdateStatus | null): { readonly text: string; readonly className: string } {
-  if (status?.latestVersion === null || status === null) return { text: "unknown", className: styles.neutral }
-  if (status.status === "available") return { text: "update available", className: styles.warning }
-  return { text: "up to date", className: styles.success }
+  switch (status?.state) {
+    case "update-available":
+      return { text: "update available", className: styles.warning }
+    case "up-to-date":
+      return { text: "up to date", className: styles.success }
+    case "unknown":
+    case undefined:
+      return { text: "unknown", className: styles.neutral }
+  }
 }
 
 function firmwareBadge(status: MikrotikFirmwareStatus | null): { readonly text: string; readonly className: string } {
-  if (status?.state === "available") return { text: "upgrade available", className: styles.warning }
-  if (status?.state === "not-applicable") return { text: "Not applicable", className: styles.neutral }
-  return { text: "unknown", className: styles.neutral }
+  switch (status?.state) {
+    case "available":
+      return { text: "upgrade available", className: styles.warning }
+    case "up-to-date":
+      return { text: "up to date", className: styles.success }
+    case "not-applicable":
+      return { text: "Not applicable", className: styles.neutral }
+    case "unknown":
+    case undefined:
+      return { text: "unknown", className: styles.neutral }
+  }
 }
 
 export function MikrotikVersionPanel({ profileId, updateStatus, firmwareStatus }: Props) {

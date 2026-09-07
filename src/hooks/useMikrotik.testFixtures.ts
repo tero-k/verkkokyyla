@@ -5,7 +5,13 @@ export const profiles: readonly MikrotikProfile[] = [{ id: 7, name: "lab-router"
 export const sessions: readonly MikrotikSessionSummaryDto[] = [{ id: 22, profileId: 7, startedAt: "2026-09-06T12:00:00Z", endedAt: null, status: "running", boardName: "RB5009", routerosVersion: "7.16", architectureName: "arm64", updateStatusJson: null, firmwareStatusJson: null, snapshotCount: 2 }]
 
 export const updateResult: MikrotikVersionFirmwareResultDto = {
-  updateStatus: { installedVersion: "7.16", latestVersion: "7.17", channel: "stable", status: "new-version-available" },
+  updateStatus: {
+    installedVersion: "7.16",
+    latestVersion: "7.17",
+    channel: "stable",
+    state: "update-available",
+    status: "new-version-available",
+  },
   firmwareStatus: { state: "available", currentFirmware: "7.16", upgradeFirmware: "7.17", model: "RB5009" },
 }
 
@@ -14,7 +20,15 @@ export function liveSnapshot(at: string, rxBitsPerSecond: number | null): Mikrot
     event: "snapshot",
     sessionId: 31,
     at,
-    resources: { cpuLoad: 12, memUsedBytes: 200, memTotalBytes: 400, uptime: "2h" },
+    resources: {
+      cpuLoad: 12,
+      memUsedBytes: 200,
+      memTotalBytes: 400,
+      uptime: "2h",
+      boardName: "RB5009-live",
+      routerosVersion: "7.17-live",
+      architectureName: "arm64-live",
+    },
     sensors: [{ name: "cpu-temperature", value: 44, unit: "C", kind: "temperature" }],
     sensorsSupported: true,
     interfaces: [{
@@ -41,6 +55,9 @@ export function loadedMikrotikSession(): MikrotikLoadedSessionDto {
         memUsedBytes: 100,
         memTotalBytes: 200,
         uptime: "1h",
+        boardName: "CCR2004-row",
+        routerosVersion: "7.15.3-row",
+        architectureName: "arm64-row",
         warning: null,
         sensorsJson: JSON.stringify([{ name: "voltage", value: 24, unit: "V", kind: "voltage" }]),
         interfacesJson: JSON.stringify([liveSnapshot("2026-09-06T12:00:00Z", null).interfaces[0]]),
@@ -55,6 +72,9 @@ export function loadedMikrotikSession(): MikrotikLoadedSessionDto {
         memUsedBytes: 110,
         memTotalBytes: 200,
         uptime: "1h7s",
+        boardName: "CCR2004-row",
+        routerosVersion: "7.15.3-row",
+        architectureName: "arm64-row",
         warning: null,
         sensorsJson: JSON.stringify([{ name: "voltage", value: 24.2, unit: "V", kind: "voltage" }]),
         interfacesJson: JSON.stringify([{ ...liveSnapshot("2026-09-06T12:00:00Z", null).interfaces[0], rxByte: 1_700, txByte: 2_700 }]),

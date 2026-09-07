@@ -15,10 +15,37 @@
 
 .title {
   margin: 0;
-  padding: 1rem 1rem 0.5rem;
+  padding: 1rem 1rem 0.25rem;
   color: var(--text);
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0 1rem 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rxKey,
+.txKey {
+  font-weight: 600;
+}
+
+.rxKey {
+  color: var(--accent);
+}
+
+.txKey {
+  color: var(--success);
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 0.2em;
 }
 
 .chart {

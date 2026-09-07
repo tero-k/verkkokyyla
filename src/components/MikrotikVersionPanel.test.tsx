@@ -15,6 +15,7 @@ const unknownUpdate: MikrotikUpdateStatus = {
   installedVersion: "7.15.3",
   latestVersion: null,
   channel: "stable",
+  state: "unknown",
   status: "unknown",
 }
 
@@ -30,7 +31,13 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
   ipc.mikrotikCheckUpdates.mockResolvedValue({
-    updateStatus: { installedVersion: "7.15.3", latestVersion: "7.17", channel: "stable", status: "available" },
+    updateStatus: {
+      installedVersion: "7.15.3",
+      latestVersion: "7.17",
+      channel: "stable",
+      state: "update-available",
+      status: "new-version-available",
+    },
     firmwareStatus: { state: "available", currentFirmware: "7.15.3", upgradeFirmware: "7.17", model: "RB5009" },
   })
   ipc.mikrotikFetchChangelog.mockResolvedValue({ version: "7.17", changelog: "fixed routing\nupdated wireless" })
@@ -60,6 +67,19 @@ describe("MikrotikVersionPanel", () => {
     await waitFor(() => expect(ipc.mikrotikCheckUpdates).toHaveBeenCalledWith(7))
     expect(screen.getByTestId("routeros-badge").textContent).toBe("update available")
     expect(screen.getByTestId("firmware-badge").textContent).toBe("upgrade available")
+  })
+
+  it("uses canonical state fields for up-to-date badges", () => {
+    render(
+      <MikrotikVersionPanel
+        profileId={7}
+        updateStatus={{ ...unknownUpdate, latestVersion: "7.17", state: "up-to-date", status: "System is already up to date" }}
+        firmwareStatus={{ state: "up-to-date", currentFirmware: "7.17", upgradeFirmware: "7.17", model: "RB5009" }}
+      />,
+    )
+
+    expect(screen.getByTestId("routeros-badge").textContent).toBe("up to date")
+    expect(screen.getByTestId("firmware-badge").textContent).toBe("up to date")
   })
 
   it("fetches changelog text into a monospace panel", async () => {

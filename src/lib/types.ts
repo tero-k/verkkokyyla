@@ -306,6 +306,9 @@ export type MikrotikResourcesDto = {
   readonly memUsedBytes: number | null
   readonly memTotalBytes: number | null
   readonly uptime: string | null
+  readonly boardName: string | null
+  readonly routerosVersion: string | null
+  readonly architectureName: string | null
 }
 
 export type MikrotikSensorDto = {
@@ -375,10 +378,11 @@ export type MikrotikUpdateStatus = {
   readonly installedVersion: string | null
   readonly latestVersion: string | null
   readonly channel: string | null
+  readonly state: "update-available" | "up-to-date" | "unknown"
   readonly status: string
 }
 
-export type MikrotikFirmwareState = "available" | "not-applicable" | "unknown"
+export type MikrotikFirmwareState = "available" | "up-to-date" | "not-applicable" | "unknown"
 
 export type MikrotikFirmwareStatus = {
   readonly state: MikrotikFirmwareState
@@ -471,6 +475,9 @@ export type MikrotikSnapshotDto = {
   readonly memUsedBytes: number | null
   readonly memTotalBytes: number | null
   readonly uptime: string | null
+  readonly boardName: string | null
+  readonly routerosVersion: string | null
+  readonly architectureName: string | null
   readonly warning: string | null
   readonly sensorsJson: string | null
   readonly interfacesJson: string | null

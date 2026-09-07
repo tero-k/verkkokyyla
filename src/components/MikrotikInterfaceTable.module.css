@@ -1,13 +1,16 @@
 .wrapper {
-  overflow: auto;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--surface-2);
   border-radius: 0.25rem;
   background: var(--surface-1);
 }
 
 .table {
-  width: max-content;
-  min-width: 100%;
+  inline-size: max-content;
+  min-inline-size: 100%;
   border-collapse: collapse;
   color: var(--text);
   font-size: 0.875rem;
@@ -20,6 +23,15 @@
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
+}
+
+.wrapper::-webkit-scrollbar {
+  block-size: 0.75rem;
+}
+
+.wrapper::-webkit-scrollbar-thumb {
+  border-radius: 1em;
+  background: var(--surface-3);
 }
 
 .table thead {
@@ -101,4 +113,31 @@
 .warning {
   color: var(--warning);
   font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .table {
+    inline-size: 100%;
+    table-layout: fixed;
+    font-size: 0.8125rem;
+  }
+
+  .table th,
+  .table td {
+    padding-inline: 0.45rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .table th:nth-child(2),
+  .table td:nth-child(2),
+  .table th:nth-child(4),
+  .table td:nth-child(4) {
+    display: none;
+  }
+
+  .table th:nth-child(n + 7),
+  .table td:nth-child(n + 7) {
+    display: none;
+  }
 }

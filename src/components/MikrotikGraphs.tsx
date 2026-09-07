@@ -8,7 +8,8 @@ import "uplot/dist/uPlot.min.css"
 import styles from "./MikrotikGraphs.module.css"
 
 const GRAPH_HEIGHT = 160
-const AXIS_LABEL_SIZE = 12
+const AXIS_LABEL_SIZE = 13
+const X_TICK_SPACE = 96
 
 export type MikrotikGraphsProps = {
   readonly snapshots: readonly MikrotikSnapshotEvent[]
@@ -35,6 +36,18 @@ function graphAxisConfig(label: string): object {
     label,
     labelColor: cssVar("--graph-axis"),
     labelSize: AXIS_LABEL_SIZE,
+    size: 48,
+    gap: 6,
+  }
+}
+
+function xAxisConfig(): object {
+  return {
+    ...graphAxisConfig(""),
+    space: X_TICK_SPACE,
+    size: 36,
+    values: (_plot: UPlot, splits: readonly number[]) =>
+      splits.map((value) => `:${String(new Date(value * 1_000).getUTCSeconds()).padStart(2, "0")}`),
   }
 }
 
@@ -55,9 +68,19 @@ function formatRateTick(value: number): string {
 function rateAxisConfig(): object {
   return {
     ...graphAxisConfig("bit/s"),
+    space: 48,
+    incrs: [500_000, 1_000_000, 2_000_000],
     values: (_plot: UPlot, splits: readonly number[]) =>
       splits.map(formatRateTick),
   }
+}
+
+function formatPercentLegend(value: number | null): string {
+  return value === null ? "-" : `${Number(value.toFixed(1))}%`
+}
+
+function formatRateLegend(value: number | null): string {
+  return value === null ? "-" : `${formatRateTick(value)}bit/s`
 }
 
 function timestampSeconds(at: string, fallback: number): number {
@@ -95,6 +118,9 @@ export function MikrotikGraphs({
   const interfaceRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const { resolved } = useTheme()
+  const latestSnapshot = snapshots.at(-1) ?? null
+  const points = selectedInterface === null ? [] : (rateSeries[selectedInterface] ?? [])
+  const latestPoint = points.at(-1) ?? null
   const chartsRef = useRef<MikrotikCharts>({
     cpu: null,
     memory: null,
@@ -128,8 +154,9 @@ export function MikrotikGraphs({
       {
         width,
         height: GRAPH_HEIGHT,
+        legend: { show: false },
         scales: { x: { time: true }, y: { range: [0, 100] } },
-        axes: [graphAxisConfig(""), graphAxisConfig("%")],
+        axes: [xAxisConfig(), graphAxisConfig("%")],
         series: [
           {},
           {
@@ -148,8 +175,9 @@ export function MikrotikGraphs({
       {
         width,
         height: GRAPH_HEIGHT,
+        legend: { show: false },
         scales: { x: { time: true }, y: { range: [0, 100] } },
-        axes: [graphAxisConfig(""), graphAxisConfig("%")],
+        axes: [xAxisConfig(), graphAxisConfig("%")],
         series: [
           {},
           {
@@ -168,21 +196,25 @@ export function MikrotikGraphs({
       {
         width,
         height: GRAPH_HEIGHT,
+        legend: { show: false },
         scales: { x: { time: true }, y: {} },
-        axes: [graphAxisConfig(""), rateAxisConfig()],
+        axes: [xAxisConfig(), rateAxisConfig()],
         series: [
           {},
           {
             label: "RX",
             stroke: cssVar("--accent"),
+            width: 3,
             spanGaps: false,
-            points: { show: false },
+            points: { show: true, size: 8, stroke: cssVar("--accent"), fill: cssVar("--accent") },
           },
           {
             label: "TX",
-            stroke: cssVar("--success"),
+            stroke: cssVar("--success-secondary"),
+            width: 3,
+            dash: [10, 6],
             spanGaps: false,
-            points: { show: false },
+            points: { show: true, size: 3, stroke: cssVar("--success-secondary"), fill: cssVar("--surface-1") },
           },
         ],
       },
@@ -222,8 +254,6 @@ export function MikrotikGraphs({
     cpu.setData([snapshotTimes, cpuValues])
     memory.setData([snapshotTimes, memoryValues])
 
-    const points =
-      selectedInterface === null ? [] : (rateSeries[selectedInterface] ?? [])
     const rateTimes = points.map((point, index) =>
       timestampSeconds(point.at, index),
     )
@@ -240,6 +270,7 @@ export function MikrotikGraphs({
         <h2 className={styles.title} id="mikrotik-cpu-title">
           CPU load
         </h2>
+        <p className={styles.legend}>CPU: {formatPercentLegend(latestSnapshot?.resources?.cpuLoad ?? null)}</p>
         <div
           className={styles.chart}
           data-testid="mikrotik-cpu-graph"
@@ -252,6 +283,7 @@ export function MikrotikGraphs({
         <h2 className={styles.title} id="mikrotik-memory-title">
           Memory usage
         </h2>
+        <p className={styles.legend}>Memory: {formatPercentLegend(latestSnapshot === null ? null : memoryPercent(latestSnapshot))}</p>
         <div
           className={styles.chart}
           data-testid="mikrotik-memory-graph"
@@ -264,6 +296,10 @@ export function MikrotikGraphs({
         <h2 className={styles.title} id="mikrotik-interface-title">
           Interface traffic: {selectedInterface ?? "No interface selected"}
         </h2>
+        <div className={styles.legend} aria-label="Interface traffic legend">
+          <span className={styles.rxKey}>RX: {formatRateLegend(latestPoint?.rxBitsPerSecond ?? null)}</span>
+          <span className={styles.txKey}>TX: {formatRateLegend(latestPoint?.txBitsPerSecond ?? null)}</span>
+        </div>
         <div
           className={styles.chart}
           data-interface={selectedInterface ?? ""}

@@ -174,7 +174,15 @@ type MockMikrotikSnapshot = {
   event: "snapshot"
   sessionId: number
   at: string
-  resources: { cpuLoad: number | null; memUsedBytes: number | null; memTotalBytes: number | null; uptime: string | null } | null
+  resources: {
+    cpuLoad: number | null
+    memUsedBytes: number | null
+    memTotalBytes: number | null
+    uptime: string | null
+    boardName: string | null
+    routerosVersion: string | null
+    architectureName: string | null
+  } | null
   sensors: { name: string; value: number; unit: string | null; kind: string }[] | null
   sensorsSupported: boolean
   interfaces: MockMikrotikInterface[]
@@ -537,24 +545,24 @@ export async function installMockTauri(page: Page): Promise<void> {
       function mikrotikVersionStatus() {
         if (mikrotikVersionVariant === "up-to-date") {
           return {
-            updateStatus: { installedVersion: "7.17", latestVersion: "7.17", channel: "stable", status: "up-to-date" },
-            firmwareStatus: { state: "unknown", currentFirmware: "7.17", upgradeFirmware: null, model: mikrotikRouterboard ? "RB5009" : null },
+            updateStatus: { installedVersion: "7.17", latestVersion: "7.17", channel: "stable", state: "up-to-date", status: "System is already up to date" },
+            firmwareStatus: { state: "up-to-date", currentFirmware: "7.17", upgradeFirmware: "7.17", model: mikrotikRouterboard ? "RB5009" : null },
           }
         }
         if (mikrotikVersionVariant === "unknown") {
           return {
-            updateStatus: { installedVersion: "7.16", latestVersion: null, channel: "stable", status: "unknown" },
+            updateStatus: { installedVersion: "7.16", latestVersion: null, channel: "stable", state: "unknown", status: "unknown" },
             firmwareStatus: { state: "unknown", currentFirmware: null, upgradeFirmware: null, model: mikrotikRouterboard ? "RB5009" : null },
           }
         }
         if (mikrotikVersionVariant === "na") {
           return {
-            updateStatus: { installedVersion: "7.16", latestVersion: null, channel: null, status: "unknown" },
+            updateStatus: { installedVersion: "7.16", latestVersion: null, channel: null, state: "unknown", status: "unknown" },
             firmwareStatus: { state: "not-applicable", currentFirmware: null, upgradeFirmware: null, model: null },
           }
         }
         return {
-          updateStatus: { installedVersion: "7.16", latestVersion: "7.17", channel: "stable", status: "available" },
+          updateStatus: { installedVersion: "7.16", latestVersion: "7.17", channel: "stable", state: "update-available", status: "new-version-available" },
           firmwareStatus: { state: "available", currentFirmware: "7.16", upgradeFirmware: "7.17", model: mikrotikRouterboard ? "RB5009" : null },
         }
       }
@@ -589,7 +597,7 @@ export async function installMockTauri(page: Page): Promise<void> {
       }
 
       function mikrotikSnapshot(sessionId: number, index: number): MockMikrotikSnapshot {
-        const sensors = index === 2 ? null : [
+        const sensors = !mikrotikRouterboard || index === 2 ? null : [
           { name: "cpu-temperature", value: 44 + index, unit: "C", kind: "temperature" },
           { name: "fan1", value: 3200 + index, unit: "RPM", kind: "fan" },
           { name: "voltage", value: 24.1, unit: "V", kind: "voltage" },
@@ -598,7 +606,15 @@ export async function installMockTauri(page: Page): Promise<void> {
           event: "snapshot",
           sessionId,
           at: mikrotikTimestamp(index),
-          resources: { cpuLoad: 18 + index, memUsedBytes: 268_435_456 + index, memTotalBytes: 1_073_741_824, uptime: `${index}h 10m` },
+          resources: {
+            cpuLoad: 18 + index,
+            memUsedBytes: 268_435_456 + index,
+            memTotalBytes: 1_073_741_824,
+            uptime: `${index}h 10m`,
+            boardName: mikrotikRouterboard ? "RB5009" : null,
+            routerosVersion: "7.16",
+            architectureName: "arm64",
+          },
           sensors,
           sensorsSupported: sensors !== null,
           interfaces: [mikrotikInterface("ether1", index, true), mikrotikInterface("sfp1", index + 1, false)],
@@ -617,6 +633,9 @@ export async function installMockTauri(page: Page): Promise<void> {
           memUsedBytes: snapshot.resources?.memUsedBytes ?? null,
           memTotalBytes: snapshot.resources?.memTotalBytes ?? null,
           uptime: snapshot.resources?.uptime ?? null,
+          boardName: snapshot.resources?.boardName ?? null,
+          routerosVersion: snapshot.resources?.routerosVersion ?? null,
+          architectureName: snapshot.resources?.architectureName ?? null,
           warning: snapshot.warning,
           sensorsJson: snapshot.sensors === null ? null : JSON.stringify(snapshot.sensors),
           interfacesJson: JSON.stringify(snapshot.interfaces),

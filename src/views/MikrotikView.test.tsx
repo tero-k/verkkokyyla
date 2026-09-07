@@ -67,7 +67,45 @@ function snapshot(at: string, rxBitsPerSecond: number | null): MikrotikSnapshotE
 function loadedSession(): MikrotikLoadedSessionDto {
   const first = snapshot("2026-09-06T12:00:00Z", null).interfaces
   const second = snapshot("2026-09-06T12:00:10Z", null).interfaces.map((item) => ({ ...item, rxByte: item.rxByte === null ? null : item.rxByte + 500, txByte: item.txByte === null ? null : item.txByte + 250 }))
-  return { session: { ...sessions[0], status: "completed", endedAt: "2026-09-06T12:01:00Z", boardName: "CCR2004" }, snapshots: [{ id: 1, sessionId: 22, at: "2026-09-06T12:00:00Z", cpuLoad: 20, memUsedBytes: 100, memTotalBytes: 200, uptime: "1h", warning: null, sensorsJson: "[]", interfacesJson: JSON.stringify(first), vlansJson: null, bridgeVlansJson: null }, { id: 2, sessionId: 22, at: "2026-09-06T12:00:10Z", cpuLoad: 25, memUsedBytes: 120, memTotalBytes: 200, uptime: "1h10s", warning: null, sensorsJson: "[]", interfacesJson: JSON.stringify(second), vlansJson: null, bridgeVlansJson: null }] }
+  return {
+    session: { ...sessions[0], status: "completed", endedAt: "2026-09-06T12:01:00Z", boardName: "CCR2004" },
+    snapshots: [
+      {
+        id: 1,
+        sessionId: 22,
+        at: "2026-09-06T12:00:00Z",
+        cpuLoad: 20,
+        memUsedBytes: 100,
+        memTotalBytes: 200,
+        uptime: "1h",
+        boardName: "CCR2004-row",
+        routerosVersion: "7.15.3-row",
+        architectureName: "arm64-row",
+        warning: null,
+        sensorsJson: "[]",
+        interfacesJson: JSON.stringify(first),
+        vlansJson: null,
+        bridgeVlansJson: null,
+      },
+      {
+        id: 2,
+        sessionId: 22,
+        at: "2026-09-06T12:00:10Z",
+        cpuLoad: 25,
+        memUsedBytes: 120,
+        memTotalBytes: 200,
+        uptime: "1h10s",
+        boardName: "CCR2004-row",
+        routerosVersion: "7.15.3-row",
+        architectureName: "arm64-row",
+        warning: null,
+        sensorsJson: "[]",
+        interfacesJson: JSON.stringify(second),
+        vlansJson: null,
+        bridgeVlansJson: null,
+      },
+    ],
+  }
 }
 
 function interfacePlot(): { readonly data: PlotData } | undefined {
@@ -121,7 +159,7 @@ describe("MikrotikView", () => {
     await waitFor(() => expect(screen.getByTestId("mikrotik-open-session")).toBeTruthy())
 
     fireEvent.click(screen.getByTestId("mikrotik-open-session"))
-    await waitFor(() => expect(screen.getByText("CCR2004")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("CCR2004-row")).toBeTruthy())
     fireEvent.click(screen.getByTestId("interface-row-sfp1"))
 
     await waitFor(() => expect(screen.getByTestId("mikrotik-selected-interface").textContent).toBe("Selected interface: sfp1"))

@@ -15,6 +15,9 @@ const resources: MikrotikResourcesDto = {
   memUsedBytes: 1_073_741_824,
   memTotalBytes: 2_147_483_648,
   uptime: "3d 04:12:33",
+  boardName: "CCR2216-live",
+  routerosVersion: "7.20-live",
+  architectureName: "arm64-live",
 }
 
 const sessionMetadata: MikrotikSessionSummaryDto = {
@@ -52,7 +55,7 @@ function snapshot(
 afterEach(cleanup)
 
 describe("MikrotikStatusCards", () => {
-  it("renders resource values and session device metadata", () => {
+  it("renders resource values and live resource device metadata", () => {
     const view = render(
       <MikrotikStatusCards snapshot={snapshot([])} metadata={sessionMetadata} />,
     )
@@ -62,9 +65,22 @@ describe("MikrotikStatusCards", () => {
       within(view.getByTestId("mikrotik-status-memory")).getByText("1 GiB / 2 GiB"),
     ).toBeTruthy()
     expect(view.getByText("3d 04:12:33")).toBeTruthy()
+    expect(view.getByText("CCR2216-live")).toBeTruthy()
+    expect(view.getByText("7.20-live")).toBeTruthy()
+    expect(view.getByText("ARCHITECTURE")).toBeTruthy()
+    expect(view.getByText("arm64-live")).toBeTruthy()
+  })
+
+  it("falls back to session device metadata when live resources omit identity", () => {
+    const view = render(
+      <MikrotikStatusCards
+        snapshot={snapshot([], { ...resources, boardName: null, routerosVersion: null, architectureName: null })}
+        metadata={sessionMetadata}
+      />,
+    )
+
     expect(view.getByText("CCR2004-1G-12S+2XS")).toBeTruthy()
     expect(view.getByText("7.19.4")).toBeTruthy()
-    expect(view.getByText("ARCHITECTURE")).toBeTruthy()
     expect(view.getByText("arm64")).toBeTruthy()
   })
 
@@ -120,7 +136,10 @@ describe("MikrotikStatusCards", () => {
     }
 
     const view = render(
-      <MikrotikStatusCards snapshot={snapshot([])} metadata={metadata} />,
+      <MikrotikStatusCards
+        snapshot={snapshot([], { ...resources, boardName: null, routerosVersion: null, architectureName: null })}
+        metadata={metadata}
+      />,
     )
 
     expect(within(view.getByTestId("mikrotik-status-architecture")).getByText("arm64")).toBeTruthy()

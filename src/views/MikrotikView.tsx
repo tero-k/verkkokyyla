@@ -74,7 +74,10 @@ export default function MikrotikView() {
 
       <div className={styles.content}>
         <div className={styles.livePane}>
-          <MikrotikStatusCards snapshot={mikrotik.latestSnapshot} metadata={metadata} />
+          <MikrotikStatusCards
+            snapshot={mikrotik.latestSnapshot}
+            metadata={mikrotik.latestSnapshot?.resources ?? metadata}
+          />
           <MikrotikVersionPanel profileId={mikrotik.selectedProfile?.id ?? null} updateStatus={mikrotik.updateStatus} firmwareStatus={mikrotik.firmwareStatus} />
           <p className={styles.selected} data-testid="mikrotik-selected-interface">Selected interface: {selectedInterface ?? "none"}</p>
           <MikrotikGraphs snapshots={mikrotik.snapshotHistory} rateSeries={mikrotik.rateSeries} selectedInterface={selectedInterface} />

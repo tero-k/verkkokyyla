@@ -107,7 +107,7 @@ test("backup covers overwrite success, cancelled picker, and SSH unreachable err
 
 const versionCases = [
   { name: "available", variant: "available", router: true, routerBadge: "update available", firmwareBadge: "upgrade available" },
-  { name: "up to date", variant: "up-to-date", router: true, routerBadge: "up to date", firmwareBadge: "unknown" },
+  { name: "up to date", variant: "up-to-date", router: true, routerBadge: "up to date", firmwareBadge: "up to date" },
   { name: "unknown", variant: "unknown", router: true, routerBadge: "unknown", firmwareBadge: "unknown" },
   { name: "not applicable firmware", variant: "na", router: false, routerBadge: "unknown", firmwareBadge: "Not applicable" },
 ]
