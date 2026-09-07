@@ -48,7 +48,7 @@ Requirements:
 - Plain HTTP REST access is supported only on RouterOS v7.9 or newer with the `www` service enabled.
 - The router SSH service must be enabled for backup creation and SFTP download.
 
-MikroTik credentials are stored in the operating system keyring. The app keeps connection metadata in its local database, but the MikroTik password is not stored there.
+MikroTik credentials are stored in the operating system keyring. The app keeps connection metadata in its local database, but the MikroTik password is not stored there. On Linux, the keyring requires a running DBus Secret Service (for example gnome-keyring or KWallet); without one, credential storage is unavailable.
 
 Backup flow: the app asks RouterOS to create a backup file on the router, downloads that file with SFTP, and then removes the temporary file from the router.
 
