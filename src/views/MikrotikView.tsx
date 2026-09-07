@@ -12,9 +12,19 @@ import { useMikrotik } from "../hooks/useMikrotik"
 
 import styles from "./MikrotikView.module.css"
 
+const TABS = [
+  { id: "profiles", label: "Profiles" },
+  { id: "statistics", label: "Statistics" },
+  { id: "interfaces", label: "Interfaces" },
+  { id: "vlans", label: "VLANs" },
+] as const
+
+type TabId = (typeof TABS)[number]["id"]
+
 export default function MikrotikView() {
   const mikrotik = useMikrotik()
   const { confirm, dialog: confirmDialog } = useConfirmDialog()
+  const [activeTab, setActiveTab] = useState<TabId>("profiles")
   const [selectedInterfaceName, setSelectedInterfaceName] = useState<string | null>(null)
   const interfaces = mikrotik.latestSnapshot?.interfaces ?? []
   const selectedInterface = useMemo(() => {
@@ -66,29 +76,61 @@ export default function MikrotikView() {
         <div className={styles.actions}>
           <button type="button" onClick={() => void mikrotik.start()} disabled={mikrotik.running}>Start</button>
           <button type="button" onClick={() => void mikrotik.stop()} disabled={!mikrotik.running}>Stop</button>
-          <MikrotikBackupButton profileId={mikrotik.selectedProfile?.id ?? null} />
         </div>
       </div>
 
       {mikrotik.error ? <div className={styles.banner}>{mikrotik.error}</div> : null}
 
-      <div className={styles.content}>
-        <div className={styles.livePane}>
-          <MikrotikStatusCards
-            snapshot={mikrotik.latestSnapshot}
-            metadata={mikrotik.latestSnapshot?.resources ?? metadata}
-          />
-          <MikrotikVersionPanel profileId={mikrotik.selectedProfile?.id ?? null} updateStatus={mikrotik.updateStatus} firmwareStatus={mikrotik.firmwareStatus} />
-          <p className={styles.selected} data-testid="mikrotik-selected-interface">Selected interface: {selectedInterface ?? "none"}</p>
-          <MikrotikGraphs snapshots={mikrotik.snapshotHistory} rateSeries={mikrotik.rateSeries} selectedInterface={selectedInterface} />
-          <MikrotikInterfaceTable interfaces={interfaces} onSelectInterface={setSelectedInterfaceName} />
-          <MikrotikVlanPanel vlans={mikrotik.vlans} bridgeVlans={mikrotik.bridgeVlans} />
-          <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} />
-        </div>
-        <div className={styles.historyPane}>
-          <MikrotikSessionPanel sessions={mikrotik.sessions} disabled={mikrotik.running} onOpen={mikrotik.loadSession} onDelete={(id) => void handleDeleteSession(id)} />
-        </div>
+      <div className={styles.tabBar} role="tablist" aria-label="MikroTik sections">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            id={`mikrotik-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-controls={`mikrotik-panel-${tab.id}`}
+            aria-selected={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
+
+      <section className={styles.tabPanel} id="mikrotik-panel-profiles" role="tabpanel" aria-labelledby="mikrotik-tab-profiles" hidden={activeTab !== "profiles"}>
+        <div className={styles.tabStack}>
+          <div className={styles.profileActions}>
+            <p className={styles.hint}>Backups use the selected profile.</p>
+            <MikrotikBackupButton profileId={mikrotik.selectedProfile?.id ?? null} />
+          </div>
+          <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} />
+          <MikrotikVersionPanel profileId={mikrotik.selectedProfile?.id ?? null} updateStatus={mikrotik.updateStatus} firmwareStatus={mikrotik.firmwareStatus} />
+        </div>
+      </section>
+
+      <section className={styles.tabPanel} id="mikrotik-panel-statistics" role="tabpanel" aria-labelledby="mikrotik-tab-statistics" hidden={activeTab !== "statistics"}>
+        <div className={styles.content}>
+          <div className={styles.livePane}>
+            <MikrotikStatusCards snapshot={mikrotik.latestSnapshot} metadata={mikrotik.latestSnapshot?.resources ?? metadata} />
+            <p className={styles.selected} data-testid="mikrotik-selected-interface">Selected interface: {selectedInterface ?? "none"}</p>
+            <MikrotikGraphs snapshots={mikrotik.snapshotHistory} rateSeries={mikrotik.rateSeries} selectedInterface={selectedInterface} />
+          </div>
+          <div className={styles.historyPane}>
+            <MikrotikSessionPanel sessions={mikrotik.sessions} disabled={mikrotik.running} onOpen={mikrotik.loadSession} onDelete={(id) => void handleDeleteSession(id)} />
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.tabPanel} id="mikrotik-panel-interfaces" role="tabpanel" aria-labelledby="mikrotik-tab-interfaces" hidden={activeTab !== "interfaces"}>
+        <div className={styles.tabStack}>
+          <p className={styles.hint}>Select an interface row to update the rate graph on the Statistics tab.</p>
+          <MikrotikInterfaceTable interfaces={interfaces} onSelectInterface={setSelectedInterfaceName} />
+        </div>
+      </section>
+
+      <section className={styles.tabPanel} id="mikrotik-panel-vlans" role="tabpanel" aria-labelledby="mikrotik-tab-vlans" hidden={activeTab !== "vlans"}>
+        <MikrotikVlanPanel vlans={mikrotik.vlans} bridgeVlans={mikrotik.bridgeVlans} />
+      </section>
       {confirmDialog}
     </section>
   )

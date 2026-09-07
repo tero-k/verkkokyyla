@@ -124,30 +124,57 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe("MikrotikView", () => {
-  it("renders the assembled monitoring panels", async () => {
+  it("lands on Profiles with profile tools and persistent monitoring controls", async () => {
     render(<MikrotikView />)
 
     await waitFor(() => expect(screen.getByRole("option", { name: "lab-router" })).toBeTruthy())
 
     expect(screen.getByTestId("mikrotik-view")).toBeTruthy()
-    expect(screen.getByLabelText("MikroTik status")).toBeTruthy()
-    expect(screen.getByLabelText("MikroTik versions")).toBeTruthy()
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Profiles",
+      "Statistics",
+      "Interfaces",
+      "VLANs",
+    ])
+    expect(screen.getByRole("tab", { name: "Profiles" }).getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByRole("tabpanel", { name: "Profiles" })).toBeTruthy()
     expect(screen.getByLabelText("MikroTik profiles")).toBeTruthy()
+    expect(screen.getByLabelText("MikroTik versions")).toBeTruthy()
     expect(screen.getByTestId("mikrotik-backup-button")).toBeTruthy()
-    expect(screen.getByTestId("mikrotik-session-panel")).toBeTruthy()
-    expect(screen.getByTestId("mikrotik-interface-table")).toBeTruthy()
-    expect(screen.getByTestId("mikrotik-vlan-panel")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Start" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy()
+    expect(screen.queryByRole("tabpanel", { name: "Statistics" })).toBeNull()
   })
 
-  it("links live selected-interface state to the graph rate series", async () => {
+  it.each([
+    { name: "Statistics", testIds: ["mikrotik-status-cpu", "mikrotik-cpu-graph", "mikrotik-session-panel"] },
+    { name: "Interfaces", testIds: ["mikrotik-interface-table"] },
+    { name: "VLANs", testIds: ["mikrotik-vlan-panel"] },
+  ])("shows the $name panel when its tab is selected", async ({ name, testIds }) => {
+    render(<MikrotikView />)
+    await waitFor(() => expect(screen.getByRole("option", { name: "lab-router" })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole("tab", { name }))
+
+    expect(screen.getByRole("tabpanel", { name })).toBeTruthy()
+    expect(screen.getByRole("tab", { name }).getAttribute("aria-selected")).toBe("true")
+    for (const testId of testIds) expect(screen.getByTestId(testId)).toBeTruthy()
+    if (name === "Interfaces") {
+      expect(screen.getByText("Select an interface row to update the rate graph on the Statistics tab.")).toBeTruthy()
+    }
+  })
+
+  it("keeps live interface selection when moving from Interfaces to Statistics", async () => {
     render(<MikrotikView />)
     await waitFor(() => expect(screen.getByRole("option", { name: "lab-router" })).toBeTruthy())
 
     fireEvent.click(screen.getByRole("button", { name: "Start" }))
     await waitFor(() => expect(snapshotHandler).not.toBeNull())
     act(() => { snapshotHandler?.(snapshot("2026-09-06T12:00:00Z", null)); snapshotHandler?.(snapshot("2026-09-06T12:00:05Z", 1_500)) })
+    fireEvent.click(screen.getByRole("tab", { name: "Interfaces" }))
     await waitFor(() => expect(screen.getByTestId("interface-row-sfp1")).toBeTruthy())
     fireEvent.click(screen.getByTestId("interface-row-sfp1"))
+    fireEvent.click(screen.getByRole("tab", { name: "Statistics" }))
 
     await waitFor(() => expect(screen.getByTestId("mikrotik-selected-interface").textContent).toBe("Selected interface: sfp1"))
     expect(interfacePlot()?.data[1]).toEqual([null, 8_000])
@@ -156,11 +183,14 @@ describe("MikrotikView", () => {
 
   it("loads history into the same selected-interface graph buffers", async () => {
     render(<MikrotikView />)
+    fireEvent.click(screen.getByRole("tab", { name: "Statistics" }))
     await waitFor(() => expect(screen.getByTestId("mikrotik-open-session")).toBeTruthy())
 
     fireEvent.click(screen.getByTestId("mikrotik-open-session"))
     await waitFor(() => expect(screen.getByText("CCR2004-row")).toBeTruthy())
+    fireEvent.click(screen.getByRole("tab", { name: "Interfaces" }))
     fireEvent.click(screen.getByTestId("interface-row-sfp1"))
+    fireEvent.click(screen.getByRole("tab", { name: "Statistics" }))
 
     await waitFor(() => expect(screen.getByTestId("mikrotik-selected-interface").textContent).toBe("Selected interface: sfp1"))
     expect(ipc.mikrotikLoadSession).toHaveBeenCalledWith(22)
