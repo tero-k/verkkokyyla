@@ -127,6 +127,23 @@ afterEach(() => {
 })
 
 describe("MikrotikGraphs", () => {
+  it("renders only the requested chart subset", async () => {
+    const view = render(
+      <MikrotikGraphs
+        snapshots={snapshots}
+        rateSeries={rateSeries}
+        selectedInterface="ether2"
+        charts={["interface"]}
+      />,
+    )
+
+    await waitFor(() => expect(plotMock.instances).toHaveLength(1))
+
+    expect(view.queryByTestId("mikrotik-cpu-graph")).toBeNull()
+    expect(view.queryByTestId("mikrotik-memory-graph")).toBeNull()
+    expect(view.getByTestId("mikrotik-interface-graph")).toBeTruthy()
+  })
+
   it("mounts three uPlot containers with CPU, memory, and selected-interface data", async () => {
     const view = render(
       <MikrotikGraphs

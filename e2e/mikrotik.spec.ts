@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 import { installMockTauri } from "./mock-ipc"
 
-type MikrotikTab = "Profiles" | "Statistics" | "Interfaces" | "VLANs"
+type MikrotikTab = "Profiles" | "System" | "Interfaces" | "VLANs"
 
 async function openMikrotik(page: Page): Promise<void> {
   await installMockTauri(page)
@@ -24,7 +24,7 @@ async function startAndWaitForSnapshots(page: Page): Promise<void> {
 
 async function stopAndLoadHistory(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Stop" }).click()
-  await openTab(page, "Statistics")
+  await openTab(page, "System")
   await expect(page.locator('[data-testid="mikrotik-session-item"]')).toHaveCount(1)
   await page.locator('[data-testid="mikrotik-open-session"]').click()
 }
@@ -52,42 +52,47 @@ test("navigation and profile lifecycle cover success and 401 test connection", a
 test("start populates panels, stop saves history, load restores data, and delete removes session", async ({ page }) => {
   await openMikrotik(page)
   await openTab(page, "Profiles")
+  await expect(page.getByRole("tabpanel", { name: "Profiles" }).getByLabel("MikroTik versions")).toHaveCount(0)
+  await openTab(page, "System")
   await expect(page.locator('[data-testid="routeros-badge"]')).toHaveText("unknown")
   await expect(page.locator('[data-testid="firmware-badge"]')).toHaveText("unknown")
 
   await startAndWaitForSnapshots(page)
-  await openTab(page, "Statistics")
-  await expect(page.locator('[data-testid="mikrotik-status-cpu"]')).toContainText("21%")
-  await expect(page.locator('[data-testid="mikrotik-status-temperature"]')).toContainText("47")
+  await openTab(page, "System")
+  const systemPanel = page.getByRole("tabpanel", { name: "System" })
+  await expect(systemPanel.locator('[data-testid="mikrotik-status-cpu"]')).toContainText("21%")
+  await expect(systemPanel.locator('[data-testid="mikrotik-status-temperature"]')).toContainText("47")
+  await expect(systemPanel.getByLabel("MikroTik versions")).toBeVisible()
+  await expect(systemPanel.locator('[data-testid="mikrotik-interface-graph"]')).toHaveCount(0)
   await openTab(page, "Interfaces")
   await expect(page.locator('[data-testid="counter-rx-error"]').first()).toHaveText("3")
   await expect(page.locator('[data-testid="counter-rx-error"]').nth(1)).toHaveText("-")
   await openTab(page, "VLANs")
   await expect(page.locator('[data-testid="vlan-interface-row"]')).toContainText("vlan20-guests")
   await expect(page.locator('[data-testid="bridge-vlan-row"]')).toContainText("sfp1")
-  await openTab(page, "Profiles")
+  await openTab(page, "System")
   await expect(page.locator('[data-testid="routeros-badge"]')).toHaveText("update available")
   await expect(page.locator('[data-testid="firmware-badge"]')).toHaveText("upgrade available")
 
   await openTab(page, "Interfaces")
   await page.locator('[data-testid="interface-row-sfp1"]').click()
-  await openTab(page, "Statistics")
-  await expect(page.locator('[data-testid="mikrotik-selected-interface"]')).toHaveText("Selected interface: sfp1")
-  await expect(page.getByRole("heading", { name: "Interface traffic: sfp1" })).toBeVisible()
-  await expect(page.locator('[data-testid="mikrotik-interface-graph"]')).toHaveAttribute("data-interface", "sfp1")
+  const interfacesPanel = page.getByRole("tabpanel", { name: "Interfaces" })
+  await expect(interfacesPanel.locator('[data-testid="mikrotik-selected-interface"]')).toHaveText("Selected interface: sfp1")
+  await expect(interfacesPanel.getByRole("heading", { name: "Interface traffic: sfp1" })).toBeVisible()
+  await expect(interfacesPanel.locator('[data-testid="mikrotik-interface-graph"]')).toHaveAttribute("data-interface", "sfp1")
 
   await stopAndLoadHistory(page)
   await expect(page.locator('[data-testid="mikrotik-session-item"]')).toContainText("RB5009 / 7.16")
   await openTab(page, "Interfaces")
   await expect(page.locator('[data-testid="interface-row-ether1"]')).toBeVisible()
-  await openTab(page, "Profiles")
+  await openTab(page, "System")
   await expect(page.locator('[data-testid="routeros-badge"]')).toHaveText("update available")
   await expect(page.locator('[data-testid="firmware-badge"]')).toHaveText("upgrade available")
   await openTab(page, "Interfaces")
   await page.locator('[data-testid="interface-row-sfp1"]').click()
-  await openTab(page, "Statistics")
   await expect(page.locator('[data-testid="mikrotik-interface-graph"]')).toHaveAttribute("data-interface", "sfp1")
 
+  await openTab(page, "System")
   await page.locator('[data-testid="mikrotik-delete-session"]').click()
   await page.locator('[data-testid="confirm-dialog-confirm"]').click()
   await expect(page.locator('[data-testid="mikrotik-session-item"]')).toHaveCount(0)
@@ -139,7 +144,7 @@ const versionCases = [
 for (const item of versionCases) {
   test(`version panel starts unknown and updates from emitted ${item.name} status`, async ({ page }) => {
     await openMikrotik(page)
-    await openTab(page, "Profiles")
+    await openTab(page, "System")
     await page.evaluate(({ variant, router }) => {
       window.__TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__(variant)
       window.__TAURI_MOCK_SET_MIKROTIK_ROUTERBOARD__(router)
@@ -147,7 +152,7 @@ for (const item of versionCases) {
     await expect(page.locator('[data-testid="routeros-badge"]')).toHaveText("unknown")
     await expect(page.locator('[data-testid="firmware-badge"]')).toHaveText("unknown")
     await startAndWaitForSnapshots(page)
-    await openTab(page, "Profiles")
+    await openTab(page, "System")
     await expect(page.locator('[data-testid="routeros-badge"]')).toHaveText(item.routerBadge)
     await expect(page.locator('[data-testid="firmware-badge"]')).toHaveText(item.firmwareBadge)
   })

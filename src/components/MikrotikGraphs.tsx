@@ -10,11 +10,15 @@ import styles from "./MikrotikGraphs.module.css"
 const GRAPH_HEIGHT = 160
 const AXIS_LABEL_SIZE = 13
 const X_TICK_SPACE = 96
+const ALL_CHARTS = ["cpu", "memory", "interface"] as const
+
+export type MikrotikChart = (typeof ALL_CHARTS)[number]
 
 export type MikrotikGraphsProps = {
   readonly snapshots: readonly MikrotikSnapshotEvent[]
   readonly rateSeries: MikrotikRateSeries
   readonly selectedInterface: string | null
+  readonly charts?: readonly MikrotikChart[]
 }
 
 type MikrotikCharts = {
@@ -111,6 +115,7 @@ export function MikrotikGraphs({
   snapshots,
   rateSeries,
   selectedInterface,
+  charts = ALL_CHARTS,
 }: MikrotikGraphsProps) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const cpuRef = useRef<HTMLDivElement>(null)
@@ -121,6 +126,9 @@ export function MikrotikGraphs({
   const latestSnapshot = snapshots.at(-1) ?? null
   const points = selectedInterface === null ? [] : (rateSeries[selectedInterface] ?? [])
   const latestPoint = points.at(-1) ?? null
+  const showCpu = charts.includes("cpu")
+  const showMemory = charts.includes("memory")
+  const showInterface = charts.includes("interface")
   const chartsRef = useRef<MikrotikCharts>({
     cpu: null,
     memory: null,
@@ -141,16 +149,9 @@ export function MikrotikGraphs({
   }, [])
 
   useEffect(() => {
-    if (
-      width === 0 ||
-      cpuRef.current === null ||
-      memoryRef.current === null ||
-      interfaceRef.current === null
-    ) {
-      return
-    }
+    if (width === 0) return
 
-    const cpuChart = new UPlot(
+    const cpuChart = showCpu && cpuRef.current !== null ? new UPlot(
       {
         width,
         height: GRAPH_HEIGHT,
@@ -169,9 +170,9 @@ export function MikrotikGraphs({
       },
       [[], []],
       cpuRef.current,
-    )
+    ) : null
 
-    const memoryChart = new UPlot(
+    const memoryChart = showMemory && memoryRef.current !== null ? new UPlot(
       {
         width,
         height: GRAPH_HEIGHT,
@@ -190,9 +191,9 @@ export function MikrotikGraphs({
       },
       [[], []],
       memoryRef.current,
-    )
+    ) : null
 
-    const interfaceChart = new UPlot(
+    const interfaceChart = showInterface && interfaceRef.current !== null ? new UPlot(
       {
         width,
         height: GRAPH_HEIGHT,
@@ -220,7 +221,7 @@ export function MikrotikGraphs({
       },
       [[], [], []],
       interfaceRef.current,
-    )
+    ) : null
 
     chartsRef.current = {
       cpu: cpuChart,
@@ -229,20 +230,19 @@ export function MikrotikGraphs({
     }
 
     return () => {
-      cpuChart.destroy()
-      memoryChart.destroy()
-      interfaceChart.destroy()
+      cpuChart?.destroy()
+      memoryChart?.destroy()
+      interfaceChart?.destroy()
       chartsRef.current = {
         cpu: null,
         memory: null,
         interfaceRates: null,
       }
     }
-  }, [width, resolved])
+  }, [width, resolved, showCpu, showMemory, showInterface])
 
   useEffect(() => {
     const { cpu, memory, interfaceRates } = chartsRef.current
-    if (cpu === null || memory === null || interfaceRates === null) return
 
     const snapshotTimes = snapshots.map((snapshot, index) =>
       timestampSeconds(snapshot.at, index),
@@ -251,13 +251,13 @@ export function MikrotikGraphs({
       finiteValue(snapshot.resources?.cpuLoad ?? null),
     )
     const memoryValues = snapshots.map(memoryPercent)
-    cpu.setData([snapshotTimes, cpuValues])
-    memory.setData([snapshotTimes, memoryValues])
+    cpu?.setData([snapshotTimes, cpuValues])
+    memory?.setData([snapshotTimes, memoryValues])
 
     const rateTimes = points.map((point, index) =>
       timestampSeconds(point.at, index),
     )
-    interfaceRates.setData([
+    interfaceRates?.setData([
       rateTimes,
       points.map((point) => finiteValue(point.rxBitsPerSecond)),
       points.map((point) => finiteValue(point.txBitsPerSecond)),
@@ -266,7 +266,7 @@ export function MikrotikGraphs({
 
   return (
     <div className={styles.wrapper} ref={wrapperRef}>
-      <section className={styles.panel} aria-labelledby="mikrotik-cpu-title">
+      {showCpu ? <section className={styles.panel} aria-labelledby="mikrotik-cpu-title">
         <h2 className={styles.title} id="mikrotik-cpu-title">
           CPU load
         </h2>
@@ -278,8 +278,8 @@ export function MikrotikGraphs({
           role="img"
           aria-label="CPU load percentage over time"
         />
-      </section>
-      <section className={styles.panel} aria-labelledby="mikrotik-memory-title">
+      </section> : null}
+      {showMemory ? <section className={styles.panel} aria-labelledby="mikrotik-memory-title">
         <h2 className={styles.title} id="mikrotik-memory-title">
           Memory usage
         </h2>
@@ -291,8 +291,8 @@ export function MikrotikGraphs({
           role="img"
           aria-label="Memory usage percentage over time"
         />
-      </section>
-      <section className={styles.panel} aria-labelledby="mikrotik-interface-title">
+      </section> : null}
+      {showInterface ? <section className={styles.panel} aria-labelledby="mikrotik-interface-title">
         <h2 className={styles.title} id="mikrotik-interface-title">
           Interface traffic: {selectedInterface ?? "No interface selected"}
         </h2>
@@ -308,7 +308,7 @@ export function MikrotikGraphs({
           role="img"
           aria-label="Selected interface receive and transmit rates over time"
         />
-      </section>
+      </section> : null}
     </div>
   )
 }

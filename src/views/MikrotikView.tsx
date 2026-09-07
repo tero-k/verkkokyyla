@@ -14,10 +14,12 @@ import styles from "./MikrotikView.module.css"
 
 const TABS = [
   { id: "profiles", label: "Profiles" },
-  { id: "statistics", label: "Statistics" },
+  { id: "system", label: "System" },
   { id: "interfaces", label: "Interfaces" },
   { id: "vlans", label: "VLANs" },
 ] as const
+const SYSTEM_CHARTS = ["cpu", "memory"] as const
+const INTERFACE_CHARTS = ["interface"] as const
 
 type TabId = (typeof TABS)[number]["id"]
 
@@ -104,16 +106,15 @@ export default function MikrotikView() {
             <MikrotikBackupButton profileId={mikrotik.selectedProfile?.id ?? null} />
           </div>
           <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} />
-          <MikrotikVersionPanel profileId={mikrotik.selectedProfile?.id ?? null} updateStatus={mikrotik.updateStatus} firmwareStatus={mikrotik.firmwareStatus} />
         </div>
       </section>
 
-      <section className={styles.tabPanel} id="mikrotik-panel-statistics" role="tabpanel" aria-labelledby="mikrotik-tab-statistics" hidden={activeTab !== "statistics"}>
+      <section className={styles.tabPanel} id="mikrotik-panel-system" role="tabpanel" aria-labelledby="mikrotik-tab-system" hidden={activeTab !== "system"}>
         <div className={styles.content}>
           <div className={styles.livePane}>
             <MikrotikStatusCards snapshot={mikrotik.latestSnapshot} metadata={mikrotik.latestSnapshot?.resources ?? metadata} />
-            <p className={styles.selected} data-testid="mikrotik-selected-interface">Selected interface: {selectedInterface ?? "none"}</p>
-            <MikrotikGraphs snapshots={mikrotik.snapshotHistory} rateSeries={mikrotik.rateSeries} selectedInterface={selectedInterface} />
+            <MikrotikVersionPanel profileId={mikrotik.selectedProfile?.id ?? null} updateStatus={mikrotik.updateStatus} firmwareStatus={mikrotik.firmwareStatus} />
+            <MikrotikGraphs snapshots={mikrotik.snapshotHistory} rateSeries={mikrotik.rateSeries} selectedInterface={selectedInterface} charts={SYSTEM_CHARTS} />
           </div>
           <div className={styles.historyPane}>
             <MikrotikSessionPanel sessions={mikrotik.sessions} disabled={mikrotik.running} onOpen={mikrotik.loadSession} onDelete={(id) => void handleDeleteSession(id)} />
@@ -123,8 +124,10 @@ export default function MikrotikView() {
 
       <section className={styles.tabPanel} id="mikrotik-panel-interfaces" role="tabpanel" aria-labelledby="mikrotik-tab-interfaces" hidden={activeTab !== "interfaces"}>
         <div className={styles.tabStack}>
-          <p className={styles.hint}>Select an interface row to update the rate graph on the Statistics tab.</p>
+          <p className={styles.hint}>Select an interface row to update the rate graph below.</p>
           <MikrotikInterfaceTable interfaces={interfaces} onSelectInterface={setSelectedInterfaceName} />
+          <p className={styles.selected} data-testid="mikrotik-selected-interface">Selected interface: {selectedInterface ?? "none"}</p>
+          <MikrotikGraphs snapshots={mikrotik.snapshotHistory} rateSeries={mikrotik.rateSeries} selectedInterface={selectedInterface} charts={INTERFACE_CHARTS} />
         </div>
       </section>
 

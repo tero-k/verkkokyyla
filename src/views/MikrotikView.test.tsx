@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { liveSnapshot, profiles, sessions } from "../hooks/useMikrotik.testFixtures"
 import type { BackupResultDto, DeleteMikrotikProfileResultDto, MikrotikInterfaceDto, MikrotikLoadedSessionDto, MikrotikProfile, MikrotikSessionSummaryDto, MikrotikSnapshotEvent, MikrotikStatusEvent, MikrotikTestConnectionDto, MikrotikVersionFirmwareResultDto } from "../lib/types"
@@ -132,39 +132,52 @@ describe("MikrotikView", () => {
     expect(screen.getByTestId("mikrotik-view")).toBeTruthy()
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Profiles",
-      "Statistics",
+      "System",
       "Interfaces",
       "VLANs",
     ])
     expect(screen.getByRole("tab", { name: "Profiles" }).getAttribute("aria-selected")).toBe("true")
-    expect(screen.getByRole("tabpanel", { name: "Profiles" })).toBeTruthy()
-    expect(screen.getByLabelText("MikroTik profiles")).toBeTruthy()
-    expect(screen.getByLabelText("MikroTik versions")).toBeTruthy()
-    expect(screen.getByTestId("mikrotik-backup-button")).toBeTruthy()
+    const profilesPanel = screen.getByRole("tabpanel", { name: "Profiles" })
+    expect(within(profilesPanel).getByLabelText("MikroTik profiles")).toBeTruthy()
+    expect(within(profilesPanel).getByText("Backups use the selected profile.")).toBeTruthy()
+    expect(within(profilesPanel).getByTestId("mikrotik-backup-button")).toBeTruthy()
+    expect(within(profilesPanel).queryByLabelText("MikroTik versions")).toBeNull()
     expect(screen.getByRole("button", { name: "Start" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy()
-    expect(screen.queryByRole("tabpanel", { name: "Statistics" })).toBeNull()
+    const systemTab = screen.getByRole("tab", { name: "System" })
+    expect(systemTab.id).toBe("mikrotik-tab-system")
+    expect(systemTab.getAttribute("aria-controls")).toBe("mikrotik-panel-system")
+    expect(screen.queryByRole("tab", { name: "Statistics" })).toBeNull()
+    expect(screen.queryByRole("tabpanel", { name: "System" })).toBeNull()
   })
 
   it.each([
-    { name: "Statistics", testIds: ["mikrotik-status-cpu", "mikrotik-cpu-graph", "mikrotik-session-panel"] },
-    { name: "Interfaces", testIds: ["mikrotik-interface-table"] },
-    { name: "VLANs", testIds: ["mikrotik-vlan-panel"] },
-  ])("shows the $name panel when its tab is selected", async ({ name, testIds }) => {
+    { name: "System", testIds: ["mikrotik-status-cpu", "mikrotik-cpu-graph", "mikrotik-memory-graph", "mikrotik-session-panel"], labels: ["MikroTik versions"] },
+    { name: "Interfaces", testIds: ["mikrotik-interface-table", "mikrotik-selected-interface", "mikrotik-interface-graph"], labels: [] },
+    { name: "VLANs", testIds: ["mikrotik-vlan-panel"], labels: [] },
+  ] as const)("shows the $name panel when its tab is selected", async ({ name, testIds, labels }) => {
     render(<MikrotikView />)
     await waitFor(() => expect(screen.getByRole("option", { name: "lab-router" })).toBeTruthy())
 
     fireEvent.click(screen.getByRole("tab", { name }))
 
-    expect(screen.getByRole("tabpanel", { name })).toBeTruthy()
+    const panel = screen.getByRole("tabpanel", { name })
+    const panelQueries = within(panel)
     expect(screen.getByRole("tab", { name }).getAttribute("aria-selected")).toBe("true")
-    for (const testId of testIds) expect(screen.getByTestId(testId)).toBeTruthy()
+    for (const testId of testIds) expect(panelQueries.getByTestId(testId)).toBeTruthy()
+    for (const label of labels) expect(panelQueries.getByLabelText(label)).toBeTruthy()
+    if (name === "System") {
+      expect(panel.id).toBe("mikrotik-panel-system")
+      expect(panel.getAttribute("aria-labelledby")).toBe("mikrotik-tab-system")
+      expect(panelQueries.queryByTestId("mikrotik-selected-interface")).toBeNull()
+      expect(panelQueries.queryByTestId("mikrotik-interface-graph")).toBeNull()
+    }
     if (name === "Interfaces") {
-      expect(screen.getByText("Select an interface row to update the rate graph on the Statistics tab.")).toBeTruthy()
+      expect(panelQueries.getByText("Select an interface row to update the rate graph below.")).toBeTruthy()
     }
   })
 
-  it("keeps live interface selection when moving from Interfaces to Statistics", async () => {
+  it("updates the live interface graph inside the Interfaces tab", async () => {
     render(<MikrotikView />)
     await waitFor(() => expect(screen.getByRole("option", { name: "lab-router" })).toBeTruthy())
 
@@ -174,7 +187,6 @@ describe("MikrotikView", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Interfaces" }))
     await waitFor(() => expect(screen.getByTestId("interface-row-sfp1")).toBeTruthy())
     fireEvent.click(screen.getByTestId("interface-row-sfp1"))
-    fireEvent.click(screen.getByRole("tab", { name: "Statistics" }))
 
     await waitFor(() => expect(screen.getByTestId("mikrotik-selected-interface").textContent).toBe("Selected interface: sfp1"))
     expect(interfacePlot()?.data[1]).toEqual([null, 8_000])
@@ -183,14 +195,13 @@ describe("MikrotikView", () => {
 
   it("loads history into the same selected-interface graph buffers", async () => {
     render(<MikrotikView />)
-    fireEvent.click(screen.getByRole("tab", { name: "Statistics" }))
+    fireEvent.click(screen.getByRole("tab", { name: "System" }))
     await waitFor(() => expect(screen.getByTestId("mikrotik-open-session")).toBeTruthy())
 
     fireEvent.click(screen.getByTestId("mikrotik-open-session"))
     await waitFor(() => expect(screen.getByText("CCR2004-row")).toBeTruthy())
     fireEvent.click(screen.getByRole("tab", { name: "Interfaces" }))
     fireEvent.click(screen.getByTestId("interface-row-sfp1"))
-    fireEvent.click(screen.getByRole("tab", { name: "Statistics" }))
 
     await waitFor(() => expect(screen.getByTestId("mikrotik-selected-interface").textContent).toBe("Selected interface: sfp1"))
     expect(ipc.mikrotikLoadSession).toHaveBeenCalledWith(22)

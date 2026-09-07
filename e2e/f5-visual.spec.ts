@@ -6,7 +6,7 @@ import { installMockTauri } from "./mock-ipc"
 test.use({ viewport: { width: 1024, height: 768 } })
 
 const evidenceDir = path.join(process.cwd(), ".omo", "evidence")
-type MikrotikTab = "Profiles" | "Statistics" | "Interfaces" | "VLANs"
+type MikrotikTab = "Profiles" | "System" | "Interfaces" | "VLANs"
 
 function evidencePath(fileName: string): string {
   mkdirSync(evidenceDir, { recursive: true })
@@ -27,13 +27,19 @@ async function openTab(page: Page, name: MikrotikTab): Promise<void> {
 
 async function startAndWaitForLivePanels(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Start" }).click()
-  await openTab(page, "Statistics")
-  await expect(page.locator('[data-testid="mikrotik-status-cpu"]')).toContainText("21%")
-  await expect(page.locator('[data-testid="mikrotik-cpu-graph"] canvas')).toBeVisible()
-  await expect(page.locator('[data-testid="mikrotik-memory-graph"] canvas')).toBeVisible()
-  await expect(page.locator('[data-testid="mikrotik-interface-graph"] canvas')).toBeVisible()
+  await openTab(page, "System")
+  const systemPanel = page.getByRole("tabpanel", { name: "System" })
+  await expect(systemPanel.locator('[data-testid="mikrotik-status-cpu"]')).toContainText("21%")
+  await expect(systemPanel.getByLabel("MikroTik versions")).toBeVisible()
+  await expect(systemPanel.locator('[data-testid="mikrotik-cpu-graph"] canvas')).toBeVisible()
+  await expect(systemPanel.locator('[data-testid="mikrotik-memory-graph"] canvas')).toBeVisible()
+  await expect(systemPanel.locator('[data-testid="mikrotik-interface-graph"]')).toHaveCount(0)
   await openTab(page, "Interfaces")
-  await expect(page.locator('[data-testid="interface-row-ether1"]')).toBeVisible()
+  const interfacesPanel = page.getByRole("tabpanel", { name: "Interfaces" })
+  await expect(interfacesPanel.locator('[data-testid="interface-row-ether1"]')).toBeVisible()
+  await expect(interfacesPanel.locator('[data-testid="mikrotik-selected-interface"]')).toBeVisible()
+  await expect(interfacesPanel.locator('[data-testid="mikrotik-interface-graph"] canvas')).toBeVisible()
+  await expect(interfacesPanel.locator('[data-testid="mikrotik-cpu-graph"]')).toHaveCount(0)
   await openTab(page, "VLANs")
   await expect(page.locator('[data-testid="vlan-interface-row"]')).toContainText("vlan20-guests")
   await expect(page.locator('[data-testid="bridge-vlan-row"]')).toContainText("sfp1")
@@ -46,8 +52,15 @@ async function captureFullPage(page: Page, fileName: string): Promise<void> {
 test("F5 visual QA: populated live monitoring", async ({ page }) => {
   await openMikrotik(page)
   await startAndWaitForLivePanels(page)
-  await openTab(page, "Statistics")
+  await openTab(page, "System")
+  await expect(page.locator('[data-testid="mikrotik-cpu-graph"] canvas')).toBeVisible()
+  await expect(page.locator('[data-testid="mikrotik-memory-graph"] canvas')).toBeVisible()
   await captureFullPage(page, "f5-populated-live-monitoring.png")
+  await openTab(page, "Interfaces")
+  await expect(page.locator('[data-testid="mikrotik-interface-graph"] canvas')).toBeVisible()
+  await captureFullPage(page, "f5-interfaces-tab.png")
+  await openTab(page, "VLANs")
+  await captureFullPage(page, "f5-vlans-tab.png")
 })
 
 test("F5 visual QA: unsupported sensors and empty states", async ({ page }) => {
@@ -66,57 +79,70 @@ test("F5 visual QA: unsupported sensors and empty states", async ({ page }) => {
     window.__TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__("na")
   })
   await page.getByRole("button", { name: "Start" }).click()
-  await openTab(page, "Statistics")
+  await openTab(page, "System")
   await expect(page.locator('[data-testid="mikrotik-status-temperature"]')).toContainText("Not supported on this device")
   await expect(page.locator('[data-testid="mikrotik-status-fan"]')).toContainText("Not supported on this device")
-  await openTab(page, "Profiles")
   await expect(page.locator('[data-testid="firmware-badge"]')).toHaveText("Not applicable")
-  await openTab(page, "Statistics")
   await expect(page.getByText("No saved MikroTik sessions yet.")).toBeVisible()
+  await expect(page.locator('[data-testid="mikrotik-cpu-graph"] canvas')).toBeVisible()
+  await expect(page.locator('[data-testid="mikrotik-memory-graph"] canvas')).toBeVisible()
   await captureFullPage(page, "f5-unsupported-empty-states.png")
 })
 
 test("F5 visual QA: profile setup landing tab", async ({ page }) => {
   await openMikrotik(page)
   await openTab(page, "Profiles")
-  await expect(page.getByLabel("MikroTik profiles")).toBeVisible()
-  await expect(page.getByLabel("MikroTik versions")).toBeVisible()
-  await expect(page.locator('[data-testid="mikrotik-backup-button"]')).toBeVisible()
+  const profilesPanel = page.getByRole("tabpanel", { name: "Profiles" })
+  await expect(profilesPanel.getByLabel("MikroTik profiles")).toBeVisible()
+  await expect(profilesPanel.getByText("Backups use the selected profile.")).toBeVisible()
+  await expect(profilesPanel.locator('[data-testid="mikrotik-backup-button"]')).toBeVisible()
+  await expect(profilesPanel.getByLabel("MikroTik versions")).toHaveCount(0)
   await captureFullPage(page, "f5-profiles-tab.png")
 })
 
-test("F5 visual QA: narrow viewport keeps tab content inside the page", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 768 })
+test("F5 visual QA: responsive tabs stay inside the page", async ({ page }) => {
   await openMikrotik(page)
+  await startAndWaitForLivePanels(page)
 
-  for (const name of ["Profiles", "Statistics", "Interfaces", "VLANs"] as const) {
-    await openTab(page, name)
-    const panel = page.getByRole("tabpanel", { name })
-    const metrics = await panel.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
+  for (const width of [375, 768, 1280] as const) {
+    await page.setViewportSize({ width, height: 768 })
+    for (const name of ["Profiles", "System", "Interfaces", "VLANs"] as const) {
+      await openTab(page, name)
+      const panel = page.getByRole("tabpanel", { name })
+      if (name === "System") {
+        await expect(panel.locator('[data-testid="mikrotik-memory-graph"] canvas')).toBeVisible()
+      } else if (name === "Interfaces") {
+        await expect(panel.locator('[data-testid="mikrotik-interface-graph"] canvas')).toBeVisible()
+      }
+      const metrics = await panel.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }))
+      expect(metrics.scrollWidth, `${name} panel clips horizontally at ${width}px`).toBeLessThanOrEqual(metrics.clientWidth)
+      await captureFullPage(page, `f5-responsive-${width}-${name.toLowerCase()}.png`)
+    }
+
+    const documentMetrics = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
     }))
-    expect(metrics.scrollWidth, `${name} panel clips horizontally`).toBeLessThanOrEqual(metrics.clientWidth)
+    expect(documentMetrics.scrollWidth).toBe(documentMetrics.clientWidth)
   }
-
-  const documentMetrics = await page.evaluate(() => ({
-    clientWidth: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-  }))
-  expect(documentMetrics.scrollWidth).toBe(documentMetrics.clientWidth)
 })
 
 test("F5 visual QA: loaded historical session", async ({ page }) => {
   await openMikrotik(page)
   await startAndWaitForLivePanels(page)
   await page.getByRole("button", { name: "Stop" }).click()
-  await openTab(page, "Statistics")
+  await openTab(page, "System")
   await expect(page.locator('[data-testid="mikrotik-session-item"]')).toHaveCount(1)
   await page.locator('[data-testid="mikrotik-open-session"]').click()
   await expect(page.locator('[data-testid="mikrotik-session-item"]')).toContainText("3 snapshots")
   await openTab(page, "Interfaces")
   await expect(page.locator('[data-testid="interface-row-ether1"]')).toBeVisible()
-  await openTab(page, "Statistics")
   await expect(page.locator('[data-testid="mikrotik-interface-graph"] canvas')).toBeVisible()
+  await openTab(page, "System")
+  await expect(page.locator('[data-testid="mikrotik-cpu-graph"] canvas')).toBeVisible()
+  await expect(page.locator('[data-testid="mikrotik-memory-graph"] canvas')).toBeVisible()
   await captureFullPage(page, "f5-loaded-historical-session.png")
 })
