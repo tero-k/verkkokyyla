@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 import { installMockTauri } from "./mock-ipc"
 
-type MikrotikTab = "Profiles" | "System" | "Interfaces" | "VLANs"
+type MikrotikTab = "Profiles" | "Backups" | "System" | "Interfaces" | "VLANs"
 
 async function openMikrotik(page: Page): Promise<void> {
   await installMockTauri(page)
@@ -37,7 +37,7 @@ test("navigation and profile lifecycle cover success and 401 test connection", a
   await page.getByLabel("Profile name").fill("Branch router")
   await page.getByLabel("Host").fill("branch-router.lab")
   await page.getByLabel("Username").fill("ops")
-  await page.getByLabel("Password").fill("secret")
+  await page.getByLabel("Password", { exact: true }).fill("secret")
   await page.getByRole("button", { name: "Save profile" }).click()
   await expect(page.locator('[data-testid="profile-row-2"]')).toContainText("Branch router")
 
@@ -100,8 +100,8 @@ test("start populates panels, stop saves history, load restores data, and delete
 
 test("backup covers overwrite success, cancelled picker, and SSH unreachable error", async ({ page }) => {
   await openMikrotik(page)
-  await openTab(page, "Profiles")
-  await page.locator('[data-testid="mikrotik-backup-button"]').click()
+  await openTab(page, "Backups")
+  await expect(page.locator('[data-testid="mikrotik-backup-panel"]')).toBeVisible()
   await page.getByRole("button", { name: "Choose directory" }).click()
   await expect(page.getByText("C:/verkkokyyla-e2e/backups")).toBeVisible()
   await page.getByLabel("Backup name").fill("existing")
@@ -114,20 +114,17 @@ test("backup covers overwrite success, cancelled picker, and SSH unreachable err
 
   await page.reload()
   await expect(page.locator('[data-testid="mikrotik-view"]')).toBeVisible()
-  await openTab(page, "Profiles")
+  await openTab(page, "Backups")
   const backupCount = await page.evaluate(() => window.__TAURI_MOCK_MIKROTIK_BACKUP_COUNT__())
   await page.evaluate(() => window.__TAURI_MOCK_SET_DIALOG_CONFIRM__(false))
-  await page.locator('[data-testid="mikrotik-backup-button"]').click()
   await page.getByRole("button", { name: "Choose directory" }).click()
   await expect(page.getByRole("button", { name: "Create backup" })).toBeDisabled()
   await expect(page.evaluate(() => window.__TAURI_MOCK_MIKROTIK_BACKUP_COUNT__())).resolves.toBe(backupCount)
-  await page.getByRole("button", { name: "Cancel" }).click()
 
   await page.evaluate(() => {
     window.__TAURI_MOCK_SET_DIALOG_CONFIRM__(true)
     window.__TAURI_MOCK_SET_MIKROTIK_BACKUP_SSH_ERROR__(true)
   })
-  await page.locator('[data-testid="mikrotik-backup-button"]').click()
   await page.getByRole("button", { name: "Choose directory" }).click()
   await page.getByLabel("Backup name").fill("ssh-error")
   await page.getByRole("button", { name: "Create backup" }).click()

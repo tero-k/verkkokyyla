@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { MikrotikBackupButton } from "../components/MikrotikBackupButton"
+import { MikrotikBackupPanel } from "../components/MikrotikBackupPanel"
 import { MikrotikGraphs } from "../components/MikrotikGraphs"
 import { MikrotikInterfaceTable } from "../components/MikrotikInterfaceTable"
 import { MikrotikProfilePanel } from "../components/MikrotikProfilePanel"
@@ -14,6 +14,7 @@ import styles from "./MikrotikView.module.css"
 
 const TABS = [
   { id: "profiles", label: "Profiles" },
+  { id: "backups", label: "Backups" },
   { id: "system", label: "System" },
   { id: "interfaces", label: "Interfaces" },
   { id: "vlans", label: "VLANs" },
@@ -100,13 +101,11 @@ export default function MikrotikView() {
       </div>
 
       <section className={styles.tabPanel} id="mikrotik-panel-profiles" role="tabpanel" aria-labelledby="mikrotik-tab-profiles" hidden={activeTab !== "profiles"}>
-        <div className={styles.tabStack}>
-          <div className={styles.profileActions}>
-            <p className={styles.hint}>Backups use the selected profile.</p>
-            <MikrotikBackupButton profileId={mikrotik.selectedProfile?.id ?? null} />
-          </div>
-          <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} />
-        </div>
+        <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} />
+      </section>
+
+      <section className={styles.tabPanel} id="mikrotik-panel-backups" role="tabpanel" aria-labelledby="mikrotik-tab-backups" hidden={activeTab !== "backups"}>
+        <MikrotikBackupPanel profileId={mikrotik.selectedProfile?.id ?? null} />
       </section>
 
       <section className={styles.tabPanel} id="mikrotik-panel-system" role="tabpanel" aria-labelledby="mikrotik-tab-system" hidden={activeTab !== "system"}>

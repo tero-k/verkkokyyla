@@ -132,6 +132,7 @@ describe("MikrotikView", () => {
     expect(screen.getByTestId("mikrotik-view")).toBeTruthy()
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Profiles",
+      "Backups",
       "System",
       "Interfaces",
       "VLANs",
@@ -139,8 +140,8 @@ describe("MikrotikView", () => {
     expect(screen.getByRole("tab", { name: "Profiles" }).getAttribute("aria-selected")).toBe("true")
     const profilesPanel = screen.getByRole("tabpanel", { name: "Profiles" })
     expect(within(profilesPanel).getByLabelText("MikroTik profiles")).toBeTruthy()
-    expect(within(profilesPanel).getByText("Backups use the selected profile.")).toBeTruthy()
-    expect(within(profilesPanel).getByTestId("mikrotik-backup-button")).toBeTruthy()
+    expect(within(profilesPanel).queryByTestId("mikrotik-backup-panel")).toBeNull()
+    expect(within(profilesPanel).queryByText("Backups use the selected profile.")).toBeNull()
     expect(within(profilesPanel).queryByLabelText("MikroTik versions")).toBeNull()
     expect(screen.getByRole("button", { name: "Start" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy()
@@ -152,6 +153,7 @@ describe("MikrotikView", () => {
   })
 
   it.each([
+    { name: "Backups", testIds: ["mikrotik-backup-panel"], labels: ["MikroTik backups"] },
     { name: "System", testIds: ["mikrotik-status-cpu", "mikrotik-cpu-graph", "mikrotik-memory-graph", "mikrotik-session-panel"], labels: ["MikroTik versions"] },
     { name: "Interfaces", testIds: ["mikrotik-interface-table", "mikrotik-selected-interface", "mikrotik-interface-graph"], labels: [] },
     { name: "VLANs", testIds: ["mikrotik-vlan-panel"], labels: [] },

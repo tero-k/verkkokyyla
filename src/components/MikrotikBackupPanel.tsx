@@ -1,9 +1,8 @@
 import { open } from "@tauri-apps/plugin-dialog"
 import { useMemo, useState } from "react"
-import { createPortal } from "react-dom"
 import { mikrotikBackup } from "../lib/ipc"
 import { ConfirmDialog } from "./ConfirmDialog"
-import styles from "./MikrotikBackupButton.module.css"
+import styles from "./MikrotikBackupPanel.module.css"
 
 type Props = { readonly profileId: number | null }
 type BackupResult = { readonly backupPath: string; readonly exportPath: string | null; readonly cleanupWarnings: readonly string[] }
@@ -32,8 +31,7 @@ function validName(name: string): boolean {
   return BACKUP_NAME.test(name) && !RESERVED.test(name)
 }
 
-export function MikrotikBackupButton({ profileId }: Props) {
-  const [openDialog, setOpenDialog] = useState(false)
+export function MikrotikBackupPanel({ profileId }: Props) {
   const [name, setName] = useState(defaultBackupName)
   const [password, setPassword] = useState("")
   const [includeRsc, setIncludeRsc] = useState(false)
@@ -42,18 +40,13 @@ export function MikrotikBackupButton({ profileId }: Props) {
   const [error, setError] = useState("")
   const [result, setResult] = useState<BackupResult | null>(null)
   const [confirmOverwrite, setConfirmOverwrite] = useState(false)
-  const canSubmit = profileId !== null && destination !== "" && validName(name) && !busy
-  const overlayMinHeight = Math.max(document.documentElement.scrollHeight, window.innerHeight)
+  const nameIsValid = validName(name)
+  const canSubmit = profileId !== null && destination !== "" && nameIsValid && !busy
 
   const savedPaths = useMemo(() => {
     if (result === null) return []
     return result.exportPath === null ? [result.backupPath] : [result.backupPath, result.exportPath]
   }, [result])
-
-  function resetDialog(): void {
-    setOpenDialog(false); setName(defaultBackupName()); setPassword(""); setIncludeRsc(false)
-    setDestination(""); setBusy(false); setConfirmOverwrite(false)
-  }
 
   async function chooseDirectory(): Promise<void> {
     const selected = await open({ directory: true })
@@ -61,11 +54,11 @@ export function MikrotikBackupButton({ profileId }: Props) {
   }
 
   async function run(overwrite: boolean): Promise<void> {
-    if (profileId === null || !validName(name) || destination === "") return
+    if (profileId === null || !nameIsValid || destination === "") return
     setBusy(true); setError(""); setResult(null)
     try {
       const next = await mikrotikBackup(profileId, destination, name, password || undefined, includeRsc, overwrite)
-      setResult(next); setPassword(""); setOpenDialog(false)
+      setResult(next); setPassword("")
     } catch (caught) {
       const typed = messageFrom(caught)
       if (typed.kind === "OutputExists" && !overwrite) {
@@ -81,32 +74,32 @@ export function MikrotikBackupButton({ profileId }: Props) {
   }
 
   return (
-    <div className={styles.wrapper}>
-      <button type="button" data-testid="mikrotik-backup-button" disabled={profileId === null} onClick={() => setOpenDialog(true)}>Backup</button>
-      {openDialog ? createPortal(
-        <div
-          className={styles.overlay}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Create MikroTik backup"
-          style={{ minHeight: overlayMinHeight }}
-        >
-          <section className={styles.dialog}>
-            <h2>Create backup</h2>
-            <label>Backup name<input value={name} onChange={(event) => setName(event.currentTarget.value)} /></label>
-            {!validName(name) ? <p className={styles.error}>Use 1-64 letters, numbers, dot, underscore, or dash; no Windows device names.</p> : null}
-            <label>Encryption password (optional)<input type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>
-            <label className={styles.checkbox}><input type="checkbox" checked={includeRsc} onChange={(event) => setIncludeRsc(event.currentTarget.checked)} />Include .rsc export</label>
-            <button type="button" onClick={chooseDirectory}>Choose directory</button>
-            {destination ? <p className={styles.destination}>{destination}</p> : null}
-            {error ? <p className={styles.error}>{error}</p> : null}
-            <div className={styles.actions}><button type="button" onClick={resetDialog}>Cancel</button><button type="button" disabled={!canSubmit} onClick={() => void run(false)}>{busy ? "Creating..." : "Create backup"}</button></div>
-          </section>
-        </div>,
-        document.body,
-      ) : null}
+    <section className={styles.panel} aria-label="MikroTik backups" data-testid="mikrotik-backup-panel">
+      <header className={styles.header}>
+        <h2>Create backup</h2>
+        <p>Save a RouterOS backup from the selected profile to a local directory.</p>
+      </header>
+      <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void run(false) }}>
+        <div className={styles.fields}>
+          <label className={styles.field}>Backup name<input value={name} aria-invalid={!nameIsValid} onChange={(event) => setName(event.currentTarget.value)} /></label>
+          <label className={styles.field}>Encryption password (optional)<input type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} /></label>
+        </div>
+        {!nameIsValid ? <p className={`${styles.message} ${styles.error}`}>Use 1-64 letters, numbers, dot, underscore, or dash; no Windows device names.</p> : null}
+        <label className={`${styles.field} ${styles.checkbox}`}><input type="checkbox" checked={includeRsc} onChange={(event) => setIncludeRsc(event.currentTarget.checked)} />Include .rsc export</label>
+        <div className={styles.directory}>
+          <span className={styles.directoryLabel}>Destination directory</span>
+          <div className={styles.directoryRow}>
+            <button type="button" disabled={busy} onClick={chooseDirectory}>Choose directory</button>
+            <p className={`${styles.message} ${styles.destination}`}>{destination || "No directory selected"}</p>
+          </div>
+        </div>
+        {profileId === null ? <p className={styles.message}>Select a profile above to create a backup.</p> : null}
+        {error ? <p className={`${styles.message} ${styles.error}`} role="alert">{error}</p> : null}
+        {busy ? <p className={`${styles.message} ${styles.progress}`} role="status">Creating backup...</p> : null}
+        <div className={styles.actions}><button className={styles.submit} type="submit" disabled={!canSubmit}>{busy ? "Creating..." : "Create backup"}</button></div>
+      </form>
       {confirmOverwrite ? <ConfirmDialog message="Backup output already exists. Overwrite it?" confirmLabel="Overwrite" onCancel={() => setConfirmOverwrite(false)} onConfirm={() => { setConfirmOverwrite(false); void run(true) }} /> : null}
-      {savedPaths.length > 0 ? <ul className={styles.paths}>{savedPaths.map((path) => <li key={path}>{path}</li>)}</ul> : null}
-    </div>
+      {savedPaths.length > 0 ? <section className={styles.success} aria-label="Saved backup files"><h3>Saved files</h3><ul className={styles.paths}>{savedPaths.map((path) => <li key={path}>{path}</li>)}</ul></section> : null}
+    </section>
   )
 }

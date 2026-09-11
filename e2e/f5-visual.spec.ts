@@ -6,7 +6,7 @@ import { installMockTauri } from "./mock-ipc"
 test.use({ viewport: { width: 1024, height: 768 } })
 
 const evidenceDir = path.join(process.cwd(), ".omo", "evidence")
-type MikrotikTab = "Profiles" | "System" | "Interfaces" | "VLANs"
+type MikrotikTab = "Profiles" | "Backups" | "System" | "Interfaces" | "VLANs"
 
 function evidencePath(fileName: string): string {
   mkdirSync(evidenceDir, { recursive: true })
@@ -89,15 +89,22 @@ test("F5 visual QA: unsupported sensors and empty states", async ({ page }) => {
   await captureFullPage(page, "f5-unsupported-empty-states.png")
 })
 
-test("F5 visual QA: profile setup landing tab", async ({ page }) => {
+test("F5 visual QA: profile and backup tabs stay separate", async ({ page }) => {
   await openMikrotik(page)
   await openTab(page, "Profiles")
   const profilesPanel = page.getByRole("tabpanel", { name: "Profiles" })
   await expect(profilesPanel.getByLabel("MikroTik profiles")).toBeVisible()
-  await expect(profilesPanel.getByText("Backups use the selected profile.")).toBeVisible()
-  await expect(profilesPanel.locator('[data-testid="mikrotik-backup-button"]')).toBeVisible()
+  await expect(profilesPanel.getByText("Backups use the selected profile.")).toHaveCount(0)
+  await expect(profilesPanel.locator('[data-testid="mikrotik-backup-panel"]')).toHaveCount(0)
   await expect(profilesPanel.getByLabel("MikroTik versions")).toHaveCount(0)
   await captureFullPage(page, "f5-profiles-tab.png")
+
+  await openTab(page, "Backups")
+  const backupsPanel = page.getByRole("tabpanel", { name: "Backups" })
+  await expect(backupsPanel.locator('[data-testid="mikrotik-backup-panel"]')).toBeVisible()
+  await expect(backupsPanel.getByLabel("Backup name")).toHaveValue(/verkkokyyla-\d{8}-\d{6}/)
+  await expect(backupsPanel.getByRole("button", { name: "Create backup" })).toBeDisabled()
+  await captureFullPage(page, "f5-backups-tab.png")
 })
 
 test("F5 visual QA: responsive tabs stay inside the page", async ({ page }) => {
@@ -106,7 +113,7 @@ test("F5 visual QA: responsive tabs stay inside the page", async ({ page }) => {
 
   for (const width of [375, 768, 1280] as const) {
     await page.setViewportSize({ width, height: 768 })
-    for (const name of ["Profiles", "System", "Interfaces", "VLANs"] as const) {
+    for (const name of ["Profiles", "Backups", "System", "Interfaces", "VLANs"] as const) {
       await openTab(page, name)
       const panel = page.getByRole("tabpanel", { name })
       if (name === "System") {
