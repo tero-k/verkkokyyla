@@ -523,7 +523,9 @@ pub fn run() {
             list_dns_runs,
             load_dns_run,
             delete_dns_run,
-            mikrotik::backup::mikrotik_backup
+            mikrotik::backup::mikrotik_backup,
+            mikrotik::backup::mikrotik_list_backups,
+            mikrotik::backup::mikrotik_delete_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

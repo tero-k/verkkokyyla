@@ -102,6 +102,8 @@ test("F5 visual QA: profile and backup tabs stay separate", async ({ page }) => 
   await openTab(page, "Backups")
   const backupsPanel = page.getByRole("tabpanel", { name: "Backups" })
   await expect(backupsPanel.locator('[data-testid="mikrotik-backup-panel"]')).toBeVisible()
+  await expect(backupsPanel.locator('[data-testid="mikrotik-backup-library"]')).toBeVisible()
+  await expect(backupsPanel.getByText("No MikroTik backups saved yet.")).toBeVisible()
   await expect(backupsPanel.getByLabel("Backup name")).toHaveValue(/verkkokyyla-\d{8}-\d{6}/)
   await expect(backupsPanel.getByRole("button", { name: "Create backup" })).toBeDisabled()
   await captureFullPage(page, "f5-backups-tab.png")

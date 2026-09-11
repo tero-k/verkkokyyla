@@ -23,7 +23,7 @@ use async_trait::async_trait;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::db::{Database, DbError};
+use crate::db::{Database, DbError, MikrotikBackupRecord, NewMikrotikBackup};
 use crate::mikrotik::client::{MikrotikClient, MikrotikConnection};
 use crate::mikrotik::error::MikrotikError;
 use crate::mikrotik::secrets::{KeyringStore, SecretError, SecretStore};
@@ -66,6 +66,36 @@ pub struct BackupResultDto {
     /// Non-empty when a best-effort router-side temp-file delete failed;
     /// the UI shows "saved locally; router temp file <name> may remain".
     pub cleanup_warnings: Vec<String>,
+}
+
+/// One entry of the backup library: a previously created backup. Purely
+/// local data — listing or deleting never contacts the router.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MikrotikBackupRecordDto {
+    pub id: i64,
+    /// NULL after the profile that created the backup is deleted.
+    pub profile_id: Option<i64>,
+    /// Profile name snapshot at backup time (survives profile deletion).
+    pub profile_name: String,
+    pub name: String,
+    pub backup_path: String,
+    pub export_path: Option<String>,
+    /// RFC 3339 UTC timestamp of the backup.
+    pub created_at: String,
+    /// Total local size of the `.backup` (plus `.rsc` when present).
+    pub size_bytes: i64,
+    pub has_rsc_export: bool,
+}
+
+/// Result of deleting a backup library entry.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteBackupResultDto {
+    pub deleted: bool,
+    /// Non-empty when a file was already missing on disk; the record was
+    /// still removed.
+    pub warnings: Vec<String>,
 }
 
 /// Typed errors for the backup flow; serialized to the frontend as
@@ -130,6 +160,14 @@ pub enum BackupError {
     /// SQLite failure while loading the profile.
     #[error("database error: {0}")]
     Db(#[from] DbError),
+
+    /// No backup library record with this id.
+    #[error("no MikroTik backup record with id {0}")]
+    BackupRecordNotFound(i64),
+
+    /// Deleting a backup file from disk failed; the library record is kept.
+    #[error("failed to delete {path}: {message}")]
+    DeleteFailed { path: String, message: String },
 }
 
 impl BackupError {
@@ -162,6 +200,8 @@ impl BackupError {
                 SecretError::Keyring(_) => "Keyring",
             },
             BackupError::Db(_) => "Db",
+            BackupError::BackupRecordNotFound(_) => "BackupRecordNotFound",
+            BackupError::DeleteFailed { .. } => "DeleteFailed",
         }
     }
 }
@@ -572,7 +612,7 @@ pub async fn mikrotik_backup(
     };
     let client = MikrotikClient::new(&conn)?;
     let destination = PathBuf::from(&destination_dir);
-    run_backup(&BackupParams {
+    let result = run_backup(&BackupParams {
         client: &client,
         sftp: &RusshSftpFetch,
         sftp_host: &profile.host,
@@ -585,7 +625,106 @@ pub async fn mikrotik_backup(
         overwrite,
         file_poll: FilePoll::default(),
     })
-    .await
+    .await?;
+    // Record the succeeded backup in the library. The insert error is
+    // propagated (not swallowed) so history is never silently lost: the
+    // files exist on disk and the UI must surface the recording failure.
+    state
+        .db
+        .create_mikrotik_backup(&NewMikrotikBackup {
+            profile_id: profile.id,
+            profile_name: profile.name.clone(),
+            name: backup_name.clone(),
+            backup_path: result.backup_path.clone(),
+            export_path: result.export_path.clone(),
+            created_at: crate::db::now_rfc3339(),
+            size_bytes: local_size_bytes(&result),
+            has_rsc_export: result.export_path.is_some(),
+        })
+        .await?;
+    Ok(result)
+}
+
+/// Total local size of a finished backup's files; unreadable or missing
+/// files count as 0 rather than failing the backup.
+fn local_size_bytes(result: &BackupResultDto) -> i64 {
+    let len = |path: &str| std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    let mut total = i64::try_from(len(&result.backup_path)).unwrap_or(i64::MAX);
+    if let Some(export) = &result.export_path {
+        total = total.saturating_add(i64::try_from(len(export)).unwrap_or(i64::MAX));
+    }
+    total
+}
+
+/// `mikrotik_list_backups()` — the full local backup library, newest first.
+/// Pure SQLite read: no router, keyring, or network access.
+#[tauri::command]
+pub async fn mikrotik_list_backups(
+    state: tauri::State<'_, MikrotikBackupState>,
+) -> Result<Vec<MikrotikBackupRecordDto>, BackupError> {
+    let records = state.db.list_mikrotik_backups().await?;
+    Ok(records.into_iter().map(backup_record_dto).collect())
+}
+
+/// `mikrotik_delete_backup(id)` — removes the local file(s) and the library
+/// record. Already-missing files produce a warning but do not fail; any
+/// other IO error keeps the record so the user can retry.
+#[tauri::command]
+pub async fn mikrotik_delete_backup(
+    state: tauri::State<'_, MikrotikBackupState>,
+    id: i64,
+) -> Result<DeleteBackupResultDto, BackupError> {
+    delete_backup_record(&state.db, id).await
+}
+
+fn backup_record_dto(record: MikrotikBackupRecord) -> MikrotikBackupRecordDto {
+    MikrotikBackupRecordDto {
+        id: record.id,
+        profile_id: record.profile_id,
+        profile_name: record.profile_name,
+        name: record.name,
+        backup_path: record.backup_path,
+        export_path: record.export_path,
+        created_at: record.created_at,
+        size_bytes: record.size_bytes,
+        has_rsc_export: record.has_rsc_export,
+    }
+}
+
+/// Testable delete core shared by the command: load the record, unlink the
+/// file(s) on disk, then drop the record.
+pub async fn delete_backup_record(
+    db: &Database,
+    id: i64,
+) -> Result<DeleteBackupResultDto, BackupError> {
+    let record = db
+        .load_mikrotik_backup(id)
+        .await?
+        .ok_or(BackupError::BackupRecordNotFound(id))?;
+    let mut warnings = Vec::new();
+    remove_backup_file(&record.backup_path, &mut warnings)?;
+    if let Some(export) = &record.export_path {
+        remove_backup_file(export, &mut warnings)?;
+    }
+    db.delete_mikrotik_backup_record(id).await?;
+    Ok(DeleteBackupResultDto {
+        deleted: true,
+        warnings,
+    })
+}
+
+fn remove_backup_file(path: &str, warnings: &mut Vec<String>) -> Result<(), BackupError> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            warnings.push(format!("file already missing: {path}"));
+            Ok(())
+        }
+        Err(err) => Err(BackupError::DeleteFailed {
+            path: path.to_string(),
+            message: err.to_string(),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1341,6 +1480,154 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
         let value = serde_json::to_value(&err).unwrap();
         assert_eq!(value["kind"], "OutputExists");
         assert!(value["message"].as_str().unwrap().contains("x"));
+    }
+
+    #[test]
+    fn backup_library_dtos_serialize_camel_case() {
+        let dto = MikrotikBackupRecordDto {
+            id: 7,
+            profile_id: Some(3),
+            profile_name: "Lab router".to_owned(),
+            name: "demo".to_owned(),
+            backup_path: "D:/backups/demo.backup".to_owned(),
+            export_path: Some("D:/backups/demo.rsc".to_owned()),
+            created_at: "2026-09-11T21:00:00Z".to_owned(),
+            size_bytes: 42,
+            has_rsc_export: true,
+        };
+        let value = serde_json::to_value(&dto).unwrap();
+        for key in [
+            "id",
+            "profileId",
+            "profileName",
+            "name",
+            "backupPath",
+            "exportPath",
+            "createdAt",
+            "sizeBytes",
+            "hasRscExport",
+        ] {
+            assert!(value.get(key).is_some(), "missing key {key}");
+        }
+        let result = DeleteBackupResultDto {
+            deleted: true,
+            warnings: vec!["w".to_owned()],
+        };
+        let value = serde_json::to_value(&result).unwrap();
+        assert!(value.get("deleted").is_some());
+        assert!(value.get("warnings").is_some());
+        assert_eq!(
+            BackupError::BackupRecordNotFound(9).kind(),
+            "BackupRecordNotFound"
+        );
+        assert_eq!(
+            BackupError::DeleteFailed {
+                path: "p".to_owned(),
+                message: "m".to_owned(),
+            }
+            .kind(),
+            "DeleteFailed"
+        );
+    }
+
+    fn unique_temp_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("vk-backup-test-{tag}-{nanos}"));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        dir
+    }
+
+    async fn db_with_profile(root: &Path) -> (Database, i64) {
+        let db = Database::connect(&root.join("db.sqlite"))
+            .await
+            .expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&crate::db::NewMikrotikProfile {
+                name: "Lab router".to_owned(),
+                host: "router.lan".to_owned(),
+                port: 8729,
+                use_tls: true,
+                allow_invalid_certs: false,
+                username: "admin".to_owned(),
+                created_at: crate::db::now_rfc3339(),
+            })
+            .await
+            .expect("profile");
+        (db, profile.id)
+    }
+
+    async fn insert_record(
+        db: &Database,
+        profile_id: i64,
+        backup_path: &Path,
+        export_path: Option<&Path>,
+    ) -> MikrotikBackupRecord {
+        db.create_mikrotik_backup(&NewMikrotikBackup {
+            profile_id,
+            profile_name: "Lab router".to_owned(),
+            name: "demo".to_owned(),
+            backup_path: backup_path.to_string_lossy().into_owned(),
+            export_path: export_path.map(|path| path.to_string_lossy().into_owned()),
+            created_at: crate::db::now_rfc3339(),
+            size_bytes: 0,
+            has_rsc_export: export_path.is_some(),
+        })
+        .await
+        .expect("insert")
+    }
+
+    #[tokio::test]
+    async fn delete_backup_record_removes_files_and_record() {
+        let root = unique_temp_dir("delete-ok");
+        let (db, profile_id) = db_with_profile(&root).await;
+        let backup_file = root.join("demo.backup");
+        let export_file = root.join("demo.rsc");
+        std::fs::write(&backup_file, b"backup").expect("write backup");
+        std::fs::write(&export_file, b"export").expect("write export");
+        let record = insert_record(&db, profile_id, &backup_file, Some(&export_file)).await;
+
+        let result = delete_backup_record(&db, record.id).await.expect("delete");
+        assert!(result.deleted);
+        assert!(result.warnings.is_empty());
+        assert!(!backup_file.exists());
+        assert!(!export_file.exists());
+        assert!(db
+            .load_mikrotik_backup(record.id)
+            .await
+            .expect("load")
+            .is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn delete_backup_record_missing_file_still_deletes_record() {
+        let root = unique_temp_dir("delete-missing");
+        let (db, profile_id) = db_with_profile(&root).await;
+        let ghost = root.join("ghost.backup");
+        let record = insert_record(&db, profile_id, &ghost, None).await;
+
+        let result = delete_backup_record(&db, record.id).await.expect("delete");
+        assert!(result.deleted);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("already missing"));
+        assert!(db
+            .load_mikrotik_backup(record.id)
+            .await
+            .expect("load")
+            .is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn delete_backup_record_unknown_id_errors() {
+        let root = unique_temp_dir("delete-unknown");
+        let (db, _) = db_with_profile(&root).await;
+        let err = delete_backup_record(&db, 999).await.expect_err("must fail");
+        assert_eq!(err.kind(), "BackupRecordNotFound");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

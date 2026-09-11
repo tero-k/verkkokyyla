@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { liveSnapshot, profiles, sessions } from "../hooks/useMikrotik.testFixtures"
-import type { BackupResultDto, DeleteMikrotikProfileResultDto, MikrotikInterfaceDto, MikrotikLoadedSessionDto, MikrotikProfile, MikrotikSessionSummaryDto, MikrotikSnapshotEvent, MikrotikStatusEvent, MikrotikTestConnectionDto, MikrotikVersionFirmwareResultDto } from "../lib/types"
+import type { BackupResultDto, DeleteMikrotikBackupResultDto, DeleteMikrotikProfileResultDto, MikrotikBackupRecordDto, MikrotikInterfaceDto, MikrotikLoadedSessionDto, MikrotikProfile, MikrotikSessionSummaryDto, MikrotikSnapshotEvent, MikrotikStatusEvent, MikrotikTestConnectionDto, MikrotikVersionFirmwareResultDto } from "../lib/types"
 import MikrotikView from "./MikrotikView"
 
 type SnapshotHandler = (event: MikrotikSnapshotEvent) => void
@@ -27,12 +27,14 @@ const plotMock = vi.hoisted(() => {
 
 const ipc = vi.hoisted(() => ({
   mikrotikBackup: vi.fn<() => Promise<BackupResultDto>>(),
+  mikrotikDeleteBackup: vi.fn<(id: number) => Promise<DeleteMikrotikBackupResultDto>>(),
   mikrotikCheckUpdates: vi.fn<() => Promise<MikrotikVersionFirmwareResultDto>>(),
   mikrotikCreateProfile: vi.fn<() => Promise<MikrotikProfile>>(),
   mikrotikDeleteProfile: vi.fn<() => Promise<DeleteMikrotikProfileResultDto>>(),
   mikrotikDeleteSession: vi.fn<(id: number) => Promise<void>>(),
   mikrotikFetchChangelog: vi.fn<() => Promise<{ readonly version: string; readonly changelog: string }>>(),
   mikrotikListProfiles: vi.fn<() => Promise<readonly MikrotikProfile[]>>(),
+  mikrotikListBackups: vi.fn<() => Promise<MikrotikBackupRecordDto[]>>(),
   mikrotikListSessions: vi.fn<() => Promise<readonly MikrotikSessionSummaryDto[]>>(),
   mikrotikLoadSession: vi.fn<(id: number) => Promise<MikrotikLoadedSessionDto>>(),
   mikrotikSetProfilePassword: vi.fn<() => Promise<void>>(),
@@ -116,6 +118,7 @@ beforeEach(() => {
   snapshotHandler = null; plotMock.instances.splice(0); vi.clearAllMocks(); vi.stubGlobal("ResizeObserver", ImmediateResizeObserver)
   window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 0)
   ipc.mikrotikListProfiles.mockResolvedValue(profiles); ipc.mikrotikListSessions.mockResolvedValue(sessions); ipc.mikrotikLoadSession.mockResolvedValue(loadedSession())
+  ipc.mikrotikListBackups.mockResolvedValue([]); ipc.mikrotikDeleteBackup.mockResolvedValue({ deleted: true, warnings: [] })
   ipc.mikrotikStart.mockImplementation(async (profileId, onEvent) => { snapshotHandler = onEvent; return { sessionId: 31, profileId } })
   ipc.mikrotikStop.mockResolvedValue({ sessionId: 31, snapshotCount: 1, endedAt: "2026-09-06T12:01:00Z", status: "cancelled" })
   ipc.mikrotikDeleteSession.mockResolvedValue(); ipc.mikrotikTestConnection.mockResolvedValue({ boardName: "RB5009", routerosVersion: "7.16", architectureName: "arm64" })
@@ -153,7 +156,7 @@ describe("MikrotikView", () => {
   })
 
   it.each([
-    { name: "Backups", testIds: ["mikrotik-backup-panel"], labels: ["MikroTik backups"] },
+    { name: "Backups", testIds: ["mikrotik-backup-panel", "mikrotik-backup-library"], labels: ["MikroTik backups", "MikroTik backup library"] },
     { name: "System", testIds: ["mikrotik-status-cpu", "mikrotik-cpu-graph", "mikrotik-memory-graph", "mikrotik-session-panel"], labels: ["MikroTik versions"] },
     { name: "Interfaces", testIds: ["mikrotik-interface-table", "mikrotik-selected-interface", "mikrotik-interface-graph"], labels: [] },
     { name: "VLANs", testIds: ["mikrotik-vlan-panel"], labels: [] },

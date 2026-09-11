@@ -144,6 +144,18 @@ type MockMikrotikProfile = {
   createdAt: string
 }
 
+type MockMikrotikBackup = {
+  id: number
+  profileId: number | null
+  profileName: string
+  name: string
+  backupPath: string
+  exportPath: string | null
+  createdAt: string
+  sizeBytes: number
+  hasRscExport: boolean
+}
+
 type MockMikrotikInterface = {
   name: string
   type: string | null
@@ -266,6 +278,8 @@ export async function installMockTauri(page: Page): Promise<void> {
       let mikrotikBackupSshUnreachable = false
       let lastMikrotikBackup: Record<string, unknown> | null = null
       let mikrotikBackupCount = 0
+      let mikrotikBackups: MockMikrotikBackup[] = []
+      let nextMikrotikBackupId = 1
       const mikrotikCredentials = new Map<number, string>()
       let mikrotikProfiles: MockMikrotikProfile[] = [
         {
@@ -1394,7 +1408,34 @@ export async function installMockTauri(page: Page): Promise<void> {
             const name = String(args.backupName)
             const destination = String(args.destinationDir)
             if (!Boolean(args.overwrite) && name === "existing") throw { kind: "OutputExists", message: "backup output already exists" }
-            return { backupPath: `${destination}/${name}.backup`, exportPath: Boolean(args.includeRsc) ? `${destination}/${name}.rsc` : null, cleanupWarnings: [] }
+            const profile = mikrotikProfiles.find((item) => item.id === Number(args.profileId))
+            const includeRsc = Boolean(args.includeRsc)
+            mikrotikBackups = [
+              {
+                id: nextMikrotikBackupId,
+                profileId: profile?.id ?? null,
+                profileName: profile?.name ?? "Unknown profile",
+                name,
+                backupPath: `${destination}/${name}.backup`,
+                exportPath: includeRsc ? `${destination}/${name}.rsc` : null,
+                createdAt: new Date().toISOString(),
+                sizeBytes: 2048,
+                hasRscExport: includeRsc,
+              },
+              ...mikrotikBackups,
+            ]
+            nextMikrotikBackupId += 1
+            return { backupPath: `${destination}/${name}.backup`, exportPath: includeRsc ? `${destination}/${name}.rsc` : null, cleanupWarnings: [] }
+          }
+          case "mikrotik_list_backups":
+            return mikrotikBackups
+          case "mikrotik_delete_backup": {
+            const id = Number(args.id)
+            if (!mikrotikBackups.some((backup) => backup.id === id)) {
+              throw { kind: "BackupRecordNotFound", message: `no MikroTik backup record with id ${id}` }
+            }
+            mikrotikBackups = mikrotikBackups.filter((backup) => backup.id !== id)
+            return { deleted: true, warnings: [] }
           }
           default:
             throw new Error(`unknown command ${cmd}`)

@@ -278,6 +278,35 @@ pub struct MikrotikProfile {
     pub created_at: String,
 }
 
+/// Parameters for a Mikrotik backup library record. Paths are absolute
+/// local filesystem paths exactly as the backup flow returned them.
+#[derive(Debug, Clone)]
+pub struct NewMikrotikBackup {
+    pub profile_id: i64,
+    pub profile_name: String,
+    pub name: String,
+    pub backup_path: String,
+    pub export_path: Option<String>,
+    pub created_at: String,
+    pub size_bytes: i64,
+    pub has_rsc_export: bool,
+}
+
+/// Persisted Mikrotik backup library record. `profile_id` becomes NULL when
+/// the profile is deleted; the snapshot `profile_name` stays displayable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MikrotikBackupRecord {
+    pub id: i64,
+    pub profile_id: Option<i64>,
+    pub profile_name: String,
+    pub name: String,
+    pub backup_path: String,
+    pub export_path: Option<String>,
+    pub created_at: String,
+    pub size_bytes: i64,
+    pub has_rsc_export: bool,
+}
+
 /// Parameters for a Mikrotik monitoring session.
 #[derive(Debug, Clone)]
 pub struct NewMikrotikSession {
@@ -976,9 +1005,81 @@ impl Database {
             .map_err(DbError::from)
     }
 
-    /// Deletes a Mikrotik profile; sessions and snapshots cascade.
+    /// Deletes a Mikrotik profile; sessions and snapshots cascade, backup
+    /// library records keep their row with `profile_id` set to NULL.
     pub async fn delete_mikrotik_profile(&self, id: i64) -> Result<(), DbError> {
         sqlx::query("DELETE FROM mikrotik_profiles WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Inserts a Mikrotik backup library record and returns the persisted row.
+    pub async fn create_mikrotik_backup(
+        &self,
+        backup: &NewMikrotikBackup,
+    ) -> Result<MikrotikBackupRecord, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO mikrotik_backups \
+             (profile_id, profile_name, name, backup_path, export_path, created_at, size_bytes, has_rsc_export) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(backup.profile_id)
+        .bind(&backup.profile_name)
+        .bind(&backup.name)
+        .bind(&backup.backup_path)
+        .bind(&backup.export_path)
+        .bind(&backup.created_at)
+        .bind(backup.size_bytes)
+        .bind(backup.has_rsc_export)
+        .execute(&self.pool)
+        .await?;
+        Ok(MikrotikBackupRecord {
+            id: result.last_insert_rowid(),
+            profile_id: Some(backup.profile_id),
+            profile_name: backup.profile_name.clone(),
+            name: backup.name.clone(),
+            backup_path: backup.backup_path.clone(),
+            export_path: backup.export_path.clone(),
+            created_at: backup.created_at.clone(),
+            size_bytes: backup.size_bytes,
+            has_rsc_export: backup.has_rsc_export,
+        })
+    }
+
+    /// Lists all Mikrotik backup library records, newest first.
+    pub async fn list_mikrotik_backups(&self) -> Result<Vec<MikrotikBackupRecord>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, profile_id, profile_name, name, backup_path, export_path, created_at, size_bytes, has_rsc_export \
+             FROM mikrotik_backups ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| mikrotik_backup_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads one Mikrotik backup library record by id.
+    pub async fn load_mikrotik_backup(&self, id: i64) -> Result<Option<MikrotikBackupRecord>, DbError> {
+        let row = sqlx::query(
+            "SELECT id, profile_id, profile_name, name, backup_path, export_path, created_at, size_bytes, has_rsc_export \
+             FROM mikrotik_backups WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref()
+            .map(mikrotik_backup_from_row)
+            .transpose()
+            .map_err(DbError::from)
+    }
+
+    /// Deletes a Mikrotik backup library record by id. The caller is
+    /// responsible for removing the files on disk first.
+    pub async fn delete_mikrotik_backup_record(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM mikrotik_backups WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -1257,6 +1358,22 @@ fn mikrotik_profile_from_row(
     })
 }
 
+fn mikrotik_backup_from_row(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<MikrotikBackupRecord, sqlx::Error> {
+    Ok(MikrotikBackupRecord {
+        id: row.try_get("id")?,
+        profile_id: row.try_get("profile_id")?,
+        profile_name: row.try_get("profile_name")?,
+        name: row.try_get("name")?,
+        backup_path: row.try_get("backup_path")?,
+        export_path: row.try_get("export_path")?,
+        created_at: row.try_get("created_at")?,
+        size_bytes: row.try_get("size_bytes")?,
+        has_rsc_export: row.try_get("has_rsc_export")?,
+    })
+}
+
 fn mikrotik_session_summary_from_row(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<MikrotikSessionSummary, sqlx::Error> {
@@ -1434,6 +1551,75 @@ mod tests {
         }
     }
 
+    fn sample_mikrotik_backup(profile_id: i64, name: &str) -> NewMikrotikBackup {
+        NewMikrotikBackup {
+            profile_id,
+            profile_name: "Lab router".to_string(),
+            name: name.to_string(),
+            backup_path: format!("D:/backups/{name}.backup"),
+            export_path: Some(format!("D:/backups/{name}.rsc")),
+            created_at: now_rfc3339(),
+            size_bytes: 42,
+            has_rsc_export: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn mikrotik_backup_record_roundtrip() {
+        let dir = TestDir::new("mikrotik-backups");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("lab"))
+            .await
+            .expect("profile");
+        let first = db
+            .create_mikrotik_backup(&sample_mikrotik_backup(profile.id, "first"))
+            .await
+            .expect("first");
+        let second = db
+            .create_mikrotik_backup(&sample_mikrotik_backup(profile.id, "second"))
+            .await
+            .expect("second");
+
+        let listed = db.list_mikrotik_backups().await.expect("list");
+        assert_eq!(listed.len(), 2);
+        // Same created_at second: id DESC breaks the tie, newest first.
+        assert_eq!(listed[0].id, second.id);
+        assert_eq!(listed[1].id, first.id);
+
+        let loaded = db.load_mikrotik_backup(first.id).await.expect("load");
+        assert_eq!(loaded, Some(first.clone()));
+
+        db.delete_mikrotik_backup_record(first.id)
+            .await
+            .expect("delete");
+        let remaining = db.list_mikrotik_backups().await.expect("list");
+        assert_eq!(remaining, vec![second]);
+    }
+
+    #[tokio::test]
+    async fn mikrotik_backup_survives_profile_delete() {
+        let dir = TestDir::new("mikrotik-backup-fk");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+        let profile = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("lab"))
+            .await
+            .expect("profile");
+        let backup = db
+            .create_mikrotik_backup(&sample_mikrotik_backup(profile.id, "keep"))
+            .await
+            .expect("backup");
+        db.delete_mikrotik_profile(profile.id)
+            .await
+            .expect("delete profile");
+
+        let listed = db.list_mikrotik_backups().await.expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].profile_id, None);
+        assert_eq!(listed[0].profile_name, backup.profile_name);
+        assert_eq!(listed[0].name, backup.name);
+    }
+
     fn sample_mikrotik_session(profile_id: i64) -> NewMikrotikSession {
         NewMikrotikSession {
             profile_id,
@@ -1487,10 +1673,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v10() {
+    async fn fresh_db_migrates_to_v11() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 10);
+        assert_eq!(migration_count(&db).await, 11);
         let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&db.pool)
             .await
@@ -1499,7 +1685,7 @@ mod tests {
             .iter()
             .map(|row| row.try_get::<i64, _>("version").expect("version"))
             .collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
         let tables =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -1520,6 +1706,7 @@ mod tests {
         assert!(tables.contains(&"mikrotik_profiles".to_string()));
         assert!(tables.contains(&"mikrotik_sessions".to_string()));
         assert!(tables.contains(&"mikrotik_snapshots".to_string()));
+        assert!(tables.contains(&"mikrotik_backups".to_string()));
 
         let indexes =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
@@ -1534,6 +1721,8 @@ mod tests {
         assert!(indexes.contains(&"idx_scan_hosts_scan".to_string()));
         assert!(indexes.contains(&"idx_dns_run_targets_run".to_string()));
         assert!(indexes.contains(&"idx_mikrotik_snapshots_session_at".to_string()));
+        assert!(indexes.contains(&"idx_mikrotik_backups_created_at".to_string()));
+        assert!(indexes.contains(&"idx_mikrotik_backups_profile".to_string()));
     }
 
     #[tokio::test]
@@ -1541,17 +1730,17 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 10);
+        assert_eq!(migration_count(&db).await, 11);
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 10);
+        assert_eq!(migration_count(&db).await, 11);
     }
 
     #[tokio::test]
     async fn mikrotik_db_fresh_migrates() {
         let dir = TestDir::new("mikrotik-fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 10);
+        assert_eq!(migration_count(&db).await, 11);
 
         let tables = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table'")
             .fetch_all(&db.pool)

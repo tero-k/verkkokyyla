@@ -4,7 +4,10 @@ import { mikrotikBackup } from "../lib/ipc"
 import { ConfirmDialog } from "./ConfirmDialog"
 import styles from "./MikrotikBackupPanel.module.css"
 
-type Props = { readonly profileId: number | null }
+type Props = {
+  readonly profileId: number | null
+  readonly onCreated?: () => void
+}
 type BackupResult = { readonly backupPath: string; readonly exportPath: string | null; readonly cleanupWarnings: readonly string[] }
 type TypedError = { readonly kind?: string; readonly message: string }
 
@@ -31,7 +34,7 @@ function validName(name: string): boolean {
   return BACKUP_NAME.test(name) && !RESERVED.test(name)
 }
 
-export function MikrotikBackupPanel({ profileId }: Props) {
+export function MikrotikBackupPanel({ profileId, onCreated }: Props) {
   const [name, setName] = useState(defaultBackupName)
   const [password, setPassword] = useState("")
   const [includeRsc, setIncludeRsc] = useState(false)
@@ -58,7 +61,7 @@ export function MikrotikBackupPanel({ profileId }: Props) {
     setBusy(true); setError(""); setResult(null)
     try {
       const next = await mikrotikBackup(profileId, destination, name, password || undefined, includeRsc, overwrite)
-      setResult(next); setPassword("")
+      setResult(next); setPassword(""); onCreated?.()
     } catch (caught) {
       const typed = messageFrom(caught)
       if (typed.kind === "OutputExists" && !overwrite) {

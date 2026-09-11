@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { MikrotikBackupPanel } from "../components/MikrotikBackupPanel"
+import { MikrotikBackupLibrary } from "../components/MikrotikBackupLibrary"
 import { MikrotikGraphs } from "../components/MikrotikGraphs"
 import { MikrotikInterfaceTable } from "../components/MikrotikInterfaceTable"
 import { MikrotikProfilePanel } from "../components/MikrotikProfilePanel"
@@ -28,6 +29,7 @@ export default function MikrotikView() {
   const mikrotik = useMikrotik()
   const { confirm, dialog: confirmDialog } = useConfirmDialog()
   const [activeTab, setActiveTab] = useState<TabId>("profiles")
+  const [backupsRefreshKey, setBackupsRefreshKey] = useState(0)
   const [selectedInterfaceName, setSelectedInterfaceName] = useState<string | null>(null)
   const interfaces = mikrotik.latestSnapshot?.interfaces ?? []
   const selectedInterface = useMemo(() => {
@@ -105,7 +107,13 @@ export default function MikrotikView() {
       </section>
 
       <section className={styles.tabPanel} id="mikrotik-panel-backups" role="tabpanel" aria-labelledby="mikrotik-tab-backups" hidden={activeTab !== "backups"}>
-        <MikrotikBackupPanel profileId={mikrotik.selectedProfile?.id ?? null} />
+        <div className={styles.tabStack}>
+          <MikrotikBackupPanel
+            profileId={mikrotik.selectedProfile?.id ?? null}
+            onCreated={() => setBackupsRefreshKey((current) => current + 1)}
+          />
+          <MikrotikBackupLibrary refreshKey={backupsRefreshKey} />
+        </div>
       </section>
 
       <section className={styles.tabPanel} id="mikrotik-panel-system" role="tabpanel" aria-labelledby="mikrotik-tab-system" hidden={activeTab !== "system"}>

@@ -91,6 +91,17 @@ describe("MikrotikBackupPanel", () => {
     expect(screen.getByLabelText<HTMLInputElement>("Encryption password (optional)").value).toBe("")
   })
 
+  it("notifies its parent after a successful create", async () => {
+    const onCreated = vi.fn()
+    render(<MikrotikBackupPanel profileId={7} onCreated={onCreated} />)
+    chooseDirectory()
+    await waitFor(() => expect(screen.getByText("C:/backups")).toBeTruthy())
+
+    fireEvent.click(screen.getByRole("button", { name: "Create backup" }))
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1))
+  })
+
   it("disables submit and reports progress while the backup is running", async () => {
     ipc.mikrotikBackup.mockImplementationOnce(() => new Promise(() => {}))
     renderPanel()

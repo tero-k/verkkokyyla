@@ -506,6 +506,23 @@ export type BackupResultDto = {
   readonly cleanupWarnings: readonly string[]
 }
 
+export type MikrotikBackupRecordDto = {
+  readonly id: number
+  readonly profileId: number | null
+  readonly profileName: string
+  readonly name: string
+  readonly backupPath: string
+  readonly exportPath: string | null
+  readonly createdAt: string
+  readonly sizeBytes: number
+  readonly hasRscExport: boolean
+}
+
+export type DeleteMikrotikBackupResultDto = {
+  readonly deleted: boolean
+  readonly warnings: readonly string[]
+}
+
 export type StartScanDto = {
   readonly scanId: number
   readonly interfaceName: string

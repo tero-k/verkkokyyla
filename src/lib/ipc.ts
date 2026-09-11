@@ -4,6 +4,7 @@ import type {
   BenchmarkRunDto,
   BackupResultDto,
   CreateMikrotikProfileRequest,
+  DeleteMikrotikBackupResultDto,
   DeleteMikrotikProfileResultDto,
   DnsDiagnosticsDto,
   DnsRunSummaryDto,
@@ -22,6 +23,7 @@ import type {
   LookupEventDto,
   LookupSummaryDto,
   MikrotikChangelogDto,
+  MikrotikBackupRecordDto,
   MikrotikLoadedSessionDto,
   MikrotikProfile,
   MikrotikSnapshotEvent,
@@ -288,6 +290,14 @@ export function mikrotikBackup(
     includeRsc,
     overwrite,
   })
+}
+
+export function mikrotikListBackups(): Promise<MikrotikBackupRecordDto[]> {
+  return invoke<MikrotikBackupRecordDto[]>("mikrotik_list_backups")
+}
+
+export function mikrotikDeleteBackup(id: number): Promise<DeleteMikrotikBackupResultDto> {
+  return invoke<DeleteMikrotikBackupResultDto>("mikrotik_delete_backup", { id })
 }
 
 // DNS Tester IPC wrappers
