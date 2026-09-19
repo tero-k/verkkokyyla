@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **MikroTik profile selector not updating**: creating, editing, or deleting
+  a profile in the Profiles tab did not refresh the profile dropdown in the
+  view header until the app was restarted. The header selector now refreshes
+  immediately after any profile change.
+
 ## [0.1.2] - 2026-09-19
 
 ### Fixed

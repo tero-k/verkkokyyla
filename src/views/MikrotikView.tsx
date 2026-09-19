@@ -223,7 +223,7 @@ export default function MikrotikView() {
       </div>
 
       <section className={styles.tabPanel} id="mikrotik-panel-profiles" role="tabpanel" aria-labelledby="mikrotik-tab-profiles" hidden={activeTab !== "profiles"}>
-        <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} />
+        <MikrotikProfilePanel activeProfileId={mikrotik.selectedProfile?.id ?? null} onProfilesChanged={() => void mikrotik.refreshProfiles()} />
       </section>
 
       <section className={styles.tabPanel} id="mikrotik-panel-backups" role="tabpanel" aria-labelledby="mikrotik-tab-backups" hidden={activeTab !== "backups"}>

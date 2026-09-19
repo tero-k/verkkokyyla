@@ -4,7 +4,10 @@ import type { CreateMikrotikProfileRequest, MikrotikProfile, MikrotikTestConnect
 import { ConfirmDialog } from "./ConfirmDialog"
 import styles from "./MikrotikProfilePanel.module.css"
 
-type Props = { readonly activeProfileId: number | null }
+/** `onProfilesChanged` fires after a successful create/update/delete so the
+    view-level profile selector (fed by `useMikrotik`) refreshes too — the
+    panel's own list alone would leave the header select stale until reload. */
+type Props = { readonly activeProfileId: number | null; readonly onProfilesChanged?: () => void }
 type FormState = CreateMikrotikProfileRequest & { readonly id: number | null; readonly password: string }
 
 const emptyForm: FormState = { id: null, name: "", host: "", port: 443, useTls: true, allowInvalidCerts: false, username: "", password: "" }
@@ -19,7 +22,7 @@ function formFrom(profile: MikrotikProfile): FormState {
   return { id: profile.id, name: profile.name, host: profile.host, port: profile.port, useTls: profile.useTls, allowInvalidCerts: profile.allowInvalidCerts, username: profile.username, password: "" }
 }
 
-export function MikrotikProfilePanel({ activeProfileId }: Props) {
+export function MikrotikProfilePanel({ activeProfileId, onProfilesChanged }: Props) {
   const [profiles, setProfiles] = useState<readonly MikrotikProfile[]>([])
   const [form, setForm] = useState<FormState>(emptyForm)
   const [deleteTarget, setDeleteTarget] = useState<MikrotikProfile | null>(null)
@@ -47,7 +50,7 @@ export function MikrotikProfilePanel({ activeProfileId }: Props) {
     try {
       const saved = form.id === null ? await mikrotikCreateProfile(request) : await mikrotikUpdateProfile({ ...request, id: form.id })
       if (form.password !== "") await mikrotikSetProfilePassword(saved.id, form.password)
-      setForm(emptyForm); await refresh()
+      setForm(emptyForm); await refresh(); onProfilesChanged?.()
     } catch (caught) {
       setError(messageFrom(caught))
     }
@@ -55,7 +58,7 @@ export function MikrotikProfilePanel({ activeProfileId }: Props) {
 
   async function remove(profile: MikrotikProfile): Promise<void> {
     try {
-      await mikrotikDeleteProfile(profile.id); setDeleteTarget(null); await refresh()
+      await mikrotikDeleteProfile(profile.id); setDeleteTarget(null); await refresh(); onProfilesChanged?.()
     } catch (caught) {
       setDeleteTarget(null); setError(messageFrom(caught))
     }

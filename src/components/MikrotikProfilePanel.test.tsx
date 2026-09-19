@@ -32,8 +32,8 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-function renderPanel(activeProfileId: number | null = null): void {
-  render(<MikrotikProfilePanel activeProfileId={activeProfileId} />)
+function renderPanel(activeProfileId: number | null = null, onProfilesChanged?: () => void): void {
+  render(<MikrotikProfilePanel activeProfileId={activeProfileId} onProfilesChanged={onProfilesChanged} />)
 }
 
 describe("MikrotikProfilePanel", () => {
@@ -59,6 +59,44 @@ describe("MikrotikProfilePanel", () => {
 
     await waitFor(() => expect(ipc.mikrotikDeleteProfile).toHaveBeenCalledWith(8))
     await waitFor(() => expect(screen.queryByText("lab")).toBeNull())
+  })
+
+  it("notifies the parent after creating a profile so the selector refreshes", async () => {
+    const onProfilesChanged = vi.fn()
+    renderPanel(null, onProfilesChanged)
+    await waitFor(() => expect(screen.getByText("edge")).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "core" } })
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "192.0.2.3" } })
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "admin" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }))
+
+    await waitFor(() => expect(ipc.mikrotikCreateProfile).toHaveBeenCalled())
+    await waitFor(() => expect(onProfilesChanged).toHaveBeenCalledTimes(1))
+  })
+
+  it("notifies the parent after deleting a profile", async () => {
+    const onProfilesChanged = vi.fn()
+    renderPanel(null, onProfilesChanged)
+    await waitFor(() => expect(screen.getByText("lab")).toBeTruthy())
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete lab" }))
+    fireEvent.click(screen.getByTestId("confirm-dialog-confirm"))
+
+    await waitFor(() => expect(onProfilesChanged).toHaveBeenCalledTimes(1))
+  })
+
+  it("does not notify the parent when saving fails", async () => {
+    const onProfilesChanged = vi.fn()
+    ipc.mikrotikCreateProfile.mockRejectedValueOnce(new Error("duplicate name"))
+    renderPanel(null, onProfilesChanged)
+    await waitFor(() => expect(screen.getByText("edge")).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "core" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }))
+
+    await waitFor(() => expect(screen.getByText("duplicate name")).toBeTruthy())
+    expect(onProfilesChanged).not.toHaveBeenCalled()
   })
 
   it("disables active profile delete and surfaces forced ProfileInUse errors", async () => {
