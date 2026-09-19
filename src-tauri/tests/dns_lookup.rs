@@ -18,7 +18,14 @@ async fn multi_record_type_lookup_streams_events_and_summary() {
     let mut events = Vec::new();
     let summary = run_dns_lookup(
         "www.mock.test.",
-        vec!["A".into(), "AAAA".into(), "MX".into(), "TXT".into(), "NS".into(), "CNAME".into()],
+        vec![
+            "A".into(),
+            "AAAA".into(),
+            "MX".into(),
+            "TXT".into(),
+            "NS".into(),
+            "CNAME".into(),
+        ],
         endpoint(DnsProtocol::Udp, &udp.to_string()),
         |event| events.push(event),
     )

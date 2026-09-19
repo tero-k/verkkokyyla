@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::{
-    Database, DbError, DownloadSpeedSessionSummary, NewDownloadSpeedSession,
-};
+use crate::db::{Database, DbError, DownloadSpeedSessionSummary, NewDownloadSpeedSession};
 
 /// Errors for download speed history operations.
 #[derive(Debug, thiserror::Error)]
@@ -107,7 +105,10 @@ impl DownloadSpeedManager {
         &self,
     ) -> Result<Vec<DownloadSpeedSessionSummaryDto>, DownloadSpeedHistoryError> {
         let rows = self.db.list_download_speed_sessions().await?;
-        Ok(rows.into_iter().map(DownloadSpeedSessionSummaryDto::from).collect())
+        Ok(rows
+            .into_iter()
+            .map(DownloadSpeedSessionSummaryDto::from)
+            .collect())
     }
 
     pub async fn load_session(

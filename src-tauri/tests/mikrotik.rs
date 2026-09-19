@@ -125,8 +125,7 @@ async fn mikrotik_client_401_is_unauthorized_never_unsupported_version() {
     Mock::given(method("GET"))
         .and(path("/rest/system/resource"))
         .respond_with(
-            ResponseTemplate::new(401)
-                .set_body_string(r#"{"detail":"Invalid username/password"}"#),
+            ResponseTemplate::new(401).set_body_string(r#"{"detail":"Invalid username/password"}"#),
         )
         .mount(&server)
         .await;
@@ -336,9 +335,8 @@ async fn start_tls_fixture_server() -> (u16, tokio::task::JoinHandle<()>) {
     let certified =
         generate_simple_self_signed(vec!["localhost".to_owned(), "127.0.0.1".to_owned()])
             .expect("generate self-signed cert");
-    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-        certified.key_pair.serialize_der(),
-    ));
+    let key_der =
+        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()));
     let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))

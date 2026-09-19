@@ -141,10 +141,7 @@ pub async fn delegation_report(
     })
 }
 
-async fn probe_parent_ns(
-    endpoint: &ResolverEndpointDto,
-    domain: &str,
-) -> ProbeResult<Vec<String>> {
+async fn probe_parent_ns(endpoint: &ResolverEndpointDto, domain: &str) -> ProbeResult<Vec<String>> {
     match query_once(endpoint, domain, RecordTypeSpec::Ns, QueryOpts::default()).await {
         Ok(result) => {
             let rcode = result.rcode.clone();
@@ -407,14 +404,10 @@ fn collect_serials(servers: &[AuthoritativeServerDto]) -> Vec<NsSerialDto> {
         .iter()
         .map(|server| {
             let (address, serial) = match &server.soa_query {
-                ProbeResult::Ok(success) if success.aa_flag => (
-                    success.server.clone(),
-                    Some(success.data),
-                ),
-                _ => (
-                    server.addresses.first().cloned().unwrap_or_default(),
-                    None,
-                ),
+                ProbeResult::Ok(success) if success.aa_flag => {
+                    (success.server.clone(), Some(success.data))
+                }
+                _ => (server.addresses.first().cloned().unwrap_or_default(), None),
             };
             NsSerialDto {
                 name: server.name.clone(),
@@ -426,10 +419,7 @@ fn collect_serials(servers: &[AuthoritativeServerDto]) -> Vec<NsSerialDto> {
 }
 
 fn serial_consistency(serials: &[NsSerialDto]) -> Option<bool> {
-    let observed: Vec<u32> = serials
-        .iter()
-        .filter_map(|s| s.serial)
-        .collect();
+    let observed: Vec<u32> = serials.iter().filter_map(|s| s.serial).collect();
     if observed.len() < 2 {
         return None;
     }
@@ -459,11 +449,8 @@ fn sorted_eq(a: &[String], b: &[String]) -> bool {
 }
 
 fn parse_soa_serial(result: &QueryResultDto) -> Option<u32> {
-    result
-        .answers
-        .first()
-        .and_then(|a| {
-            let parts: Vec<&str> = a.data.split_whitespace().collect();
-            parts.get(2).and_then(|s| s.parse::<u32>().ok())
-        })
+    result.answers.first().and_then(|a| {
+        let parts: Vec<&str> = a.data.split_whitespace().collect();
+        parts.get(2).and_then(|s| s.parse::<u32>().ok())
+    })
 }

@@ -81,23 +81,20 @@ impl KeyringStore {
 #[async_trait]
 impl SecretStore for KeyringStore {
     async fn get(&self, secret_key: &str) -> Result<String, SecretError> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, secret_key)
-            .map_err(SecretError::from)?;
+        let entry = keyring::Entry::new(KEYRING_SERVICE, secret_key).map_err(SecretError::from)?;
         self.run(move || entry.get_password().map_err(SecretError::from))
             .await
     }
 
     async fn set(&self, secret_key: &str, password: &str) -> Result<(), SecretError> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, secret_key)
-            .map_err(SecretError::from)?;
+        let entry = keyring::Entry::new(KEYRING_SERVICE, secret_key).map_err(SecretError::from)?;
         let password = password.to_owned();
         self.run(move || entry.set_password(&password).map_err(SecretError::from))
             .await
     }
 
     async fn delete(&self, secret_key: &str) -> Result<(), SecretError> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, secret_key)
-            .map_err(SecretError::from)?;
+        let entry = keyring::Entry::new(KEYRING_SERVICE, secret_key).map_err(SecretError::from)?;
         self.run(move || entry.delete_credential().map_err(SecretError::from))
             .await
     }
@@ -125,24 +122,27 @@ impl MemoryStore {
 #[async_trait]
 impl SecretStore for MemoryStore {
     async fn get(&self, secret_key: &str) -> Result<String, SecretError> {
-        let inner = self.inner.lock().map_err(|err| {
-            SecretError::Keyring(format!("memory store lock poisoned: {err}"))
-        })?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|err| SecretError::Keyring(format!("memory store lock poisoned: {err}")))?;
         inner.get(secret_key).cloned().ok_or(SecretError::NotStored)
     }
 
     async fn set(&self, secret_key: &str, password: &str) -> Result<(), SecretError> {
-        let mut inner = self.inner.lock().map_err(|err| {
-            SecretError::Keyring(format!("memory store lock poisoned: {err}"))
-        })?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|err| SecretError::Keyring(format!("memory store lock poisoned: {err}")))?;
         inner.insert(secret_key.to_owned(), password.to_owned());
         Ok(())
     }
 
     async fn delete(&self, secret_key: &str) -> Result<(), SecretError> {
-        let mut inner = self.inner.lock().map_err(|err| {
-            SecretError::Keyring(format!("memory store lock poisoned: {err}"))
-        })?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|err| SecretError::Keyring(format!("memory store lock poisoned: {err}")))?;
         match inner.remove(secret_key) {
             Some(_) => Ok(()),
             None => Err(SecretError::NotStored),
@@ -166,10 +166,16 @@ mod tests {
         assert_eq!(store.get("key-a").await.unwrap(), "hunter3");
 
         // other keys are unaffected
-        assert!(matches!(store.get("key-b").await, Err(SecretError::NotStored)));
+        assert!(matches!(
+            store.get("key-b").await,
+            Err(SecretError::NotStored)
+        ));
 
         store.delete("key-a").await.unwrap();
-        assert!(matches!(store.get("key-a").await, Err(SecretError::NotStored)));
+        assert!(matches!(
+            store.get("key-a").await,
+            Err(SecretError::NotStored)
+        ));
     }
 
     #[tokio::test]

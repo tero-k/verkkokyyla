@@ -66,10 +66,7 @@ impl HttpSettingsDto {
     }
 }
 
-fn apply_version(
-    builder: reqwest::ClientBuilder,
-    version: HttpVersion,
-) -> reqwest::ClientBuilder {
+fn apply_version(builder: reqwest::ClientBuilder, version: HttpVersion) -> reqwest::ClientBuilder {
     match version {
         HttpVersion::Auto => builder,
         HttpVersion::Http1_1 => builder.http1_only(),

@@ -108,7 +108,9 @@ where
     F: FnMut(LookupEventDto) + Send,
 {
     if record_types.is_empty() {
-        return Err(DnsError::InvalidInput("no record types provided".to_owned()));
+        return Err(DnsError::InvalidInput(
+            "no record types provided".to_owned(),
+        ));
     }
 
     let start = Instant::now();
@@ -142,7 +144,16 @@ where
         let name = name.to_owned();
         in_flight.push(async move {
             let _permit = sem.acquire().await.expect("semaphore never closed");
-            let result = query_once(&endpoint, &name, spec, QueryOpts::default()).await;
+            let result = query_once(
+                &endpoint,
+                &name,
+                spec,
+                QueryOpts {
+                    dnssec_ok: true,
+                    ..QueryOpts::default()
+                },
+            )
+            .await;
             (rt, result)
         });
     }
@@ -256,7 +267,11 @@ impl DnsManager {
             .await
             .map_err(|e| DnsError::Io(e.to_string()))?;
 
-        let status = if summary.failed > 0 { "partial" } else { "completed" };
+        let status = if summary.failed > 0 {
+            "partial"
+        } else {
+            "completed"
+        };
         let targets: Vec<DnsRunTargetRow> = events
             .iter()
             .map(|event| DnsRunTargetRow {
@@ -298,7 +313,7 @@ impl DnsManager {
         &self,
         endpoint: ResolverEndpointDto,
         profile: BenchmarkProfile,
-        mut on_cell: F,
+        on_cell: F,
     ) -> Result<BenchmarkRunDto, DnsError>
     where
         F: FnMut(SampleCell) + Send,
@@ -317,7 +332,7 @@ impl DnsManager {
             .await
             .map_err(|e| DnsError::Io(e.to_string()))?;
 
-        let result = run_load(endpoint.clone(), profile.clone(), |cell| on_cell(cell)).await;
+        let result = run_load(endpoint.clone(), profile.clone(), on_cell).await;
 
         match result {
             Ok(load) => {

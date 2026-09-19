@@ -95,5 +95,7 @@ async fn migration_adds_download_speed_sessions_table() {
     let db = Database::connect(&dir.db_file()).await.expect("connect");
 
     // The migration ran successfully if list_download_speed_sessions works.
-    db.list_download_speed_sessions().await.expect("list sessions");
+    db.list_download_speed_sessions()
+        .await
+        .expect("list sessions");
 }

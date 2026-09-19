@@ -29,7 +29,8 @@ impl BenchmarkProfile {
     }
 
     pub fn interval(&self) -> Option<Duration> {
-        self.qps_limit.map(|qps| Duration::from_secs_f64(1.0 / qps.max(1) as f64))
+        self.qps_limit
+            .map(|qps| Duration::from_secs_f64(1.0 / qps.max(1) as f64))
     }
 
     pub fn preset_quick(query_name: impl Into<String>) -> Self {

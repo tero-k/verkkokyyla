@@ -31,7 +31,7 @@ impl SchedulerConfig {
     pub fn effective(&self) -> SchedulerConfig {
         let mut s = self.clone();
         s.concurrency = s.concurrency.min(HARD_CONCURRENCY_CAP);
-        s.sample_cap = s.sample_cap.max(1).min(DEFAULT_SAMPLE_CAP);
+        s.sample_cap = s.sample_cap.clamp(1, DEFAULT_SAMPLE_CAP);
         s
     }
 }

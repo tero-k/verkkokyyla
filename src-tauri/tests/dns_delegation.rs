@@ -16,12 +16,21 @@ fn endpoint(protocol: DnsProtocol, address: &str, name: &str) -> ResolverEndpoin
 async fn delegation_report_for_sub_zone() {
     let (handle, udp, _tcp, _tls, _cert) = start_mock().await;
 
-    let report = delegation_report(&endpoint(DnsProtocol::Udp, &udp.to_string(), "udp"), "sub.mock.test")
-        .await
-        .expect("delegation report should succeed");
+    let report = delegation_report(
+        &endpoint(DnsProtocol::Udp, &udp.to_string(), "udp"),
+        "sub.mock.test",
+    )
+    .await
+    .expect("delegation report should succeed");
 
-    assert!(!report.parent_ns.is_empty(), "parent ns list should not be empty");
-    assert!(!report.child_ns.is_empty(), "child ns list should be retrievable from the resolver");
+    assert!(
+        !report.parent_ns.is_empty(),
+        "parent ns list should not be empty"
+    );
+    assert!(
+        !report.child_ns.is_empty(),
+        "child ns list should be retrievable from the resolver"
+    );
     assert_eq!(
         report.ns_consistent,
         Some(true),
@@ -33,7 +42,10 @@ async fn delegation_report_for_sub_zone() {
     );
     // A single-server fixture cannot prove serial consistency, so the result
     // is deliberately left as None.
-    assert_eq!(report.serial_consistent, None, "one server cannot be compared");
+    assert_eq!(
+        report.serial_consistent, None,
+        "one server cannot be compared"
+    );
 
     drop(handle);
 }

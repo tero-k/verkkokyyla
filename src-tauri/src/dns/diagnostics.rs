@@ -98,14 +98,7 @@ pub async fn run_diagnostics(
     let delegation_fut = delegation_report(endpoint, &domain);
     let mx_fut = mx_report(endpoint, &domain);
 
-    let (
-        edns,
-        existence,
-        wildcard,
-        dnssec,
-        delegation,
-        mx,
-    ) = tokio::join!(
+    let (edns, existence, wildcard, dnssec, delegation, mx) = tokio::join!(
         edns_fut,
         existence_fut,
         wildcard_fut,
@@ -149,18 +142,30 @@ pub async fn run_diagnostics(
     results.push(diagnose_mx(mx_report));
 
     // Collect technical details.
-    technical.insert("edns".to_string(), serde_json::to_value(edns).unwrap_or_default());
+    technical.insert(
+        "edns".to_string(),
+        serde_json::to_value(edns).unwrap_or_default(),
+    );
     technical.insert(
         "nameExistence".to_string(),
         serde_json::to_value(existence).unwrap_or_default(),
     );
-    technical.insert("wildcard".to_string(), serde_json::to_value(wildcard).unwrap_or_default());
-    technical.insert("dnssec".to_string(), serde_json::to_value(dnssec).unwrap_or_default());
+    technical.insert(
+        "wildcard".to_string(),
+        serde_json::to_value(wildcard).unwrap_or_default(),
+    );
+    technical.insert(
+        "dnssec".to_string(),
+        serde_json::to_value(dnssec).unwrap_or_default(),
+    );
     technical.insert(
         "delegation".to_string(),
         serde_json::to_value(delegation).unwrap_or_default(),
     );
-    technical.insert("mx".to_string(), serde_json::to_value(mx).unwrap_or_default());
+    technical.insert(
+        "mx".to_string(),
+        serde_json::to_value(mx).unwrap_or_default(),
+    );
 
     let overall = results
         .iter()
@@ -221,7 +226,11 @@ fn record_inventory(record_type: &str, present: bool) -> RecordInventoryItem {
 fn diagnose_addressing(existence: &Result<NameExistenceDto, DnsError>) -> DiagnosticResultDto {
     match existence {
         Ok(e) => {
-            let v4 = if e.a { "IPv4 is configured." } else { "IPv4 is not configured." };
+            let v4 = if e.a {
+                "IPv4 is configured."
+            } else {
+                "IPv4 is not configured."
+            };
             let v6 = if e.aaaa {
                 "IPv6 is configured."
             } else {
@@ -247,7 +256,11 @@ fn diagnose_addressing(existence: &Result<NameExistenceDto, DnsError>) -> Diagno
                 technical_details: None,
             }
         }
-        Err(err) => error_result("addressing", "Addressing", format!("Could not query address records: {err}")),
+        Err(err) => error_result(
+            "addressing",
+            "Addressing",
+            format!("Could not query address records: {err}"),
+        ),
     }
 }
 
@@ -309,14 +322,22 @@ fn diagnose_delegation(report: &DelegationReportDto) -> DiagnosticResultDto {
 
     let mut evidence = Vec::new();
     for ns in &report.parent_ns {
-        let marker = if only_parent.contains(ns) { " (parent only)" } else { "" };
+        let marker = if only_parent.contains(ns) {
+            " (parent only)"
+        } else {
+            ""
+        };
         evidence.push(DiagnosticEvidence {
             label: "Parent delegation".to_string(),
             value: format!("{ns}{marker}"),
         });
     }
     for ns in &report.child_ns {
-        let marker = if only_child.contains(ns) { " (authoritative zone only)" } else { "" };
+        let marker = if only_child.contains(ns) {
+            " (authoritative zone only)"
+        } else {
+            ""
+        };
         evidence.push(DiagnosticEvidence {
             label: "Authoritative zone".to_string(),
             value: format!("{ns}{marker}"),
@@ -371,8 +392,14 @@ fn diagnose_soa_consistency(report: &DelegationReportDto) -> DiagnosticResultDto
             label: s.name.clone(),
             value: format!(
                 "{}: {}",
-                if s.address.is_empty() { "resolver" } else { &s.address },
-                s.serial.map(|n| n.to_string()).unwrap_or_else(|| "unavailable".to_string())
+                if s.address.is_empty() {
+                    "resolver"
+                } else {
+                    &s.address
+                },
+                s.serial
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "unavailable".to_string())
             ),
         })
         .collect();
@@ -410,7 +437,9 @@ fn diagnose_soa_consistency(report: &DelegationReportDto) -> DiagnosticResultDto
             id: "soa-consistency".to_string(),
             title: "SOA consistency".to_string(),
             status: DiagnosticStatus::Pass,
-            summary: format!("All checked authoritative nameservers report the same SOA serial ({serial})."),
+            summary: format!(
+                "All checked authoritative nameservers report the same SOA serial ({serial})."
+            ),
             impact: None,
             recommendation: None,
             evidence,
@@ -422,9 +451,13 @@ fn diagnose_soa_consistency(report: &DelegationReportDto) -> DiagnosticResultDto
         id: "soa-consistency".to_string(),
         title: "SOA consistency".to_string(),
         status: DiagnosticStatus::Warning,
-        summary: "Checked authoritative nameservers return different SOA serial numbers.".to_string(),
+        summary: "Checked authoritative nameservers return different SOA serial numbers."
+            .to_string(),
         impact: Some("This can indicate an incomplete or delayed zone transfer.".to_string()),
-        recommendation: Some("Check that all authoritative nameservers have received the latest zone update.".to_string()),
+        recommendation: Some(
+            "Check that all authoritative nameservers have received the latest zone update."
+                .to_string(),
+        ),
         evidence,
         technical_details: None,
     }
@@ -436,7 +469,9 @@ fn diagnose_authoritative_ns(report: &DelegationReportDto) -> DiagnosticResultDt
             id: "authoritative-ns".to_string(),
             title: "Authoritative nameservers".to_string(),
             status: DiagnosticStatus::Inconclusive,
-            summary: "No delegated nameservers were discovered, so reachability could not be checked.".to_string(),
+            summary:
+                "No delegated nameservers were discovered, so reachability could not be checked."
+                    .to_string(),
             impact: None,
             recommendation: None,
             evidence: Vec::new(),
@@ -529,11 +564,7 @@ fn diagnose_authoritative_ns(report: &DelegationReportDto) -> DiagnosticResultDt
                 "{} / SOA {} {}",
                 query_status(&s.ns_query),
                 query_status(&s.soa_query),
-                if s.soa_query
-                    .ok()
-                    .map(|q| !q.aa_flag)
-                    .unwrap_or(false)
-                {
+                if s.soa_query.ok().map(|q| !q.aa_flag).unwrap_or(false) {
                     "(not authoritative)"
                 } else {
                     ""
@@ -642,7 +673,10 @@ fn diagnose_edns(report: &EdnsSupportDto) -> DiagnosticResultDto {
             title: "EDNS compatibility".to_string(),
             status: DiagnosticStatus::Info,
             summary: "The server did not include an OPT record in the response.".to_string(),
-            impact: Some("EDNS extensions such as larger UDP payloads and DNSSEC OK may not be supported.".to_string()),
+            impact: Some(
+                "EDNS extensions such as larger UDP payloads and DNSSEC OK may not be supported."
+                    .to_string(),
+            ),
             recommendation: None,
             evidence: vec![DiagnosticEvidence {
                 label: "Responder".to_string(),
@@ -659,7 +693,9 @@ fn diagnose_edns(report: &EdnsSupportDto) -> DiagnosticResultDto {
             id: "edns".to_string(),
             title: "EDNS unsupported-version handling".to_string(),
             status: DiagnosticStatus::Pass,
-            summary: "The server correctly returned BADVERS (RCODE 16) for an unsupported EDNS version.".to_string(),
+            summary:
+                "The server correctly returned BADVERS (RCODE 16) for an unsupported EDNS version."
+                    .to_string(),
             impact: None,
             recommendation: None,
             evidence: edns_evidence(report),
@@ -671,8 +707,12 @@ fn diagnose_edns(report: &EdnsSupportDto) -> DiagnosticResultDto {
         id: "edns".to_string(),
         title: "EDNS unsupported-version handling".to_string(),
         status: DiagnosticStatus::Info,
-        summary: "The server returned an unexpected response to an unsupported EDNS-version probe.".to_string(),
-        impact: Some("This does not affect normal DNS resolution; it is a protocol-compliance observation.".to_string()),
+        summary: "The server returned an unexpected response to an unsupported EDNS-version probe."
+            .to_string(),
+        impact: Some(
+            "This does not affect normal DNS resolution; it is a protocol-compliance observation."
+                .to_string(),
+        ),
         recommendation: None,
         evidence: edns_evidence(report),
         technical_details: None,
@@ -760,14 +800,21 @@ fn diagnose_mx(report: &MxReportDto) -> DiagnosticResultDto {
         };
     }
 
-    let errors: Vec<_> = report.entries.iter().filter(|e| !e.issues.is_empty()).collect();
+    let errors: Vec<_> = report
+        .entries
+        .iter()
+        .filter(|e| !e.issues.is_empty())
+        .collect();
     if errors.is_empty() {
         let targets: Vec<String> = report.entries.iter().map(|e| e.target.clone()).collect();
         return DiagnosticResultDto {
             id: "mx".to_string(),
             title: "Mail exchangers (MX)".to_string(),
             status: DiagnosticStatus::Pass,
-            summary: format!("{} MX record(s) configured and all targets look usable.", report.entries.len()),
+            summary: format!(
+                "{} MX record(s) configured and all targets look usable.",
+                report.entries.len()
+            ),
             impact: None,
             recommendation: None,
             evidence: vec![DiagnosticEvidence {
@@ -791,7 +838,9 @@ fn diagnose_mx(report: &MxReportDto) -> DiagnosticResultDto {
         title: "Mail exchangers (MX)".to_string(),
         status: DiagnosticStatus::Warning,
         summary: "One or more MX records have problems.".to_string(),
-        impact: Some("Mail delivery may fail or be unreliable for the affected targets.".to_string()),
+        impact: Some(
+            "Mail delivery may fail or be unreliable for the affected targets.".to_string(),
+        ),
         recommendation: Some("Review the MX targets and fix the listed issues.".to_string()),
         evidence,
         technical_details: None,
@@ -812,14 +861,26 @@ fn error_result(id: &str, title: &str, summary: String) -> DiagnosticResultDto {
 }
 
 fn build_summary(results: &[DiagnosticResultDto]) -> String {
-    let errors = results.iter().filter(|r| r.status == DiagnosticStatus::Error).count();
-    let warnings = results.iter().filter(|r| r.status == DiagnosticStatus::Warning).count();
+    let errors = results
+        .iter()
+        .filter(|r| r.status == DiagnosticStatus::Error)
+        .count();
+    let warnings = results
+        .iter()
+        .filter(|r| r.status == DiagnosticStatus::Warning)
+        .count();
     let inconclusive = results
         .iter()
         .filter(|r| r.status == DiagnosticStatus::Inconclusive)
         .count();
-    let passed = results.iter().filter(|r| r.status == DiagnosticStatus::Pass).count();
-    let info = results.iter().filter(|r| r.status == DiagnosticStatus::Info).count();
+    let passed = results
+        .iter()
+        .filter(|r| r.status == DiagnosticStatus::Pass)
+        .count();
+    let info = results
+        .iter()
+        .filter(|r| r.status == DiagnosticStatus::Info)
+        .count();
 
     let mut parts = Vec::new();
     if errors == 1 {
@@ -870,7 +931,10 @@ mod tests {
             technical_details: None,
         };
         let json = serde_json::to_string(&dto).unwrap();
-        assert!(json.contains("\"evidence\":[]"), "expected empty evidence array in JSON: {json}");
+        assert!(
+            json.contains("\"evidence\":[]"),
+            "expected empty evidence array in JSON: {json}"
+        );
     }
 
     fn delegation_report(
@@ -897,12 +961,7 @@ mod tests {
 
     #[test]
     fn delegation_is_inconclusive_when_parent_ns_query_fails() {
-        let report = delegation_report(
-            Vec::new(),
-            Some("timeout".to_string()),
-            Vec::new(),
-            None,
-        );
+        let report = delegation_report(Vec::new(), Some("timeout".to_string()), Vec::new(), None);
         let result = diagnose_delegation(&report);
         assert_eq!(result.status, DiagnosticStatus::Inconclusive);
         assert!(!result.summary.to_lowercase().contains("mismatch"));
@@ -918,7 +977,10 @@ mod tests {
         );
         let result = diagnose_delegation(&report);
         assert_eq!(result.status, DiagnosticStatus::Inconclusive);
-        assert!(!result.evidence.iter().any(|e| e.value.contains("parent only")));
+        assert!(!result
+            .evidence
+            .iter()
+            .any(|e| e.value.contains("parent only")));
     }
 
     #[test]
@@ -943,7 +1005,10 @@ mod tests {
         );
         let result = diagnose_delegation(&report);
         assert_eq!(result.status, DiagnosticStatus::Warning);
-        assert!(result.evidence.iter().any(|e| e.value.contains("parent only")));
+        assert!(result
+            .evidence
+            .iter()
+            .any(|e| e.value.contains("parent only")));
     }
 
     #[test]
@@ -1010,8 +1075,14 @@ mod tests {
         assert_eq!(result.status, DiagnosticStatus::Warning);
     }
 
+    type AuthoritativeFixture = (
+        Vec<String>,
+        crate::dns::probe::ProbeResult<Vec<String>>,
+        crate::dns::probe::ProbeResult<u32>,
+    );
+
     fn authoritatives(
-        servers: Vec<(Vec<String>, crate::dns::probe::ProbeResult<Vec<String>>, crate::dns::probe::ProbeResult<u32>)>,
+        servers: Vec<AuthoritativeFixture>,
         child_known: bool,
     ) -> DelegationReportDto {
         DelegationReportDto {
@@ -1023,18 +1094,24 @@ mod tests {
             } else {
                 Vec::new()
             },
-            child_ns_error: if child_known { None } else { Some("timeout".to_string()) },
+            child_ns_error: if child_known {
+                None
+            } else {
+                Some("timeout".to_string())
+            },
             ns_consistent: None,
             glue_records: Vec::new(),
             authoritative_servers: servers
                 .into_iter()
                 .enumerate()
-                .map(|(i, (addresses, ns_query, soa_query))| AuthoritativeServerDto {
-                    name: format!("ns{i}.example.com"),
-                    addresses,
-                    ns_query,
-                    soa_query,
-                })
+                .map(
+                    |(i, (addresses, ns_query, soa_query))| AuthoritativeServerDto {
+                        name: format!("ns{i}.example.com"),
+                        addresses,
+                        ns_query,
+                        soa_query,
+                    },
+                )
                 .collect(),
             authoritative: false,
             ns_serials: Vec::new(),
@@ -1062,10 +1139,7 @@ mod tests {
 
     #[test]
     fn authoritative_ns_is_inconclusive_when_direct_queries_fail_but_resolver_succeeds() {
-        let report = authoritatives(
-            vec![(Vec::new(), err::<Vec<String>>(), err::<u32>())],
-            true,
-        );
+        let report = authoritatives(vec![(Vec::new(), err::<Vec<String>>(), err::<u32>())], true);
         let result = diagnose_authoritative_ns(&report);
         assert_eq!(result.status, DiagnosticStatus::Inconclusive);
         assert!(!result.summary.to_lowercase().contains("error"));
@@ -1085,7 +1159,10 @@ mod tests {
     fn authoritative_ns_passes_when_servers_respond() {
         let report = DelegationReportDto {
             authoritative: true,
-            ..authoritatives(vec![(vec!["192.0.2.1".to_string()], ok_ns(), ok_soa())], true)
+            ..authoritatives(
+                vec![(vec!["192.0.2.1".to_string()], ok_ns(), ok_soa())],
+                true,
+            )
         };
         let result = diagnose_authoritative_ns(&report);
         assert_eq!(result.status, DiagnosticStatus::Pass);
@@ -1100,11 +1177,7 @@ mod tests {
         })
     }
 
-    fn edns_report(
-        full_rcode: u16,
-        full_rcode_name: &str,
-        opt_present: bool,
-    ) -> EdnsSupportDto {
+    fn edns_report(full_rcode: u16, full_rcode_name: &str, opt_present: bool) -> EdnsSupportDto {
         EdnsSupportDto {
             opt_present,
             edns_version: 0,

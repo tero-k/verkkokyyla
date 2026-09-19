@@ -34,10 +34,14 @@ pub struct AnswersOverride {
 
 pub struct MockHandle {
     join: Option<tokio::task::JoinHandle<()>>,
+    // Used by mock_dns_smoke; other integration-test crates compile this helper without that caller.
+    #[allow(dead_code)]
     counter: Arc<AtomicUsize>,
 }
 
 impl MockHandle {
+    // Used by mock_dns_smoke; other integration-test crates compile this helper without that caller.
+    #[allow(dead_code)]
     pub fn query_count(&self) -> usize {
         self.counter.load(Ordering::SeqCst)
     }
@@ -156,7 +160,11 @@ impl RequestHandler for MockHandler {
                     .await
             }
             "drop10.mock.test." => {
-                if self.drop_counter.fetch_add(1, Ordering::SeqCst) % 10 == 0 {
+                if self
+                    .drop_counter
+                    .fetch_add(1, Ordering::SeqCst)
+                    .is_multiple_of(10)
+                {
                     no_response(request)
                 } else {
                     self.catalog
@@ -349,8 +357,7 @@ fn dkim_key_zone_value() -> String {
 fn build_rsa_spki_2048() -> Vec<u8> {
     // RSA encryption OID 1.2.840.113549.1.1.1 + NULL parameters
     let algorithm_identifier = vec![
-        0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05,
-        0x00,
+        0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
     ];
 
     // Modulus: 256 bytes with high bit set, prefixed with 0x00 to keep integer positive.
@@ -400,7 +407,13 @@ fn der_length(len: usize) -> Vec<u8> {
     } else if len <= 0xffffff {
         vec![0x83, (len >> 16) as u8, (len >> 8) as u8, len as u8]
     } else {
-        vec![0x84, (len >> 24) as u8, (len >> 16) as u8, (len >> 8) as u8, len as u8]
+        vec![
+            0x84,
+            (len >> 24) as u8,
+            (len >> 16) as u8,
+            (len >> 8) as u8,
+            len as u8,
+        ]
     }
 }
 

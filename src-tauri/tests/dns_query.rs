@@ -2,7 +2,7 @@ mod common;
 
 use common::mock_dns::start_mock;
 use verkkokyyla_lib::dns::client::{DnsProtocol, ResolverEndpointDto};
-use verkkokyyla_lib::dns::query::{query_once, is_nodata, is_nxdomain, QueryOpts, RecordTypeSpec};
+use verkkokyyla_lib::dns::query::{is_nodata, is_nxdomain, query_once, QueryOpts, RecordTypeSpec};
 
 fn endpoint(protocol: DnsProtocol, address: &str, name: &str) -> ResolverEndpointDto {
     ResolverEndpointDto {
@@ -56,8 +56,10 @@ async fn tcp_a_query_returns_answer() {
 #[tokio::test]
 async fn tls_a_query_with_pinned_cert_returns_answer() {
     let (handle, _udp, _tcp, tls, cert) = start_mock().await;
-    let mut opts = QueryOpts::default();
-    opts.pinned_root_cert = Some(cert);
+    let opts = QueryOpts {
+        pinned_root_cert: Some(cert),
+        ..Default::default()
+    };
     let result = query_once(
         &endpoint(DnsProtocol::Tls, &tls.to_string(), "mock.test"),
         "www.mock.test.",
@@ -117,8 +119,10 @@ async fn nodata_for_unknown_type_with_soa_authority() {
 #[tokio::test]
 async fn rd_zero_referral_returns_additional_glue() {
     let (handle, udp, _tcp, _tls, _cert) = start_mock().await;
-    let mut opts = QueryOpts::default();
-    opts.rd = false;
+    let opts = QueryOpts {
+        rd: false,
+        ..Default::default()
+    };
     let result = query_once(
         &endpoint(DnsProtocol::Udp, &udp.to_string(), "test"),
         "host.sub.mock.test.",
@@ -132,7 +136,10 @@ async fn rd_zero_referral_returns_additional_glue() {
     assert!(result.answers.is_empty());
     assert!(!result.ra_flag);
     assert!(
-        result.additional_glue.iter().any(|answer| answer.data == "192.0.2.60"),
+        result
+            .additional_glue
+            .iter()
+            .any(|answer| answer.data == "192.0.2.60"),
         "expected glue A record in additional section"
     );
 

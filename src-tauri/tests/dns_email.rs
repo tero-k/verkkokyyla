@@ -91,7 +91,10 @@ async fn email_report_for_missing_domain_fails_dmarc_and_dkim() {
     assert_eq!(report.spf.verdict, EmailSecurityVerdict::Fail);
     assert_eq!(report.dmarc.verdict, EmailSecurityVerdict::Fail);
     assert!(
-        report.dkim.iter().all(|d| d.verdict == EmailSecurityVerdict::Fail),
+        report
+            .dkim
+            .iter()
+            .all(|d| d.verdict == EmailSecurityVerdict::Fail),
         "missing DKIM records should fail"
     );
 

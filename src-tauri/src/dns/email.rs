@@ -186,14 +186,17 @@ async fn evaluate_spf(endpoint: &ResolverEndpointDto, domain: &str) -> SpfReport
     if let Some((qual, _)) = all {
         match qual {
             "+all" => {
-                notes.push("SPF uses '+all' which allows any sender; messages can be spoofed".to_string());
+                notes.push(
+                    "SPF uses '+all' which allows any sender; messages can be spoofed".to_string(),
+                );
                 verdict = EmailSecurityVerdict::Fail;
             }
             "?all" => {
                 notes.push("SPF uses '?all' (neutral); it provides no useful policy".to_string());
                 verdict = verdict.max(EmailSecurityVerdict::Warn);
             }
-            "~all" => notes.push("SPF uses '~all' (softfail); acceptable but '-all' is stronger".to_string()),
+            "~all" => notes
+                .push("SPF uses '~all' (softfail); acceptable but '-all' is stronger".to_string()),
             "-all" => notes.push("SPF uses '-all' (hard fail); best practice".to_string()),
             _ => {}
         }
@@ -207,19 +210,24 @@ async fn evaluate_spf(endpoint: &ResolverEndpointDto, domain: &str) -> SpfReport
         notes.push("SPF authorizes the entire internet (0.0.0.0/0 or ::/0)".to_string());
         verdict = EmailSecurityVerdict::Fail;
     }
-    if record.to_lowercase().contains(" ptr:") || record.split_whitespace().any(|t| t.trim_start_matches("+-~?").starts_with("ptr")) {
+    if record.to_lowercase().contains(" ptr:")
+        || record
+            .split_whitespace()
+            .any(|t| t.trim_start_matches("+-~?").starts_with("ptr"))
+    {
         notes.push("SPF uses 'ptr' mechanism; it is deprecated and slow".to_string());
         verdict = verdict.max(EmailSecurityVerdict::Warn);
     }
 
-    let lookup_count = match count_spf_lookups(endpoint, domain, &record, 0, &mut HashSet::new()).await {
-        Ok(n) => n,
-        Err(e) => {
-            notes.push(format!("Could not evaluate SPF lookups: {e}"));
-            verdict = verdict.max(EmailSecurityVerdict::Warn);
-            0
-        }
-    };
+    let lookup_count =
+        match count_spf_lookups(endpoint, domain, &record, 0, &mut HashSet::new()).await {
+            Ok(n) => n,
+            Err(e) => {
+                notes.push(format!("Could not evaluate SPF lookups: {e}"));
+                verdict = verdict.max(EmailSecurityVerdict::Warn);
+                0
+            }
+        };
     let lookup_limit_ok = lookup_count <= SPF_LOOKUP_LIMIT;
     if !lookup_limit_ok {
         notes.push(format!(
@@ -243,15 +251,19 @@ fn find_all_mechanism(record: &str) -> Option<(&str, &str)> {
     for token in record.split_whitespace() {
         let stripped = strip_qualifier(token);
         if stripped == "all" {
-            let qual = token.chars().next().filter(|c| matches!(c, '+' | '-' | '~' | '?')).map_or("+", |c| {
-                let s = &token[..c.len_utf8()];
-                match s {
-                    "-" => "-all",
-                    "~" => "~all",
-                    "?" => "?all",
-                    _ => "+all",
-                }
-            });
+            let qual = token
+                .chars()
+                .next()
+                .filter(|c| matches!(c, '+' | '-' | '~' | '?'))
+                .map_or("+", |c| {
+                    let s = &token[..c.len_utf8()];
+                    match s {
+                        "-" => "-all",
+                        "~" => "~all",
+                        "?" => "?all",
+                        _ => "+all",
+                    }
+                });
             return Some((qual, token));
         }
     }
@@ -289,8 +301,18 @@ async fn count_spf_lookups(
             count += 1;
             let target = canonicalize_domain(target);
             let child = query_txt(endpoint, &target).await?;
-            if let Some(child_spf) = child.into_iter().find(|r| r.to_lowercase().starts_with("v=spf1")) {
-                count += Box::pin(count_spf_lookups(endpoint, &target, &child_spf, depth + 1, visited)).await?;
+            if let Some(child_spf) = child
+                .into_iter()
+                .find(|r| r.to_lowercase().starts_with("v=spf1"))
+            {
+                count += Box::pin(count_spf_lookups(
+                    endpoint,
+                    &target,
+                    &child_spf,
+                    depth + 1,
+                    visited,
+                ))
+                .await?;
             }
         } else if stripped == "a"
             || stripped.starts_with("a:")
@@ -307,8 +329,18 @@ async fn count_spf_lookups(
             count += 1;
             let target = canonicalize_domain(target);
             let child = query_txt(endpoint, &target).await?;
-            if let Some(child_spf) = child.into_iter().find(|r| r.to_lowercase().starts_with("v=spf1")) {
-                count += Box::pin(count_spf_lookups(endpoint, &target, &child_spf, depth + 1, visited)).await?;
+            if let Some(child_spf) = child
+                .into_iter()
+                .find(|r| r.to_lowercase().starts_with("v=spf1"))
+            {
+                count += Box::pin(count_spf_lookups(
+                    endpoint,
+                    &target,
+                    &child_spf,
+                    depth + 1,
+                    visited,
+                ))
+                .await?;
             }
         }
     }
@@ -393,7 +425,7 @@ async fn evaluate_dkim_selector(
 
     let tags = parse_tag_value(&record);
     let p = tags.get("p").map(String::as_str);
-    let key_present = p.map_or(false, |v| !v.is_empty());
+    let key_present = p.is_some_and(|v| !v.is_empty());
     let revoked = p == Some("");
 
     if revoked {
@@ -406,10 +438,14 @@ async fn evaluate_dkim_selector(
         let bits = p.and_then(rsa_key_bits_from_base64);
         if let Some(b) = bits {
             if b < 1024 {
-                notes.push(format!("DKIM key is {b} bits; 1024-bit is the minimum and 2048-bit is recommended"));
+                notes.push(format!(
+                    "DKIM key is {b} bits; 1024-bit is the minimum and 2048-bit is recommended"
+                ));
                 verdict = EmailSecurityVerdict::Fail;
             } else if b < 2048 {
-                notes.push(format!("DKIM key is {b} bits; consider upgrading to 2048-bit"));
+                notes.push(format!(
+                    "DKIM key is {b} bits; consider upgrading to 2048-bit"
+                ));
                 verdict = verdict.max(EmailSecurityVerdict::Warn);
             } else {
                 notes.push(format!("DKIM key is {b} bits"));
@@ -424,7 +460,11 @@ async fn evaluate_dkim_selector(
         found: true,
         record: Some(record.clone()),
         key_present,
-        key_bits_approx: if key_present && !revoked { p.and_then(rsa_key_bits_from_base64) } else { None },
+        key_bits_approx: if key_present && !revoked {
+            p.and_then(rsa_key_bits_from_base64)
+        } else {
+            None
+        },
         revoked,
         verdict,
         notes,
@@ -475,7 +515,7 @@ fn rsa_key_bits_from_spki_der(data: &[u8]) -> Option<usize> {
     // Drop leading zero bytes that were added to keep the integer positive.
     let leading_zeros = modulus.iter().take_while(|&&b| b == 0).count();
     let byte_len = mod_len.saturating_sub(leading_zeros);
-    Some(byte_len.checked_mul(8)?)
+    byte_len.checked_mul(8)
 }
 
 fn read_tag(data: &[u8], idx: &mut usize, expected: u8) -> Option<()> {
@@ -565,7 +605,8 @@ async fn evaluate_dmarc(endpoint: &ResolverEndpointDto, domain: &str) -> DmarcRe
             verdict = verdict.max(EmailSecurityVerdict::Warn);
         }
         Some("none") => {
-            notes.push("DMARC policy is 'none'; receivers only monitor, no enforcement".to_string());
+            notes
+                .push("DMARC policy is 'none'; receivers only monitor, no enforcement".to_string());
             verdict = EmailSecurityVerdict::Warn;
         }
         Some(other) => {
@@ -579,13 +620,17 @@ async fn evaluate_dmarc(endpoint: &ResolverEndpointDto, domain: &str) -> DmarcRe
     }
 
     if reporting_address.is_none() {
-        notes.push("No 'rua' reporting address configured; you will not receive DMARC reports".to_string());
+        notes.push(
+            "No 'rua' reporting address configured; you will not receive DMARC reports".to_string(),
+        );
         verdict = verdict.max(EmailSecurityVerdict::Warn);
     }
 
     if let Some(pct) = pct {
         if pct < 100 {
-            notes.push(format!("DMARC 'pct' is {pct}%; policy is only applied to a subset of messages"));
+            notes.push(format!(
+                "DMARC 'pct' is {pct}%; policy is only applied to a subset of messages"
+            ));
             verdict = verdict.max(EmailSecurityVerdict::Warn);
         }
     }
@@ -609,7 +654,11 @@ async fn evaluate_dmarc(endpoint: &ResolverEndpointDto, domain: &str) -> DmarcRe
 fn parse_tag_value(record: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     // Strip the version token.
-    for token in record.split(';').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    for token in record
+        .split(';')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         if let Some((key, value)) = token.split_once('=') {
             map.insert(key.trim().to_lowercase(), value.trim().to_string());
         }
@@ -649,8 +698,8 @@ mod tests {
     fn build_test_rsa_spki(modulus_bytes: usize) -> Vec<u8> {
         // RSA encryption OID 1.2.840.113549.1.1.1 + NULL parameters.
         let algorithm_identifier = vec![
-            0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
-            0x05, 0x00,
+            0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05,
+            0x00,
         ];
 
         // Modulus with high bit set; prefix 0x00 to keep integer positive.
@@ -700,7 +749,13 @@ mod tests {
         } else if len <= 0xffffff {
             vec![0x83, (len >> 16) as u8, (len >> 8) as u8, len as u8]
         } else {
-            vec![0x84, (len >> 24) as u8, (len >> 16) as u8, (len >> 8) as u8, len as u8]
+            vec![
+                0x84,
+                (len >> 24) as u8,
+                (len >> 16) as u8,
+                (len >> 8) as u8,
+                len as u8,
+            ]
         }
     }
 }

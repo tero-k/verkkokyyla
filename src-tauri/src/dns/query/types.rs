@@ -80,9 +80,11 @@ impl FromStr for RecordTypeSpec {
             "AXFR" => Self::Axfr,
             other => {
                 let stripped = other.strip_prefix("TYPE").unwrap_or(other);
-                let code = stripped
-                    .parse::<u16>()
-                    .map_err(|_| crate::dns::error::DnsError::InvalidInput(format!("unknown record type: {value}")))?;
+                let code = stripped.parse::<u16>().map_err(|_| {
+                    crate::dns::error::DnsError::InvalidInput(format!(
+                        "unknown record type: {value}"
+                    ))
+                })?;
                 Self::Other(code)
             }
         })

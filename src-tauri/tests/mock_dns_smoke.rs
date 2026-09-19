@@ -151,7 +151,7 @@ async fn mock_dns_exercises_front_loaded_behaviors() {
     .await
     .expect("big tcp");
     assert!(!big_tcp.truncation);
-    assert!(big_tcp.answers.len() >= 1);
+    assert!(!big_tcp.answers.is_empty());
 
     let fail = udp_query(
         udp,

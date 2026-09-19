@@ -26,9 +26,18 @@ async fn integrity_check_against_authoritative_fixture() {
     .await
     .expect("integrity check should succeed");
 
-    assert!(report.answers_match, "answers should match the authoritative reference");
-    assert!(report.filtering_ok, "filtering should be ok when answers match");
-    assert!(!report.open_resolver, "fixture should not be an open resolver");
+    assert!(
+        report.answers_match,
+        "answers should match the authoritative reference"
+    );
+    assert!(
+        report.filtering_ok,
+        "filtering should be ok when answers match"
+    );
+    assert!(
+        !report.open_resolver,
+        "fixture should not be an open resolver"
+    );
 
     drop(handle);
 }
@@ -64,7 +73,10 @@ async fn axfr_denied_without_token() {
     .await
     .expect("zone transfer check should complete");
 
-    assert!(!result.allowed, "AXFR should be denied without matching token");
+    assert!(
+        !result.allowed,
+        "AXFR should be denied without matching token"
+    );
 
     drop(handle);
 }

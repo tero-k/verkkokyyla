@@ -100,7 +100,7 @@ fn parse_prefix(prefix: &str) -> Result<(Vec<u8>, usize), OuiError> {
         None => (prefix, None),
     };
     let mut hex = hex_chars(raw);
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         hex.push('0');
     }
     let bits = explicit_bits.unwrap_or_else(|| hex_chars(raw).len() * 4);

@@ -68,23 +68,28 @@ async fn transport_equivalence_matches_udp_and_tcp() {
         },
     ];
 
-    let result = transport_equivalence(
-        &endpoints,
-        "www.mock.test.",
-        RecordTypeSpec::A,
-        Some(&cert),
-    )
-    .await
-    .expect("equivalence should succeed");
+    let result =
+        transport_equivalence(&endpoints, "www.mock.test.", RecordTypeSpec::A, Some(&cert))
+            .await
+            .expect("equivalence should succeed");
 
-    let udp = result.iter().find(|r| r.protocol == "udp").expect("udp entry");
-    let tcp = result.iter().find(|r| r.protocol == "tcp").expect("tcp entry");
+    let udp = result
+        .iter()
+        .find(|r| r.protocol == "udp")
+        .expect("udp entry");
+    let tcp = result
+        .iter()
+        .find(|r| r.protocol == "tcp")
+        .expect("tcp entry");
     assert_eq!(udp.rcode, "noerror");
     assert_eq!(tcp.rcode, "noerror");
     assert!(!udp.answer_hash.is_empty());
     assert_eq!(udp.answer_hash, tcp.answer_hash);
 
-    let tls = result.iter().find(|r| r.protocol == "tls").expect("tls entry");
+    let tls = result
+        .iter()
+        .find(|r| r.protocol == "tls")
+        .expect("tls entry");
     assert_eq!(tls.rcode, "noerror");
     assert_eq!(tls.answer_hash, udp.answer_hash);
 

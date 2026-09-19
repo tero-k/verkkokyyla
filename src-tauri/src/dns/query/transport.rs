@@ -8,28 +8,38 @@ use hickory_net::tls::tls_client_connect_with_bind_addr;
 use hickory_net::udp::UdpClientStream;
 use hickory_net::xfer::{DnsExchange, DnsHandle, DnsMultiplexer, FirstAnswer};
 use hickory_proto::op::DnsRequest;
-use hickory_proto::op::{DnsRequestOptions, DnsResponse, Edns, Message, Metadata, Query, ResponseCode};
+use hickory_proto::op::{
+    DnsRequestOptions, DnsResponse, Edns, Message, Metadata, Query, ResponseCode,
+};
 use hickory_proto::rr::Name;
 use rustls::pki_types::{CertificateDer, ServerName};
 use tokio::time::Instant;
 
 use crate::dns::client::{DnsProtocol, ResolverEndpointDto};
 use crate::dns::error::DnsError;
-use crate::dns::query::types::{QueryOpts, QueryResultDto, RecordTypeSpec, record_type_name};
+use crate::dns::query::types::{record_type_name, QueryOpts, QueryResultDto, RecordTypeSpec};
 
 pub(super) fn build_request(
     name: &str,
     rtype: RecordTypeSpec,
     opts: &QueryOpts,
 ) -> Result<DnsRequest, DnsError> {
-    let mut metadata = Metadata::new(0, hickory_proto::op::MessageType::Query, hickory_proto::op::OpCode::Query);
+    let mut metadata = Metadata::new(
+        0,
+        hickory_proto::op::MessageType::Query,
+        hickory_proto::op::OpCode::Query,
+    );
     metadata.recursion_desired = opts.rd;
 
     let mut message = Message::query();
     message.metadata = metadata;
 
-    let query_name = Name::from_str(name).map_err(|source| DnsError::InvalidInput(format!("invalid qname {name}: {source}")))?;
-    message.add_query(Query::query(query_name, crate::dns::query::types::to_hickory_record_type(rtype)));
+    let query_name = Name::from_str(name)
+        .map_err(|source| DnsError::InvalidInput(format!("invalid qname {name}: {source}")))?;
+    message.add_query(Query::query(
+        query_name,
+        crate::dns::query::types::to_hickory_record_type(rtype),
+    ));
 
     if opts.edns_size.is_some() || opts.dnssec_ok {
         let mut edns = Edns::new();
@@ -58,13 +68,12 @@ pub(super) fn parse_socket_addr(
         return Ok(addr);
     }
 
-    let ip = endpoint
-        .address
-        .parse::<IpAddr>()
-        .map_err(|_| DnsError::InvalidEndpoint(format!(
+    let ip = endpoint.address.parse::<IpAddr>().map_err(|_| {
+        DnsError::InvalidEndpoint(format!(
             "{} endpoint must be an IP address with optional port: {}",
             endpoint.protocol, endpoint.address
-        )))?;
+        ))
+    })?;
     Ok(SocketAddr::new(ip, default_port))
 }
 
@@ -78,9 +87,9 @@ pub(super) async fn exchange(
         DnsProtocol::Udp => udp_exchange(endpoint, request, opts).await,
         DnsProtocol::Tcp => tcp_exchange(endpoint, request, opts).await,
         DnsProtocol::Tls => tls_exchange(endpoint, request, opts).await,
-        DnsProtocol::Https | DnsProtocol::Quic | DnsProtocol::H3 => {
-            Err(DnsError::UnsupportedTransport(endpoint.protocol.to_string()))
-        }
+        DnsProtocol::Https | DnsProtocol::Quic | DnsProtocol::H3 => Err(
+            DnsError::UnsupportedTransport(endpoint.protocol.to_string()),
+        ),
     };
     let _elapsed = start.elapsed();
     response
@@ -179,18 +188,24 @@ fn tls_client_config(
         roots
             .add(CertificateDer::from(der.clone()))
             .map_err(|source| DnsError::Transport(format!("invalid pinned cert: {source}")))?;
-        Ok(rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .map_err(|source| DnsError::Transport(format!("tls protocol error: {source}")))?
-            .with_root_certificates(roots)
-            .with_no_client_auth())
+        Ok(rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|source| DnsError::Transport(format!("tls protocol error: {source}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth())
     } else {
-        hickory_net::tls::client_config()
-            .map_err(|source| DnsError::Transport(format!("tls config error for {endpoint:?}: {source}")))
+        hickory_net::tls::client_config().map_err(|source| {
+            DnsError::Transport(format!("tls config error for {endpoint:?}: {source}"))
+        })
     }
 }
 
-fn tls_server_name(endpoint: &ResolverEndpointDto, addr: SocketAddr) -> Result<ServerName<'static>, DnsError> {
+fn tls_server_name(
+    endpoint: &ResolverEndpointDto,
+    addr: SocketAddr,
+) -> Result<ServerName<'static>, DnsError> {
     if let Ok(name) = ServerName::try_from(endpoint.name.clone()) {
         return Ok(name);
     }
@@ -205,20 +220,24 @@ pub(super) fn build_result(
     latency_ms: u64,
 ) -> QueryResultDto {
     let metadata = &**response;
-    let answers = metadata.answers.iter().map(record_to_answer).collect::<Vec<_>>();
+    let answers = metadata
+        .answers
+        .iter()
+        .map(record_to_answer)
+        .collect::<Vec<_>>();
     let authority_soa = metadata
         .authorities
         .iter()
         .any(|record| record.record_type() == hickory_proto::rr::RecordType::SOA);
-    let additional_glue = metadata.additionals.iter().map(record_to_answer).collect::<Vec<_>>();
+    let additional_glue = metadata
+        .additionals
+        .iter()
+        .map(record_to_answer)
+        .collect::<Vec<_>>();
     let answers_empty = answers.is_empty();
 
     let header_rcode = u16::from(metadata.response_code) & 0x000F;
-    let extended_rcode = metadata
-        .edns
-        .as_ref()
-        .map(|e| e.rcode_high())
-        .unwrap_or(0);
+    let extended_rcode = metadata.edns.as_ref().map(|e| e.rcode_high()).unwrap_or(0);
     let full_rcode = ((u16::from(extended_rcode)) << 4) | (header_rcode & 0x000F);
     let full_rcode_high = ((full_rcode >> 4) & 0x00FF) as u8;
     let full_rcode_low = (full_rcode & 0x000F) as u8;

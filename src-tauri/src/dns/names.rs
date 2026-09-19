@@ -221,13 +221,7 @@ pub async fn wildcard_check(
     let label = random_label(WILDCARD_PROBE_LEN);
     let probe = format!("{label}.{zone}.");
 
-    let result = query_once(
-        endpoint,
-        &probe,
-        RecordTypeSpec::A,
-        QueryOpts::default(),
-    )
-    .await?;
+    let result = query_once(endpoint, &probe, RecordTypeSpec::A, QueryOpts::default()).await?;
 
     let wildcard = result.rcode == "noerror" && !result.answers.is_empty();
 

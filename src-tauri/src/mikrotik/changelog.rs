@@ -70,7 +70,10 @@ impl CachedChangelogFetcher {
     }
 
     async fn fetch_uncached(&self, version: &str) -> Result<String, ChangelogError> {
-        let url = format!("{}/{version}/CHANGELOG", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/{version}/CHANGELOG",
+            self.base_url.trim_end_matches('/')
+        );
         let response = self.client.get(url).send().await.map_err(|err| {
             if err.is_timeout() {
                 ChangelogError::Timeout(err.to_string())

@@ -88,12 +88,10 @@ pub async fn tcp_fallback_check(
     let mut tcp_success = false;
     let mut tcp_latency_ms = None;
     if udp_truncated {
-        match query_once(tcp_endpoint, name, RecordTypeSpec::A, QueryOpts::default()).await {
-            Ok(r) => {
-                tcp_success = true;
-                tcp_latency_ms = Some(r.latency_ms);
-            }
-            Err(_) => {}
+        if let Ok(r) = query_once(tcp_endpoint, name, RecordTypeSpec::A, QueryOpts::default()).await
+        {
+            tcp_success = true;
+            tcp_latency_ms = Some(r.latency_ms);
         }
     }
 

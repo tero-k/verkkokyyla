@@ -5,7 +5,10 @@ use serde::Serialize;
 
 use super::error::MikrotikError;
 use super::parse::{RouterboardDto, UpdateStatusDto};
-use super::types::{MikrotikApi, MikrotikManagerError, MikrotikStatusEvent, MikrotikStatusSink, RunVersionProbe, VersionProbeArgs};
+use super::types::{
+    MikrotikApi, MikrotikManagerError, MikrotikStatusEvent, MikrotikStatusSink, RunVersionProbe,
+    VersionProbeArgs,
+};
 use crate::db::{Database, MikrotikSessionVersionStatus};
 
 const UPDATE_POLL: Duration = Duration::from_secs(2);
@@ -234,7 +237,10 @@ fn update_state(latest_version: Option<&str>, status: Option<&str>) -> UpdateSta
 
 fn firmware_from_routerboard(dto: RouterboardDto) -> FirmwareStatusDto {
     let state = match dto.routerboard {
-        Some(true) => match (dto.current_firmware.as_deref(), dto.upgrade_firmware.as_deref()) {
+        Some(true) => match (
+            dto.current_firmware.as_deref(),
+            dto.upgrade_firmware.as_deref(),
+        ) {
             (Some(current), Some(upgrade)) if current == upgrade => FirmwareState::UpToDate,
             (Some(_), Some(_)) => FirmwareState::Available,
             (Some(_), None) | (None, Some(_)) | (None, None) => FirmwareState::Unknown,

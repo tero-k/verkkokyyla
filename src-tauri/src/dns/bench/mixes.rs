@@ -1,6 +1,6 @@
-use rand::Rng;
 use rand::distributions::{Distribution, WeightedIndex};
 use rand::rngs::StdRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 const TOP1000_TXT: &str = include_str!("top1000.txt");
@@ -57,11 +57,7 @@ fn popular_name(rng: &mut StdRng) -> String {
 
 fn unique_name(base: &str, rng: &mut StdRng) -> String {
     let dist = rand::distributions::Uniform::new_inclusive(b'a', b'z');
-    let label: String = dist
-        .sample_iter(rng)
-        .take(12)
-        .map(|b| b as char)
-        .collect();
+    let label: String = dist.sample_iter(rng).take(12).map(|b| b as char).collect();
     format!("{label}.{base}")
 }
 
@@ -93,7 +89,13 @@ mod tests {
             }
         }
 
-        assert!(popular >= 80 && popular <= 120, "expected ~100 popular, got {popular}");
-        assert!(unique >= 80 && unique <= 120, "expected ~100 unique, got {unique}");
+        assert!(
+            (80..=120).contains(&popular),
+            "expected ~100 popular, got {popular}"
+        );
+        assert!(
+            (80..=120).contains(&unique),
+            "expected ~100 unique, got {unique}"
+        );
     }
 }

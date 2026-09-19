@@ -24,7 +24,10 @@ pub struct MxEntryDto {
 }
 
 /// Validate MX records for `domain`.
-pub async fn mx_report(endpoint: &ResolverEndpointDto, domain: &str) -> Result<MxReportDto, DnsError> {
+pub async fn mx_report(
+    endpoint: &ResolverEndpointDto,
+    domain: &str,
+) -> Result<MxReportDto, DnsError> {
     let name = normalize_name(domain);
     let result = query_once(endpoint, &name, RecordTypeSpec::Mx, QueryOpts::default()).await?;
 
@@ -71,7 +74,10 @@ pub async fn mx_report(endpoint: &ResolverEndpointDto, domain: &str) -> Result<M
         }
 
         if target.eq_ignore_ascii_case(name.trim_end_matches('.')) {
-            issues.push("MX target points back to the queried domain, which is usually a misconfiguration".to_string());
+            issues.push(
+                "MX target points back to the queried domain, which is usually a misconfiguration"
+                    .to_string(),
+            );
         }
 
         if !seen_targets.insert(target.clone()) {
@@ -79,7 +85,14 @@ pub async fn mx_report(endpoint: &ResolverEndpointDto, domain: &str) -> Result<M
         }
 
         // Check CNAME.
-        if let Ok(cname) = query_once(endpoint, &target, RecordTypeSpec::Cname, QueryOpts::default()).await {
+        if let Ok(cname) = query_once(
+            endpoint,
+            &target,
+            RecordTypeSpec::Cname,
+            QueryOpts::default(),
+        )
+        .await
+        {
             if !cname.answers.is_empty() {
                 issues.push("MX target is a CNAME; RFC 5321 requires MX targets to be host names, not aliases".to_string());
             }
@@ -90,10 +103,15 @@ pub async fn mx_report(endpoint: &ResolverEndpointDto, domain: &str) -> Result<M
             .await
             .map(|r| !r.answers.is_empty())
             .unwrap_or(false);
-        let aaaa_ok = query_once(endpoint, &target, RecordTypeSpec::Aaaa, QueryOpts::default())
-            .await
-            .map(|r| !r.answers.is_empty())
-            .unwrap_or(false);
+        let aaaa_ok = query_once(
+            endpoint,
+            &target,
+            RecordTypeSpec::Aaaa,
+            QueryOpts::default(),
+        )
+        .await
+        .map(|r| !r.answers.is_empty())
+        .unwrap_or(false);
         if !a_ok && !aaaa_ok {
             issues.push("MX target does not resolve to an A or AAAA record".to_string());
         }

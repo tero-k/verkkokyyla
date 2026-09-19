@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use rand::{distributions::Distribution, SeedableRng};
 use rand::rngs::StdRng;
+use rand::{distributions::Distribution, SeedableRng};
 
 use crate::dns::bench::mixes::QueryMix;
 use crate::dns::bench::profiles::BenchmarkProfile;
-use crate::dns::bench::scheduler::{BenchScheduler, SchedulerConfig, SampleCell};
+use crate::dns::bench::scheduler::{BenchScheduler, SampleCell, SchedulerConfig};
 use crate::dns::bench::stats::{aggregate_with_elapsed, MetricsDto};
 use crate::dns::client::ResolverEndpointDto;
 use crate::dns::error::DnsError;
@@ -44,12 +44,14 @@ where
         record_type: profile.record_type,
         concurrency: profile.concurrency,
         timeout: Duration::from_secs(2),
-        sample_cap: total_queries.max(1).min(100_000),
+        sample_cap: total_queries.clamp(1, 100_000),
     };
 
     let scheduler = BenchScheduler::new(config);
     let start = tokio::time::Instant::now();
-    let cell = scheduler.run(total_queries, |cell| on_cell(cell.clone())).await?;
+    let cell = scheduler
+        .run(total_queries, |cell| on_cell(cell.clone()))
+        .await?;
     let elapsed = start.elapsed();
 
     let mut metrics = aggregate_with_elapsed(&cell.samples, elapsed);

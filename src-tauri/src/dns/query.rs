@@ -1,9 +1,7 @@
 pub mod transport;
 pub mod types;
 
-pub use types::{
-    is_nodata, is_nxdomain, AnswerDto, QueryOpts, QueryResultDto, RecordTypeSpec,
-};
+pub use types::{is_nodata, is_nxdomain, AnswerDto, QueryOpts, QueryResultDto, RecordTypeSpec};
 
 use hickory_proto::op::DnsResponse;
 use tokio::time::Instant;

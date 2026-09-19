@@ -139,7 +139,10 @@ fn classify_reqwest_error(err: &reqwest::Error) -> (&'static str, String) {
             source_chain.push(s.to_string().to_lowercase());
             source = s.source();
         }
-        let kind = if source_chain.iter().any(|s| s.contains("dns") || s.contains("resolve")) {
+        let kind = if source_chain
+            .iter()
+            .any(|s| s.contains("dns") || s.contains("resolve"))
+        {
             "dns"
         } else if source_chain.iter().any(|s| s.contains("refused")) {
             "connect-refused"
@@ -526,9 +529,7 @@ fn make_redirect_policy(
 // ---------------------------------------------------------------------------
 
 fn build_tls_connector() -> Result<tokio_rustls::TlsConnector, String> {
-    let roots = rustls::RootCertStore::from_iter(
-        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-    );
+    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let config = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
@@ -545,11 +546,11 @@ async fn run_connection_probe(
     let mut probe = ConnectionProbe::empty();
 
     let dns_start = Instant::now();
-    let selected = match tokio::time::timeout(connect_timeout, tokio::net::lookup_host((host, port))).await
-    {
-        Ok(Ok(mut iter)) => iter.next(),
-        _ => None,
-    };
+    let selected =
+        match tokio::time::timeout(connect_timeout, tokio::net::lookup_host((host, port))).await {
+            Ok(Ok(mut iter)) => iter.next(),
+            _ => None,
+        };
     probe.dns_ms = Some(dns_start.elapsed().as_secs_f64() * 1000.0);
 
     let Some(addr) = selected.or_else(|| addrs.first().copied()) else {
@@ -558,19 +559,20 @@ async fn run_connection_probe(
     };
 
     let connect_start = Instant::now();
-    let stream = match tokio::time::timeout(connect_timeout, tokio::net::TcpStream::connect(addr)).await {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
-            probe.connect_ms = Some(connect_start.elapsed().as_secs_f64() * 1000.0);
-            probe.error = Some(e.to_string());
-            return probe;
-        }
-        Err(_) => {
-            probe.connect_ms = Some(connect_start.elapsed().as_secs_f64() * 1000.0);
-            probe.error = Some("probe connect timed out".to_owned());
-            return probe;
-        }
-    };
+    let stream =
+        match tokio::time::timeout(connect_timeout, tokio::net::TcpStream::connect(addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => {
+                probe.connect_ms = Some(connect_start.elapsed().as_secs_f64() * 1000.0);
+                probe.error = Some(e.to_string());
+                return probe;
+            }
+            Err(_) => {
+                probe.connect_ms = Some(connect_start.elapsed().as_secs_f64() * 1000.0);
+                probe.error = Some("probe connect timed out".to_owned());
+                return probe;
+            }
+        };
     probe.connect_ms = Some(connect_start.elapsed().as_secs_f64() * 1000.0);
     probe.remote_ip = Some(addr.ip().to_string());
     probe.ip_version = Some(ip_version_from_addr(&addr).to_owned());
@@ -630,7 +632,11 @@ fn build_benchmark_client(
     addrs: &[SocketAddr],
     redirect_log: Arc<Mutex<Vec<String>>>,
 ) -> Result<reqwest::Client, reqwest::Error> {
-    let policy = make_redirect_policy(settings.follow_redirects, settings.max_redirects, redirect_log);
+    let policy = make_redirect_policy(
+        settings.follow_redirects,
+        settings.max_redirects,
+        redirect_log,
+    );
     let mut builder = http_client::base_builder(settings.clone())
         .redirect(policy)
         .resolve_to_addrs(host, addrs);
@@ -645,8 +651,8 @@ async fn finish_response(
     compression_enabled: bool,
     mut run: BenchmarkRun,
 ) -> BenchmarkRun {
-    let ttfb_ms = Some(started.elapsed().as_secs_f64() * 1000.0);
-    run.ttfb_ms = ttfb_ms;
+    let ttfb_ms = started.elapsed().as_secs_f64() * 1000.0;
+    run.ttfb_ms = Some(ttfb_ms);
     run.status_code = Some(response.status().as_u16());
     run.final_url = response.url().to_string();
     run.negotiated_protocol = Some(negotiated_version_string(response.version()));
@@ -694,7 +700,7 @@ async fn finish_response(
     }
 
     let total_ms = started.elapsed().as_secs_f64() * 1000.0;
-    let download_ms = (total_ms - ttfb_ms.unwrap_or(0.0)).max(0.0);
+    let download_ms = (total_ms - ttfb_ms).max(0.0);
     let secs = total_ms / 1000.0;
     let throughput = if secs > 0.0 {
         Some(bytes_received as f64 / secs)
@@ -721,17 +727,21 @@ async fn finish_response(
     run
 }
 
-async fn run_single_request(
-    url: &str,
-    parsed: &url::Url,
-    host: &str,
+struct BenchmarkRequestContext<'a> {
+    url: &'a str,
+    parsed: &'a url::Url,
+    host: &'a str,
     port: u16,
+    settings: &'a HttpSettingsDto,
+}
+
+async fn run_single_request(
+    context: &BenchmarkRequestContext<'_>,
     version: HttpVersion,
-    settings: &HttpSettingsDto,
     mode: ConnectionMode,
     is_warmup: bool,
 ) -> BenchmarkRun {
-    let run = BenchmarkRun::new(url, version, mode, is_warmup);
+    let run = BenchmarkRun::new(context.url, version, mode, is_warmup);
 
     if version == HttpVersion::Http3 {
         return run.with_error(
@@ -740,27 +750,44 @@ async fn run_single_request(
         );
     }
 
-    let (addrs, dns_ms) = match resolve_host(host, port, settings.ip_family).await {
-        Ok(v) => v,
-        Err(e) => return run.with_error(&e.kind, e.message).with_dns(dns_ms_placeholder()),
-    };
+    let (addrs, dns_ms) =
+        match resolve_host(context.host, context.port, context.settings.ip_family).await {
+            Ok(v) => v,
+            Err(e) => {
+                return run
+                    .with_error(&e.kind, e.message)
+                    .with_dns(dns_ms_placeholder())
+            }
+        };
 
     let redirect_log = Arc::new(Mutex::new(Vec::<String>::new()));
-    let client = match build_benchmark_client(settings, host, &addrs, Arc::clone(&redirect_log)) {
+    let client = match build_benchmark_client(
+        context.settings,
+        context.host,
+        &addrs,
+        Arc::clone(&redirect_log),
+    ) {
         Ok(c) => c,
         Err(e) => return run.with_dns(dns_ms).with_error("request", e),
     };
 
     let started = Instant::now();
     match client
-        .get(parsed.as_str())
+        .get(context.parsed.as_str())
         .header("Cache-Control", "no-cache")
         .send()
         .await
     {
         Ok(response) => {
             let run = run.with_dns(dns_ms);
-            finish_response(response, started, redirect_log, settings.compression, run).await
+            finish_response(
+                response,
+                started,
+                redirect_log,
+                context.settings.compression,
+                run,
+            )
+            .await
         }
         Err(e) => {
             let (kind, message) = classify_reqwest_error(&e);
@@ -790,7 +817,9 @@ async fn run_single_warm_request(
         .send()
         .await
     {
-        Ok(response) => finish_response(response, started, redirect_log, compression_enabled, run).await,
+        Ok(response) => {
+            finish_response(response, started, redirect_log, compression_enabled, run).await
+        }
         Err(e) => {
             let (kind, message) = classify_reqwest_error(&e);
             run.with_error(kind, message)
@@ -803,12 +832,8 @@ async fn run_single_warm_request(
 // ---------------------------------------------------------------------------
 
 async fn run_protocol_benchmark(
-    url: &str,
-    parsed: &url::Url,
-    host: &str,
-    port: u16,
+    context: &BenchmarkRequestContext<'_>,
     version: HttpVersion,
-    settings: &HttpSettingsDto,
     mode: ConnectionMode,
     runs: u32,
     run_probe: bool,
@@ -818,14 +843,21 @@ async fn run_protocol_benchmark(
     // otherwise every requested protocol would use the same negotiated stack.
     let protocol_settings = HttpSettingsDto {
         version,
-        ..settings.clone()
+        ..context.settings.clone()
+    };
+
+    let protocol_context = BenchmarkRequestContext {
+        settings: &protocol_settings,
+        ..*context
     };
 
     // Resolve once for the probe and warm-mode shared client.
-    let resolved = match resolve_host(host, port, protocol_settings.ip_family).await {
+    let resolved = match resolve_host(context.host, context.port, protocol_settings.ip_family).await
+    {
         Ok((addrs, _)) => addrs,
         Err(e) => {
-            let run = BenchmarkRun::new(url, version, mode, false).with_error(&e.kind, e.message);
+            let run =
+                BenchmarkRun::new(context.url, version, mode, false).with_error(&e.kind, e.message);
             all_runs.push(run);
             return (all_runs, None);
         }
@@ -833,11 +865,11 @@ async fn run_protocol_benchmark(
 
     let probe = if run_probe {
         let probe = run_connection_probe(
-            host,
-            port,
+            context.host,
+            context.port,
             &resolved,
             Duration::from_secs(protocol_settings.connect_timeout_sec),
-            parsed.scheme() == "https",
+            context.parsed.scheme() == "https",
         )
         .await;
         Some(probe)
@@ -848,17 +880,22 @@ async fn run_protocol_benchmark(
     match mode {
         ConnectionMode::Cold => {
             for _ in 0..runs {
-                let run = run_single_request(url, parsed, host, port, version, &protocol_settings, mode, false).await;
+                let run = run_single_request(&protocol_context, version, mode, false).await;
                 all_runs.push(run);
             }
         }
         ConnectionMode::Warm => {
             let redirect_log = Arc::new(Mutex::new(Vec::<String>::new()));
-            let client = match build_benchmark_client(&protocol_settings, host, &resolved, Arc::clone(&redirect_log)) {
+            let client = match build_benchmark_client(
+                &protocol_settings,
+                context.host,
+                &resolved,
+                Arc::clone(&redirect_log),
+            ) {
                 Ok(c) => Arc::new(c),
                 Err(e) => {
                     for _ in 0..=runs {
-                        let run = BenchmarkRun::new(url, version, mode, false)
+                        let run = BenchmarkRun::new(context.url, version, mode, false)
                             .with_error("request", e.to_string());
                         all_runs.push(run);
                     }
@@ -874,7 +911,7 @@ async fn run_protocol_benchmark(
                 }
                 let run = run_single_warm_request(
                     &client,
-                    parsed,
+                    context.parsed,
                     version,
                     mode,
                     is_warmup,
@@ -900,17 +937,16 @@ fn summarize_protocol_runs(
     probe: Option<ConnectionProbe>,
 ) -> ProtocolSummary {
     let requested_protocol = http_version_label(version).to_owned();
-    let measured: Vec<&BenchmarkRun> = runs
-        .iter()
-        .filter(|r| r.success && !r.is_warmup)
-        .collect();
+    let measured: Vec<&BenchmarkRun> = runs.iter().filter(|r| r.success && !r.is_warmup).collect();
     let negotiated_protocol = most_common_negotiated_protocol(&measured);
 
     if measured.is_empty() {
-        let first_error = runs
-            .iter()
-            .find(|r| r.error_type.is_some())
-            .map(|r| (r.error_type.clone().unwrap(), r.error_message.clone().unwrap_or_default()));
+        let first_error = runs.iter().find(|r| r.error_type.is_some()).map(|r| {
+            (
+                r.error_type.clone().unwrap(),
+                r.error_message.clone().unwrap_or_default(),
+            )
+        });
         return ProtocolSummary {
             requested_protocol,
             negotiated_protocol,
@@ -935,10 +971,8 @@ fn summarize_protocol_runs(
         summarize(&samples)
     };
 
-    let response_bytes_samples: Vec<f64> = measured
-        .iter()
-        .map(|r| r.response_bytes as f64)
-        .collect();
+    let response_bytes_samples: Vec<f64> =
+        measured.iter().map(|r| r.response_bytes as f64).collect();
 
     ProtocolSummary {
         requested_protocol,
@@ -1049,8 +1083,7 @@ pub async fn run_concurrency_benchmark(
         .await;
     let total_duration_s = started_all.elapsed().as_secs_f64();
 
-    let successful: Vec<&ConcurrencyRequestResult> =
-        results.iter().filter(|r| r.success).collect();
+    let successful: Vec<&ConcurrencyRequestResult> = results.iter().filter(|r| r.success).collect();
     let failed = results.len() - successful.len();
     let total_bytes: u64 = successful.iter().map(|r| r.bytes).sum();
 
@@ -1104,22 +1137,25 @@ pub async fn run_concurrency_benchmark(
 /// Run a Web Benchmark with the supplied configuration.
 pub async fn run_benchmark(config: BenchmarkConfig) -> Result<BenchmarkResult, BenchmarkError> {
     let config = config.sanitized();
-    let parsed =
-        parse_url(&config.url).map_err(|e| BenchmarkError::invalid_url(e.to_string()))?;
-    let (host, port) = host_and_port(&parsed)
-        .map_err(|e| BenchmarkError::invalid_url(e.to_string()))?;
+    let parsed = parse_url(&config.url).map_err(|e| BenchmarkError::invalid_url(e.to_string()))?;
+    let (host, port) =
+        host_and_port(&parsed).map_err(|e| BenchmarkError::invalid_url(e.to_string()))?;
 
     let mut runs = Vec::new();
     let mut summaries = Vec::new();
 
+    let request_context = BenchmarkRequestContext {
+        url: &config.url,
+        parsed: &parsed,
+        host: &host,
+        port,
+        settings: &config.http_settings,
+    };
+
     for &version in &config.protocols {
         let (protocol_runs, probe) = run_protocol_benchmark(
-            &config.url,
-            &parsed,
-            &host,
-            port,
+            &request_context,
             version,
-            &config.http_settings,
             config.connection_mode,
             config.runs,
             config.probe,
@@ -1129,23 +1165,16 @@ pub async fn run_benchmark(config: BenchmarkConfig) -> Result<BenchmarkResult, B
         runs.extend(protocol_runs);
     }
 
-    let (concurrency, concurrency_error) =
-        if let Some(level) = config.concurrency {
-            match run_concurrency_benchmark(
-                &config.url,
-                &host,
-                port,
-                &config.http_settings,
-                level,
-            )
+    let (concurrency, concurrency_error) = if let Some(level) = config.concurrency {
+        match run_concurrency_benchmark(&config.url, &host, port, &config.http_settings, level)
             .await
-            {
-                Ok(summary) => (Some(summary), None),
-                Err(e) => (None, Some(e)),
-            }
-        } else {
-            (None, None)
-        };
+        {
+            Ok(summary) => (Some(summary), None),
+            Err(e) => (None, Some(e)),
+        }
+    } else {
+        (None, None)
+    };
 
     Ok(BenchmarkResult {
         benchmark_id: make_benchmark_id(),
@@ -1191,7 +1220,9 @@ mod tests {
         response
     }
 
-    async fn http_server(handler: Arc<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>) -> u16 {
+    type TestHttpHandler = Arc<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>;
+
+    async fn http_server(handler: TestHttpHandler) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind to random port");
@@ -1273,7 +1304,9 @@ mod tests {
             protocols: vec![HttpVersion::Auto],
             ..benchmark_config(format!("http://127.0.0.1:{port}/"))
         };
-        let result = run_benchmark(config).await.expect("benchmark should succeed");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should succeed");
         assert_eq!(result.summaries.len(), 1);
         let summary = &result.summaries[0];
         assert_eq!(summary.requested_protocol, "auto");
@@ -1297,7 +1330,9 @@ mod tests {
             runs: 1,
             ..benchmark_config(format!("http://127.0.0.1:{port}/"))
         };
-        let result = run_benchmark(config).await.expect("benchmark should succeed");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should succeed");
         assert_eq!(result.summaries.len(), 2);
 
         let h1 = result
@@ -1325,7 +1360,9 @@ mod tests {
             protocols: vec![HttpVersion::Http3],
             ..benchmark_config("http://127.0.0.1:1/".to_owned())
         };
-        let result = run_benchmark(config).await.expect("benchmark should return result");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should return result");
         assert_eq!(result.summaries.len(), 1);
         let summary = &result.summaries[0];
         assert_eq!(summary.requested_protocol, "http3");
@@ -1336,7 +1373,9 @@ mod tests {
     #[tokio::test]
     async fn invalid_url_rejected() {
         let config = benchmark_config("not-a-url".to_owned());
-        let err = run_benchmark(config).await.expect_err("invalid url should fail");
+        let err = run_benchmark(config)
+            .await
+            .expect_err("invalid url should fail");
         assert_eq!(err.kind, "invalid-url");
     }
 
@@ -1373,9 +1412,11 @@ mod tests {
         });
         let port = http_server(handler).await;
 
-        let result = run_benchmark(benchmark_config(format!("http://127.0.0.1:{port}/redirect")))
-            .await
-            .expect("benchmark should succeed");
+        let result = run_benchmark(benchmark_config(format!(
+            "http://127.0.0.1:{port}/redirect"
+        )))
+        .await
+        .expect("benchmark should succeed");
         let run = &result.runs[0];
         assert_eq!(run.redirect_count, 1);
         assert!(run.final_url.contains("/final"));
@@ -1400,7 +1441,9 @@ mod tests {
             },
             ..benchmark_config(format!("http://127.0.0.1:{port}/redirect"))
         };
-        let result = run_benchmark(config).await.expect("benchmark should succeed");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should succeed");
         let run = &result.runs[0];
         assert_eq!(run.redirect_count, 0);
         assert_eq!(run.status_code, Some(302));
@@ -1417,7 +1460,9 @@ mod tests {
             runs: 5,
             ..benchmark_config(format!("http://127.0.0.1:{port}/"))
         };
-        let result = run_benchmark(config).await.expect("benchmark should succeed");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should succeed");
         let summary = &result.summaries[0];
         assert_eq!(summary.successful_runs, 5);
         assert_eq!(summary.total_ms.count, 5);
@@ -1440,7 +1485,9 @@ mod tests {
             connection_mode: ConnectionMode::Warm,
             ..benchmark_config(format!("http://127.0.0.1:{port}/"))
         };
-        let result = run_benchmark(config).await.expect("benchmark should succeed");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should succeed");
         let warmups = result.runs.iter().filter(|r| r.is_warmup).count();
         let measured = result
             .runs
@@ -1468,7 +1515,9 @@ mod tests {
             concurrency: Some(5),
             ..benchmark_config(format!("http://127.0.0.1:{port}/"))
         };
-        let result = run_benchmark(config).await.expect("benchmark should succeed");
+        let result = run_benchmark(config)
+            .await
+            .expect("benchmark should succeed");
         let c = result
             .concurrency
             .expect("concurrency summary should be present");
@@ -1513,7 +1562,9 @@ mod tests {
             let port = http_server(handler).await;
 
             let config = benchmark_config(format!("http://127.0.0.1:{port}/"));
-            let result = run_benchmark(config).await.expect("benchmark should succeed");
+            let result = run_benchmark(config)
+                .await
+                .expect("benchmark should succeed");
             assert_eq!(result.runs[0].response_bytes, size as u64);
         }
     }

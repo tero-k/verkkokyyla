@@ -85,8 +85,8 @@ pub(crate) fn classify_transport(err: &reqwest::Error) -> MikrotikError {
     }
 
     let mut source = err.source();
-    let mut tls_hint = message.to_lowercase().contains("certificate")
-        || message.to_lowercase().contains("tls");
+    let mut tls_hint =
+        message.to_lowercase().contains("certificate") || message.to_lowercase().contains("tls");
     while let Some(s) = source {
         let text = s.to_string().to_lowercase();
         if text.contains("certificate") || text.contains("tls") {

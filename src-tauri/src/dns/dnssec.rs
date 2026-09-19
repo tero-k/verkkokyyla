@@ -5,9 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hickory_proto::rr::Name;
-use hickory_resolver::config::{
-    ConnectionConfig, NameServerConfig, ResolverConfig, ResolverOpts,
-};
+use hickory_resolver::config::{ConnectionConfig, NameServerConfig, ResolverConfig, ResolverOpts};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::{Resolver, TokioResolver};
 use serde::{Deserialize, Serialize};
@@ -66,15 +64,30 @@ pub async fn dnssec_report(
     let mut notes: Vec<String> = Vec::new();
     let domain = normalize_domain(domain);
 
-    let has_dnskey =
-        presence_query(endpoint, &domain, RecordTypeSpec::Other(DNSKEY_RECORD_TYPE), "DNSKEY", &mut notes)
-            .await;
-    let has_ds =
-        presence_query(endpoint, &domain, RecordTypeSpec::Other(DS_RECORD_TYPE), "DS", &mut notes)
-            .await;
-    let has_rrsig =
-        presence_query(endpoint, &domain, RecordTypeSpec::Other(RRSIG_RECORD_TYPE), "RRSIG", &mut notes)
-            .await;
+    let has_dnskey = presence_query(
+        endpoint,
+        &domain,
+        RecordTypeSpec::Other(DNSKEY_RECORD_TYPE),
+        "DNSKEY",
+        &mut notes,
+    )
+    .await;
+    let has_ds = presence_query(
+        endpoint,
+        &domain,
+        RecordTypeSpec::Other(DS_RECORD_TYPE),
+        "DS",
+        &mut notes,
+    )
+    .await;
+    let has_rrsig = presence_query(
+        endpoint,
+        &domain,
+        RecordTypeSpec::Other(RRSIG_RECORD_TYPE),
+        "RRSIG",
+        &mut notes,
+    )
+    .await;
 
     let ad_flag = capture_ad_flag(endpoint, &domain).await;
 
@@ -113,8 +126,10 @@ async fn presence_query(
     label: &str,
     notes: &mut Vec<String>,
 ) -> bool {
-    let mut opts = QueryOpts::default();
-    opts.dnssec_ok = true;
+    let opts = QueryOpts {
+        dnssec_ok: true,
+        ..Default::default()
+    };
 
     match query_once(endpoint, domain, rtype, opts).await {
         Ok(result) => !result.answers.is_empty(),
@@ -126,8 +141,10 @@ async fn presence_query(
 }
 
 async fn capture_ad_flag(endpoint: &ResolverEndpointDto, domain: &str) -> bool {
-    let mut opts = QueryOpts::default();
-    opts.dnssec_ok = true;
+    let opts = QueryOpts {
+        dnssec_ok: true,
+        ..Default::default()
+    };
 
     match query_once(endpoint, domain, RecordTypeSpec::A, opts).await {
         Ok(result) => result.ad_flag,
@@ -155,9 +172,8 @@ async fn validating_lookup(
 
 async fn rejects_bogus_domain(endpoint: &ResolverEndpointDto) -> Result<bool, DnsError> {
     let resolver = make_validating_resolver(endpoint)?;
-    let name = Name::from_str("dnssec-failed.org.").map_err(|source| {
-        DnsError::InvalidInput(format!("invalid bogus probe name: {source}"))
-    })?;
+    let name = Name::from_str("dnssec-failed.org.")
+        .map_err(|source| DnsError::InvalidInput(format!("invalid bogus probe name: {source}")))?;
 
     match resolver.ipv4_lookup(name).await {
         Ok(_) => Ok(false),
@@ -203,7 +219,11 @@ fn resolver_config(endpoint: &ResolverEndpointDto) -> Result<ResolverConfig, Dns
         }
     };
 
-    Ok(ResolverConfig::from_parts(None, Vec::new(), vec![name_server]))
+    Ok(ResolverConfig::from_parts(
+        None,
+        Vec::new(),
+        vec![name_server],
+    ))
 }
 
 struct UrlEndpoint {
