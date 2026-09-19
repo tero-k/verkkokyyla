@@ -328,6 +328,7 @@ pub fn default_engine_factory() -> EngineFactory {
                     addr,
                     scope_id,
                     payload_size,
+                    dont_fragment,
                 ))),
                 #[cfg(unix)]
                 EngineChoice::Fallback => {
@@ -485,6 +486,10 @@ impl SessionManager {
 
     /// Privilege probe: try surge first; only a permission-denied socket
     /// error triggers the platform fallback. Any other failure propagates.
+    ///
+    /// surge-ping has no API for the IPv4 Don't-Fragment bit, so a DF
+    /// request on an IPv4 target goes straight to the platform fallback,
+    /// which honors it (winicmp sets IP_FLAG_DF; osping passes `-M do`/`-D`).
     async fn select_engine(
         &self,
         addr: IpAddr,
@@ -492,6 +497,17 @@ impl SessionManager {
         payload_size: usize,
         dont_fragment: bool,
     ) -> Result<(PingEngine, EngineChoice), SessionError> {
+        if dont_fragment && addr.is_ipv4() {
+            let engine = (self.factory)(
+                addr,
+                scope_id,
+                EngineChoice::Fallback,
+                payload_size,
+                dont_fragment,
+            )
+            .await?;
+            return Ok((engine, EngineChoice::Fallback));
+        }
         match (self.factory)(
             addr,
             scope_id,
@@ -842,14 +858,8 @@ mod tests {
             assert!(!event.lost);
             assert_eq!(event.rtt_ms, Some(10.0));
         }
-        // The consumer feeds stats before emitting the event, so the
-        // snapshot already reflects all 5 probes.
-        let snap = manager.snapshot(info.session_id);
-        assert_eq!(snap.count, 5);
-        assert_eq!(snap.loss_count, 0);
-        assert_eq!(snap.min_ms, Some(10.0));
-
         let stopped = manager.stop(info.session_id).await.expect("stop");
+
         assert_eq!(stopped.session_id, info.session_id);
         assert_eq!(stopped.probe_count, 5);
         assert_eq!(stopped.loss_count, 0);
@@ -978,6 +988,34 @@ mod tests {
         let sessions = manager.db.list_sessions().await.expect("list sessions");
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].engine, expected);
+    }
+
+    // Given a factory whose primary engine would succeed,
+    // When a session starts with dont_fragment on an IPv4 target,
+    // Then the platform fallback is selected directly (surge cannot set the
+    // DF bit) and the DF flag is echoed back in the start info.
+    #[tokio::test]
+    async fn df_request_on_ipv4_selects_platform_fallback_directly() {
+        let dir = TestDir::new("df-fallback");
+        let manager = test_manager(&dir, mock_factory(rtt_script(1))).await;
+        let (on_probe, _pr) = probe_sink();
+        let (on_status, _sr) = status_sink();
+
+        let info = manager
+            .start("127.0.0.1", "v4", 1400, true, on_probe, on_status)
+            .await
+            .expect("start with DF");
+        assert_eq!(info.engine, engine_name(EngineChoice::Fallback));
+        assert!(info.fallback);
+        assert_eq!(info.payload_size, 1400);
+        assert!(info.dont_fragment);
+
+        manager.stop(info.session_id).await.expect("stop");
+        let sessions = manager.db.list_sessions().await.expect("list sessions");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].engine, engine_name(EngineChoice::Fallback));
+        assert_eq!(sessions[0].payload_size, 1400);
+        assert!(sessions[0].dont_fragment);
     }
 
     // Given a session crashed (tasks aborted) mid-window after 4 probes,

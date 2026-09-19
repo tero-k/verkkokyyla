@@ -29,6 +29,10 @@ impl SurgePinger {
     /// Create a client + pinger for `addr`. A non-zero `scope_id` (IPv6
     /// zone) is applied both at the socket level (`interface_index`, where
     /// the platform supports it) and on the pinger's destination sockaddr.
+    /// `_dont_fragment` is accepted for a uniform constructor signature but
+    /// never applied: surge-ping exposes no Don't-Fragment API. The session
+    /// layer (`SessionManager::select_engine`) routes DF requests on IPv4
+    /// targets to the platform fallback instead of building a SurgePinger.
     pub async fn new(
         addr: IpAddr,
         scope_id: u32,

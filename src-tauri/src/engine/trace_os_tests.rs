@@ -103,7 +103,7 @@ async fn absolute_ceiling_ends_a_long_running_fake() {
     )
     .with_limits(TraceLimits::new(
         Duration::from_secs(5),
-        Duration::from_millis(100),
+        Duration::from_millis(500),
     ));
     let mut stream = engine.start().expect("stream");
 

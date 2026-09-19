@@ -175,7 +175,7 @@ export function usePingSession() {
     } catch (err) {
       setError(errorMessage(err))
     }
-  }, [clearErrors, family, handleStatus, target])
+  }, [clearErrors, family, handleStatus, target, payloadSize, dontFragment])
 
   const stop = useCallback(async () => {
     if (startInfo === null) return
