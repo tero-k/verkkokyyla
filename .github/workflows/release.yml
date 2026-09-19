@@ -29,6 +29,21 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      # TEMP DEBUG: diagnose p12 import failure (remove after signing works)
+      - name: Debug certificate import
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "secret length: $(printf '%s' "$APPLE_CERTIFICATE" | wc -c)"
+          echo "without whitespace: $(printf '%s' "$APPLE_CERTIFICATE" | tr -d '[:space:]' | wc -c)"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12 || echo "DECODE FAILED"
+          ls -l /tmp/cert.p12
+          shasum -a 256 /tmp/cert.p12
+          openssl version
+          openssl pkcs12 -info -in /tmp/cert.p12 -noout -passin "pass:$APPLE_CERTIFICATE_PASSWORD" && echo "P12 PASSWORD OK" || echo "P12 PASSWORD REJECTED"
+      # END TEMP DEBUG
       # Pull this version's section out of CHANGELOG.md for the release body.
       - name: Extract release notes from CHANGELOG
         id: notes
