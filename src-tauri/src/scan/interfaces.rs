@@ -84,7 +84,9 @@ fn enumerate_candidates() -> Result<Vec<InterfaceCandidate>, InterfaceError> {
     Ok(addrs
         .into_iter()
         .filter_map(|iface| match iface.addr {
-            if_addrs::IfAddr::V4(addr) => {
+            // `ref addr`: matching by value would move `addr` out of `iface`,
+            // and `is_loopback()` borrows `iface` afterwards.
+            if_addrs::IfAddr::V4(ref addr) => {
                 // Query before the struct literal moves `iface.name`.
                 let is_loopback = iface.is_loopback();
                 Some(InterfaceCandidate {
