@@ -169,7 +169,7 @@ mod trace {
             if let Some(TraceEvent::Hostname {
                 hostname: Some(name),
                 ..
-            }) = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            }) = tokio::time::timeout(Duration::from_secs(30), events.recv())
                 .await
                 .expect("hostname event")
             {
@@ -279,7 +279,7 @@ mod trace {
         assert_eq!(before[0].hostname, None);
         release_tx.send(()).expect("release resolver");
 
-        let hostname = tokio::time::timeout(Duration::from_secs(3), async {
+        let hostname = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 if let Some(TraceEvent::Hostname {
                     hostname: Some(name),

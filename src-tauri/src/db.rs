@@ -58,6 +58,41 @@ impl From<sqlx::migrate::MigrateError> for DbError {
     }
 }
 
+async fn open_pool(path: &Path) -> Result<SqlitePool, DbError> {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .foreign_keys(true);
+    Ok(SqlitePool::connect_with(options).await?)
+}
+
+/// Migration failures that mean the file can never match this binary's
+/// schema — as opposed to transient errors (locked DB, I/O) where wiping the
+/// user's history would be wrong.
+fn is_unrecoverable_drift(err: &sqlx::migrate::MigrateError) -> bool {
+    use sqlx::migrate::MigrateError;
+    matches!(
+        err,
+        MigrateError::VersionMismatch(_)
+            | MigrateError::VersionNotPresent(_)
+            | MigrateError::VersionTooOld(..)
+            | MigrateError::VersionTooNew(..)
+    )
+}
+
+/// `verkkokyyla.db` → `verkkokyyla.db.bak-<unix secs>` next to the original.
+fn backup_db_path(path: &Path) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "db".to_owned());
+    path.with_file_name(format!("{name}.bak-{stamp}"))
+}
+
 /// Row shape for inserting / reading probes (persistence shape; the session
 /// layer maps `ProbeOutcome` onto this).
 #[derive(Debug, Clone, PartialEq)]
@@ -438,19 +473,37 @@ impl Database {
     /// Opens (creating if missing) the SQLite file at `path`, creating parent
     /// directories as needed, and runs embedded migrations. Opening an
     /// already-migrated database is a no-op.
+    ///
+    /// If the file was written by a build whose embedded migrations no longer
+    /// match (a migration edited after being applied, a downgrade, or
+    /// line-ending drift changing checksums), the schema can never converge.
+    /// Rather than crash at startup, the file is moved to a timestamped
+    /// backup and a fresh database is created.
     pub async fn connect(path: &Path) -> Result<Self, DbError> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)?;
             }
         }
-        let options = SqliteConnectOptions::new()
-            .filename(path)
-            .create_if_missing(true)
-            .foreign_keys(true);
-        let pool = SqlitePool::connect_with(options).await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
-        Ok(Self { pool })
+        let pool = open_pool(path).await?;
+        match sqlx::migrate!("./migrations").run(&pool).await {
+            Ok(()) => Ok(Self { pool }),
+            Err(err) if is_unrecoverable_drift(&err) => {
+                // Windows refuses to rename an open SQLite file.
+                pool.close().await;
+                let backup = backup_db_path(path);
+                std::fs::rename(path, &backup)?;
+                for suffix in ["-wal", "-shm"] {
+                    let mut sidecar = path.as_os_str().to_owned();
+                    sidecar.push(suffix);
+                    let _ = std::fs::remove_file(sidecar);
+                }
+                let pool = open_pool(path).await?;
+                sqlx::migrate!("./migrations").run(&pool).await?;
+                Ok(Self { pool })
+            }
+            Err(err) => Err(DbError::Migrate(err)),
+        }
     }
 
     /// Inserts a session row and returns its id.
@@ -1887,6 +1940,41 @@ mod tests {
         row.try_get("n").expect("read count")
     }
 
+    // Given a database whose recorded migration checksum no longer matches
+    // the embedded migration (e.g. written by a build with different line
+    // endings), When connecting, Then the file is moved to a backup and a
+    // fresh, working database takes its place instead of an error.
+    #[tokio::test]
+    async fn connect_recovers_from_migration_checksum_drift() {
+        let dir = TestDir::new("drift-recovery");
+        let path = dir.db_file();
+
+        let db = Database::connect(&path).await.expect("initial connect");
+        sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = 1")
+            .bind(vec![0u8; 32])
+            .execute(&db.pool)
+            .await
+            .expect("tamper checksum");
+        db.pool.close().await;
+
+        let recovered = Database::connect(&path).await.expect("recovered connect");
+        assert!(recovered.list_sessions().await.expect("list").is_empty());
+        recovered.pool.close().await;
+
+        // The original file was moved aside, not deleted.
+        let backups: Vec<_> = std::fs::read_dir(path.parent().expect("parent"))
+            .expect("read dir")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("test.db.bak-")
+            })
+            .collect();
+        assert_eq!(backups.len(), 1);
+    }
+
     #[tokio::test]
     async fn fresh_db_migrates_to_v13() {
         let dir = TestDir::new("fresh");
@@ -2529,24 +2617,6 @@ mod tests {
         let loaded = db.load_trace_hops(trace_id).await.expect("load hops");
         assert_eq!(loaded[0].hostname.as_deref(), None);
         assert_eq!(loaded[1].hostname.as_deref(), Some("router.example"));
-    }
-
-    #[tokio::test]
-    async fn tampered_migration_fails_with_typed_error() {
-        let dir = TestDir::new("tamper");
-        let path = dir.db_file();
-        let db = Database::connect(&path).await.expect("first connect");
-        sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = 1")
-            .bind(b"tampered".to_vec())
-            .execute(&db.pool)
-            .await
-            .expect("corrupt checksum");
-        drop(db);
-        match Database::connect(&path).await {
-            Ok(_) => panic!("tampered migration must fail"),
-            Err(DbError::Migrate(_)) => {}
-            Err(e) => panic!("expected DbError::Migrate, got: {e}"),
-        }
     }
 
     #[test]

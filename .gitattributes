@@ -1,0 +1,7 @@
+# Pin LF line endings: sqlx checksums the embedded migration files, so
+# platform-dependent CRLF conversion would produce different checksums for
+# the same content and break previously-migrated databases.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.zip binary

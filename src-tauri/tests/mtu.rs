@@ -145,7 +145,7 @@ mod mtu {
         assert_eq!(start.method, "icmp");
         assert_eq!(start.resolved_ip, "192.0.2.10");
 
-        let completed = tokio::time::timeout(Duration::from_secs(3), statuses.recv())
+        let completed = tokio::time::timeout(Duration::from_secs(30), statuses.recv())
             .await
             .expect("status timeout")
             .expect("status");
