@@ -5,7 +5,13 @@ import { installMockTauri } from "./mock-ipc"
 
 test.use({ viewport: { width: 1440, height: 1000 } })
 
-const screenshotsDir = path.join(process.cwd(), "docs", "screenshots")
+// Captures drift per run (mock data uses wall-clock timestamps), so the spec
+// writes into the tracked docs/screenshots/ only when explicitly regenerating:
+//   UPDATE_README_SHOTS=1 npx playwright test e2e/readme-shots.spec.ts
+// Regular runs capture into gitignored test-results/ instead.
+const screenshotsDir = process.env.UPDATE_README_SHOTS
+  ? path.join(process.cwd(), "docs", "screenshots")
+  : path.join(process.cwd(), "test-results", "readme-shots")
 
 type Theme = "light" | "dark"
 type MikrotikTab = "System" | "Logs"
