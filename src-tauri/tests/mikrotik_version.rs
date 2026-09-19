@@ -578,7 +578,16 @@ mod mikrotik_version {
             statuses_a.recv().await,
             Some(MikrotikStatusEvent::Started { .. })
         ));
-        tokio::task::yield_now().await;
+        // Barrier: wait for session A's background version poll to consume
+        // script step 1 (proven by its VersionFirmware event), so the manual
+        // check deterministically lands on the gated step 2. Without this a
+        // scheduling race can push the manual check onto the terminal Hang
+        // step and deadlock the test.
+        while let Some(event) = statuses_a.recv().await {
+            if matches!(event, MikrotikStatusEvent::VersionFirmware { .. }) {
+                break;
+            }
+        }
         let check = {
             let manager = manager.clone();
             tokio::spawn(async move { manager.check_updates(profile_id).await })
