@@ -29,18 +29,38 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      # Pull this version's section out of CHANGELOG.md for the release body.
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found && !/^\[/ { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::warning::no CHANGELOG section found for $version"
+            echo "See CHANGELOG.md for details." > notes.md
+          fi
+          {
+            echo "body<<__NOTES_EOF__"
+            cat notes.md
+            echo "__NOTES_EOF__"
+          } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Verkkokyylä v__VERSION__"
-          releaseBody: "See [CHANGELOG.md](https://github.com/tero-k/verkkokyyla/blob/main/CHANGELOG.md) for what's new."
-          releaseDraft: true
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
           prerelease: false
       # Tauri has no "portable exe" bundle target; the raw binary is
       # self-contained apart from the WebView2 runtime (preinstalled on
-      # up-to-date Windows 10/11). Zip it and attach it to the same draft.
+      # up-to-date Windows 10/11). Zip it and attach it to the release.
       - name: Package standalone Windows exe
         if: runner.os == 'Windows'
         shell: pwsh
