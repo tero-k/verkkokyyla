@@ -53,7 +53,7 @@ test("successful mocked full-page test shows resource table", async ({ page }) =
   ).toContainText("Resources")
   await expect(
     page.locator('[data-testid="download-results"]'),
-  ).toContainText("6/6")
+  ).toContainText("7/7")
   await expect(
     page.locator('[data-testid="download-results"]'),
   ).toContainText("Total time")
@@ -81,6 +81,62 @@ test("successful mocked full-page test shows resource table", async ({ page }) =
 
   const slowRows = page.locator('[data-testid="page-resource-table"] tbody tr[data-slow="true"]')
   await expect(slowRows).toHaveCount(5)
+
+  const resourceRows = page.locator('[data-testid="page-resource-table"] tbody tr')
+  await expect(resourceRows).toHaveCount(7)
+  await expect(resourceRows.nth(0)).toContainText("https://example.test/page")
+  await expect(resourceRows.nth(1)).toContainText("style.css")
+
+  const durationSort = page.getByRole("button", { name: /Duration/ })
+  await durationSort.click()
+  await expect(resourceRows.first()).toContainText("image.png")
+  await durationSort.click()
+  await expect(resourceRows.first()).toContainText("xhr.json")
+  await durationSort.click()
+
+  // Regression: two mock resources share the page URL (document + a
+  // self-referencing link). Repeated re-sorts must never duplicate rows or
+  // the #1 slowest badge (duplicate React keys caused row cloning).
+  for (const name of [/Type/, /Status/, /URL/, /Duration/, /Duration/]) {
+    await page.getByRole("button", { name }).click()
+  }
+  await expect(resourceRows).toHaveCount(7)
+  const sharedUrlRows = page.locator('[data-testid="page-resource-table"] tbody tr', {
+    hasText: "https://example.test/page",
+  })
+  await expect(sharedUrlRows).toHaveCount(2)
+  await expect(
+    page.locator('[aria-label="Slowest resource rank 1"]'),
+  ).toHaveCount(1)
+
+  const scriptFilter = page.getByRole("button", { name: "script", exact: true })
+  await scriptFilter.click()
+  await expect(resourceRows).toHaveCount(6)
+  await expect(page.locator('[data-testid="page-resource-table"]')).not.toContainText("app.js")
+  await expect(page.locator('[data-testid="download-results"]')).toContainText(
+    "Showing 6 of 7 resources",
+  )
+
+  const statusFilter = page.getByRole("combobox", { name: "Status" })
+  await statusFilter.selectOption("4xx")
+  await expect(resourceRows).toHaveCount(0)
+  await expect(page.locator('[data-testid="download-results"]')).toContainText(
+    "Showing 0 of 7 resources",
+  )
+
+  await statusFilter.selectOption("all")
+  await scriptFilter.click()
+  const slowestOnly = page.getByRole("button", { name: "Slowest only" })
+  await slowestOnly.click()
+  await expect(slowestOnly).toHaveAttribute("aria-pressed", "true")
+  await expect(slowestOnly).toHaveClass(/typeChipActive/)
+  const activeTypeBackground = await scriptFilter.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )
+  await expect
+    .poll(() => slowestOnly.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toBe(activeTypeBackground)
+  await expect(resourceRows).toHaveCount(5)
 
   await expect(page.locator('[data-testid="download-start"]')).not.toBeDisabled()
 })

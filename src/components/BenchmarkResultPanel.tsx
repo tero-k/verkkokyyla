@@ -3,6 +3,7 @@ import type {
   WebBenchmarkProtocolSummary,
   WebBenchmarkRun,
 } from "../lib/types"
+import { Card, Meter, SectionHeader, Stat } from "./ui/ui"
 import styles from "../views/DownloadSpeedView.module.css"
 
 function formatMs(ms: number | null): string {
@@ -29,10 +30,117 @@ function formatCount(count: number): string {
 
 function MetricCard({ label, value }: { readonly label: string; readonly value: string }) {
   return (
-    <div className={styles.resultCard}>
-      <span className={styles.resultLabel}>{label}</span>
-      <span className={styles.resultValue}>{value}</span>
+    <div className={styles.statCell}>
+      <Stat label={label} value={value} />
     </div>
+  )
+}
+
+function ThroughputChart({ runs }: { readonly runs: readonly WebBenchmarkRun[] }) {
+  const samples = runs.flatMap((run) => {
+    const throughput = run.throughputBytesPerSecond
+    if (run.isWarmup || throughput === null || !Number.isFinite(throughput) || throughput <= 0) {
+      return []
+    }
+    return [(throughput * 8) / 1_000_000]
+  })
+  const chartWidth = 640
+  const baseline = 140
+  const chartRange = 116
+  const maximum = Math.max(1, ...samples)
+  const average = samples.length > 0
+    ? samples.reduce((total, sample) => total + sample, 0) / samples.length
+    : 0
+  const points = samples
+    .map((sample, index) => {
+      const x = samples.length === 1 ? chartWidth / 2 : (index / (samples.length - 1)) * chartWidth
+      const y = baseline - (sample / maximum) * chartRange
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(" ")
+  const averageY = baseline - (average / maximum) * chartRange
+  const latest = samples.at(-1) ?? 0
+
+  return (
+    <Card className={styles.throughputCard} pad>
+      <SectionHeader
+        title="Throughput"
+        aside={
+          <span className={styles.chartReading}>
+            {latest.toFixed(2)} <small>Mbit/s</small>
+          </span>
+        }
+      />
+      <svg
+        className={styles.throughputChart}
+        viewBox="0 0 640 160"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Measured throughput by benchmark run"
+      >
+        <title>Measured throughput by benchmark run</title>
+        <line className={styles.chartGrid} x1="0" y1="24" x2="640" y2="24" />
+        <line className={styles.chartGrid} x1="0" y1="62" x2="640" y2="62" />
+        <line className={styles.chartGrid} x1="0" y1="101" x2="640" y2="101" />
+        <line className={styles.chartGrid} x1="0" y1="140" x2="640" y2="140" />
+        {samples.length > 0 && (
+          <>
+            <polygon className={styles.throughputArea} points={`0,${baseline} ${points} ${chartWidth},${baseline}`} />
+            <polyline className={styles.throughputLine} points={points} />
+            <line
+              className={styles.averageLine}
+              x1="0"
+              y1={averageY}
+              x2={chartWidth}
+              y2={averageY}
+            />
+          </>
+        )}
+      </svg>
+      <div className={styles.chartAxis}>
+        <span>run 1</span>
+        <span>{samples.length} measured runs</span>
+        <span>latest</span>
+      </div>
+      <div className={styles.legend} aria-label="Throughput chart legend">
+        <span className={styles.legendChip}>
+          <span className={`${styles.legendSwatch} ${styles.legendThroughput}`} />
+          throughput
+        </span>
+        <span className={styles.legendChip}>
+          <span className={`${styles.legendSwatch} ${styles.legendAverage}`} />
+          run average
+        </span>
+      </div>
+    </Card>
+  )
+}
+
+function TimingBreakdown({ summary }: { readonly summary: WebBenchmarkProtocolSummary }) {
+  const total = Math.max(summary.totalMs.average, 1)
+  const metrics = [
+    { label: "DNS", value: summary.dnsMs.average, color: "var(--graph-rtt)" },
+    { label: "Connect", value: summary.connectMs.average, color: "var(--graph-rtt)" },
+    { label: "TLS", value: summary.tlsMs.average, color: "var(--graph-rtt)" },
+    { label: "TTFB", value: summary.ttfbMs.average, color: "var(--warning)" },
+    { label: "Download", value: summary.downloadMs.average, color: "var(--graph-rtt)" },
+  ] as const
+
+  return (
+    <Card className={styles.timingCard} pad>
+      <SectionHeader title="Timing breakdown" aside={formatMs(summary.totalMs.average)} />
+      <div className={styles.meterStack}>
+        {metrics.map((metric) => (
+          <Meter
+            key={metric.label}
+            label={metric.label}
+            value={formatMs(metric.value)}
+            pct={(metric.value / total) * 100}
+            color={metric.color}
+          />
+        ))}
+      </div>
+    </Card>
   )
 }
 
@@ -212,33 +320,43 @@ export function BenchmarkResultPanel({ result }: { readonly result: WebBenchmark
   const firstProbe = firstSummary?.probe
 
   return (
-    <div data-testid="benchmark-result-panel">
-      <h2>Benchmark results</h2>
+    <div className={styles.benchmarkResult} data-testid="benchmark-result-panel">
+      <h2 className={styles.srOnly}>Benchmark results</h2>
+      <ThroughputChart runs={result.runs} />
 
-      <div className={styles.results}>
-        <MetricCard label="Total" value={formatMs(firstSummary?.totalMs.average ?? null)} />
-        <MetricCard label="TTFB" value={formatMs(firstSummary?.ttfbMs.average ?? null)} />
-        <MetricCard label="DNS" value={formatMs(firstSummary?.dnsMs.average ?? null)} />
-        <MetricCard label="Connect" value={formatMs(firstSummary?.connectMs.average ?? null)} />
-        <MetricCard label="TLS" value={formatMs(firstSummary?.tlsMs.average ?? null)} />
-        <MetricCard label="Download" value={formatMs(firstSummary?.downloadMs.average ?? null)} />
-        <MetricCard
-          label="HTTP version"
-          value={firstSummary?.negotiatedProtocol ?? firstSummary?.requestedProtocol ?? "—"}
-        />
-        <MetricCard
-          label="Response size"
-          value={formatBytes(firstSummary?.responseBytes.average ?? null)}
-        />
-        <MetricCard
-          label="Throughput"
-          value={formatThroughput(firstSummary?.throughputBytesPerSecond.average ?? null)}
-        />
+      <div className={styles.benchmarkOverview}>
+        <Card className={styles.summaryCard} pad>
+          <SectionHeader
+            title="Benchmark results"
+            aside={firstSummary?.negotiatedProtocol ?? firstSummary?.requestedProtocol ?? "no samples"}
+          />
+          <div className={styles.results}>
+            <MetricCard label="Total" value={formatMs(firstSummary?.totalMs.average ?? null)} />
+            <MetricCard label="TTFB" value={formatMs(firstSummary?.ttfbMs.average ?? null)} />
+            <MetricCard label="DNS" value={formatMs(firstSummary?.dnsMs.average ?? null)} />
+            <MetricCard label="Connect" value={formatMs(firstSummary?.connectMs.average ?? null)} />
+            <MetricCard label="TLS" value={formatMs(firstSummary?.tlsMs.average ?? null)} />
+            <MetricCard label="Download" value={formatMs(firstSummary?.downloadMs.average ?? null)} />
+            <MetricCard
+              label="HTTP version"
+              value={firstSummary?.negotiatedProtocol ?? firstSummary?.requestedProtocol ?? "—"}
+            />
+            <MetricCard
+              label="Response size"
+              value={formatBytes(firstSummary?.responseBytes.average ?? null)}
+            />
+            <MetricCard
+              label="Throughput"
+              value={formatThroughput(firstSummary?.throughputBytesPerSecond.average ?? null)}
+            />
+          </div>
+        </Card>
+        {firstSummary && <TimingBreakdown summary={firstSummary} />}
       </div>
 
       {firstProbe && (
-        <>
-          <h3>Connection probe</h3>
+        <Card className={styles.probeCard} pad>
+          <SectionHeader title="Connection probe" aside={firstProbe.remoteIp ?? "probe complete"} />
           <div className={styles.results}>
             <MetricCard label="Probe DNS" value={formatMs(firstProbe.dnsMs)} />
             <MetricCard label="Probe connect" value={formatMs(firstProbe.connectMs)} />
@@ -251,24 +369,36 @@ export function BenchmarkResultPanel({ result }: { readonly result: WebBenchmark
           {firstProbe.error && (
             <div className={`${styles.banner} ${styles.error}`}>Probe: {firstProbe.error}</div>
           )}
-        </>
+        </Card>
       )}
 
-      <h3>Per-protocol summary</h3>
-      <SummaryTable summaries={result.summaries} />
+      <Card className={styles.tableCard}>
+        <div className={styles.panelHeading}>
+          <SectionHeader title="Per-protocol summary" aside={`${result.summaries.length} protocols`} />
+        </div>
+        <SummaryTable summaries={result.summaries} />
+      </Card>
 
-      <h3>Protocol comparison</h3>
-      <ComparisonTable summaries={result.summaries} />
+      <Card className={styles.tableCard}>
+        <div className={styles.panelHeading}>
+          <SectionHeader title="Protocol comparison" aside="median total latency" />
+        </div>
+        <ComparisonTable summaries={result.summaries} />
+      </Card>
 
       {result.concurrency && (
-        <>
-          <h3>Concurrency test</h3>
+        <Card className={styles.concurrencyCard} pad>
+          <SectionHeader title="Concurrency test" aside={`${result.concurrency.concurrency} workers`} />
           <ConcurrencyBlock result={result} />
-        </>
+        </Card>
       )}
 
-      <h3>Raw measurements</h3>
-      <RunsTable runs={result.runs} />
+      <Card className={styles.rawCard}>
+        <div className={styles.panelHeading}>
+          <SectionHeader title="Raw measurements" aside={`${result.runs.length} runs`} />
+        </div>
+        <RunsTable runs={result.runs} />
+      </Card>
     </div>
   )
 }

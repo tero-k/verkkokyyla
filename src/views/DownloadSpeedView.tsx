@@ -1,8 +1,38 @@
+import { useMemo, useState } from "react"
 import { BenchmarkResultPanel } from "../components/BenchmarkResultPanel"
 import { DownloadSpeedSessionPanel } from "../components/DownloadSpeedSessionPanel"
-import { useDownloadSpeedTest } from "../hooks/useDownloadSpeedTest"
+import {
+  useDownloadSpeedTest,
+  type SpeedMode,
+} from "../hooks/useDownloadSpeedTest"
 import { useConfirmDialog } from "../hooks/useConfirmDialog"
-import { DEFAULT_HTTP_SETTINGS, HTTP_VERSIONS, type HttpSettings, type HttpVersion } from "../lib/types"
+import {
+  applyFiltersAndSort,
+  splitUrlForDisplay,
+  type ResourceFilters,
+  type SortDir,
+  type SortKey,
+  type StatusFilter,
+} from "../lib/pageResources"
+import {
+  DEFAULT_HTTP_SETTINGS,
+  HTTP_VERSIONS,
+  PAGE_RESOURCE_TYPES,
+  type HttpSettings,
+  type HttpVersion,
+  type PageResourceType,
+} from "../lib/types"
+import {
+  Button,
+  Card,
+  Chip,
+  Live,
+  Meter,
+  SectionHeader,
+  Stat,
+  StatusBar,
+  ViewHeader,
+} from "../components/ui/ui"
 
 import styles from "./DownloadSpeedView.module.css"
 
@@ -12,6 +42,27 @@ const VERSION_LABELS: Record<HttpVersion, string> = {
   http2: "HTTP/2 (prior knowledge)",
   http3: "HTTP/3 (not supported)",
 }
+
+const SPEED_MODES: readonly { readonly value: SpeedMode; readonly label: string }[] = [
+  { value: "single", label: "Download" },
+  { value: "page", label: "Page load" },
+  { value: "benchmark", label: "Throughput" },
+]
+
+const RESOURCE_SORT_COLUMNS = [
+  { key: "type", label: "Type", defaultDir: "asc" },
+  { key: "url", label: "URL", defaultDir: "asc" },
+  { key: "status", label: "Status", defaultDir: "desc" },
+  { key: "size", label: "Size", defaultDir: "desc" },
+  { key: "start", label: "Start", defaultDir: "asc" },
+  { key: "duration", label: "Duration", defaultDir: "desc" },
+  { key: "speed", label: "Speed", defaultDir: "desc" },
+  { key: "error", label: "Error", defaultDir: "asc" },
+] satisfies readonly {
+  readonly key: SortKey
+  readonly label: string
+  readonly defaultDir: SortDir
+}[]
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.min(Math.max(Math.round(value), min), max)
@@ -41,110 +92,117 @@ function BenchmarkControls({
   }
 
   return (
-    <div className={styles.benchmarkControls} data-testid="benchmark-controls">
-      <div className={styles.field}>
-        <span className={styles.fieldLabel}>Protocols</span>
-        <div className={styles.checkboxGroup}>
-          {HTTP_VERSIONS.map((version) => (
-            <label key={version} className={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={config.protocols.includes(version)}
-                onChange={() => toggleProtocol(version)}
-                disabled={disabled}
-              />
-              {VERSION_LABELS[version]}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className={styles.field}>
-        <label htmlFor="benchmark-runs">Runs</label>
-        <input
-          id="benchmark-runs"
-          type="number"
-          min={1}
-          max={100}
-          value={config.runs}
-          onChange={(e) =>
-            onChange({ runs: clampInt(Number(e.target.value), 1, 100) })
-          }
-          disabled={disabled}
-          data-testid="benchmark-runs"
+    <div data-testid="benchmark-controls">
+      <Card className={styles.benchmarkControls} pad>
+        <SectionHeader
+          title="Benchmark options"
+          aside={`${config.runs} runs · ${config.connectionMode} connection`}
         />
-      </div>
+        <div className={styles.benchmarkGrid}>
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Protocols</span>
+            <div className={styles.checkboxGroup}>
+              {HTTP_VERSIONS.map((version) => (
+                <label key={version} className={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={config.protocols.includes(version)}
+                    onChange={() => toggleProtocol(version)}
+                    disabled={disabled}
+                  />
+                  {VERSION_LABELS[version]}
+                </label>
+              ))}
+            </div>
+          </div>
 
-      <div className={styles.field}>
-        <span className={styles.fieldLabel}>Connection mode</span>
-        <div className={styles.radioGroup}>
-          {[
-            { value: "cold", label: "Cold" },
-            { value: "warm", label: "Warm" },
-          ].map((option) => (
-            <label key={option.value} className={styles.radioLabel}>
+          <div className={styles.field}>
+            <label htmlFor="benchmark-runs">Runs</label>
+            <input
+              id="benchmark-runs"
+              type="number"
+              min={1}
+              max={100}
+              value={config.runs}
+              onChange={(e) =>
+                onChange({ runs: clampInt(Number(e.target.value), 1, 100) })
+              }
+              disabled={disabled}
+              data-testid="benchmark-runs"
+            />
+          </div>
+
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Connection mode</span>
+            <div className={styles.radioGroup}>
+              {[
+                { value: "cold", label: "Cold" },
+                { value: "warm", label: "Warm" },
+              ].map((option) => (
+                <label key={option.value} className={styles.radioLabel}>
+                  <input
+                    type="radio"
+                    name="benchmark-connection-mode"
+                    value={option.value}
+                    checked={config.connectionMode === option.value}
+                    onChange={() =>
+                      onChange({ connectionMode: option.value as import("../lib/types").ConnectionMode })
+                    }
+                    disabled={disabled}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <label htmlFor="benchmark-concurrency">Concurrency</label>
+            <select
+              id="benchmark-concurrency"
+              value={config.concurrency ?? ""}
+              onChange={(e) => {
+                const value = e.target.value
+                onChange({ concurrency: value === "" ? null : Number(value) })
+              }}
+              disabled={disabled}
+              data-testid="benchmark-concurrency"
+            >
+              <option value="">Off</option>
+              {[1, 5, 10, 25, 50].map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={`${styles.field} ${styles.checkboxField}`}>
+            <label htmlFor="benchmark-probe">
               <input
-                type="radio"
-                name="benchmark-connection-mode"
-                value={option.value}
-                checked={config.connectionMode === option.value}
-                onChange={() =>
-                  onChange({ connectionMode: option.value as import("../lib/types").ConnectionMode })
-                }
+                id="benchmark-probe"
+                type="checkbox"
+                checked={config.probe}
+                onChange={(e) => onChange({ probe: e.target.checked })}
                 disabled={disabled}
+                data-testid="benchmark-probe"
               />
-              {option.label}
+              Probe connection (DNS/TCP/TLS)
             </label>
-          ))}
+          </div>
+
+          <div className={styles.settingsActions}>
+            <Button
+              small
+              onClick={onReset}
+              disabled={disabled}
+              data-testid="benchmark-config-reset"
+            >
+              Reset benchmark defaults
+            </Button>
+          </div>
         </div>
-      </div>
-
-      <div className={styles.field}>
-        <label htmlFor="benchmark-concurrency">Concurrency</label>
-        <select
-          id="benchmark-concurrency"
-          value={config.concurrency ?? ""}
-          onChange={(e) => {
-            const value = e.target.value
-            onChange({ concurrency: value === "" ? null : Number(value) })
-          }}
-          disabled={disabled}
-          data-testid="benchmark-concurrency"
-        >
-          <option value="">Off</option>
-          {[1, 5, 10, 25, 50].map((level) => (
-            <option key={level} value={level}>
-              {level}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className={`${styles.field} ${styles.checkboxField}`}>
-        <label htmlFor="benchmark-probe">
-          <input
-            id="benchmark-probe"
-            type="checkbox"
-            checked={config.probe}
-            onChange={(e) => onChange({ probe: e.target.checked })}
-            disabled={disabled}
-            data-testid="benchmark-probe"
-          />
-          Probe connection (DNS/TCP/TLS)
-        </label>
-      </div>
-
-      <div className={styles.settingsActions}>
-        <button
-          type="button"
-          onClick={onReset}
-          className={styles.resetButton}
-          disabled={disabled}
-          data-testid="benchmark-config-reset"
-        >
-          Reset benchmark defaults
-        </button>
-      </div>
+      </Card>
     </div>
   )
 }
@@ -159,8 +217,13 @@ function HttpSettingsPanel({
   readonly onReset: () => void
 }) {
   return (
-    <details className={styles.settingsPanel} data-testid="http-settings-panel">
-      <summary className={styles.settingsSummary}>HTTP settings</summary>
+    <details className={`vk-card ${styles.settingsPanel}`} data-testid="http-settings-panel">
+      <summary className={styles.settingsSummary}>
+        <span>HTTP settings</span>
+        <span className={styles.settingsMeta}>
+          {VERSION_LABELS[settings.version]} · {settings.ipFamily.toUpperCase()}
+        </span>
+      </summary>
       <div className={styles.settingsGrid}>
         <div className={styles.field}>
           <label htmlFor="http-version">HTTP version</label>
@@ -309,14 +372,9 @@ function HttpSettingsPanel({
         </div>
 
         <div className={styles.settingsActions}>
-          <button
-            type="button"
-            onClick={onReset}
-            className={styles.resetButton}
-            data-testid="http-settings-reset"
-          >
+          <Button small onClick={onReset} data-testid="http-settings-reset">
             Reset to defaults
-          </button>
+          </Button>
         </div>
       </div>
     </details>
@@ -344,123 +402,276 @@ function formatMs(ms: number | null): string {
 }
 
 function SingleResult({ result }: { readonly result: import("../lib/types").DownloadSpeedResultDto }) {
+  const totalTime = Math.max(result.totalTimeMs, 1)
+
   return (
-    <div className={styles.results}>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Average speed</span>
-        <span className={styles.resultValue}>{formatMbps(result.averageMbps)}</span>
+    <Card className={styles.singleResult} pad>
+      <SectionHeader
+        title="Download result"
+        aside={`HTTP ${result.statusCode} · ${formatBytes(result.bytesReceived)}`}
+      />
+      <div className={styles.singleResultGrid}>
+        <div className={styles.primaryStat}>
+          <Stat label="Average speed" value={formatMbps(result.averageMbps)} large />
+        </div>
+        <div className={styles.results}>
+          <div className={styles.statCell}>
+            <Stat label="Total time" value={formatMs(result.totalTimeMs)} />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Status code" value={result.statusCode} />
+          </div>
+          <div className={styles.statCell}>
+            <Stat
+              label="Content size"
+              value={result.contentLength === null ? "Unknown" : formatBytes(result.contentLength)}
+            />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Bytes received" value={formatBytes(result.bytesReceived)} />
+          </div>
+        </div>
+        <div className={styles.meterStack}>
+          <Meter
+            label="Time to first byte"
+            value={formatMs(result.timeToFirstByteMs)}
+            pct={((result.timeToFirstByteMs ?? 0) / totalTime) * 100}
+            color="var(--warning)"
+          />
+          <Meter
+            label="DNS resolution"
+            value={formatMs(result.dnsResolutionMs)}
+            pct={((result.dnsResolutionMs ?? 0) / totalTime) * 100}
+            color="var(--graph-rtt)"
+          />
+          <Meter
+            label="TLS handshake"
+            value={result.tlsHandshakeMs === null ? "Not available" : formatMs(result.tlsHandshakeMs)}
+            pct={((result.tlsHandshakeMs ?? 0) / totalTime) * 100}
+            color="var(--graph-rtt)"
+          />
+        </div>
       </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Total time</span>
-        <span className={styles.resultValue}>{formatMs(result.totalTimeMs)}</span>
+      <div className={styles.finalUrl}>
+        <span>Final URL</span>
+        <strong title={result.finalUrl}>{result.finalUrl}</strong>
       </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Time to first byte</span>
-        <span className={styles.resultValue}>{formatMs(result.timeToFirstByteMs)}</span>
-      </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>DNS resolution</span>
-        <span className={styles.resultValue}>{formatMs(result.dnsResolutionMs)}</span>
-      </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>TLS handshake</span>
-        <span className={styles.resultValue}>
-          {result.tlsHandshakeMs === null ? "Not available" : formatMs(result.tlsHandshakeMs)}
-        </span>
-      </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Status code</span>
-        <span className={styles.resultValue}>{result.statusCode}</span>
-      </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Content size</span>
-        <span className={styles.resultValue}>
-          {result.contentLength === null ? "Unknown" : formatBytes(result.contentLength)}
-        </span>
-      </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Bytes received</span>
-        <span className={styles.resultValue}>{formatBytes(result.bytesReceived)}</span>
-      </div>
-      <div className={styles.resultCard}>
-        <span className={styles.resultLabel}>Final URL</span>
-        <span className={styles.resultValue}>{result.finalUrl}</span>
-      </div>
-    </div>
+    </Card>
   )
 }
 
 function PageResult({ result }: { readonly result: import("../lib/types").PageSpeedResultDto }) {
-  const sortedByDuration = [...result.resources].sort((a, b) => b.durationMs - a.durationMs)
-  const slowestByRank = new Map(
-    sortedByDuration.slice(0, 5).map((r, index) => [r.url, index + 1]),
+  const [sortKey, setSortKey] = useState<SortKey>("start")
+  const [sortDir, setSortDir] = useState<SortDir>("asc")
+  const [filters, setFilters] = useState<ResourceFilters>(() => ({
+    types: new Set(PAGE_RESOURCE_TYPES),
+    status: "all",
+    slowestOnly: false,
+  }))
+  // Keyed by object identity: distinct resources may share a URL (e.g. the
+  // document and a self-referencing <link>), and URL-keyed React rows corrupt
+  // on re-sort when keys collide.
+  const slowestByRank = useMemo(
+    () =>
+      new Map(
+        [...result.resources]
+          .sort((a, b) => b.durationMs - a.durationMs)
+          .slice(0, 5)
+          .map((resource, index) => [resource, index + 1] as const),
+      ),
+    [result.resources],
+  )
+  const visibleResources = useMemo(
+    () => applyFiltersAndSort(result.resources, filters, sortKey, sortDir),
+    [filters, result.resources, sortDir, sortKey],
   )
 
-  return (
-    <>
-      <div className={styles.results}>
-        <div className={styles.resultCard}>
-          <span className={styles.resultLabel}>Resources</span>
-          <span className={styles.resultValue}>
-            {result.successfulResources}/{result.totalResources}
-            {result.failedResources > 0 && (
-              <span className={styles.failedCount}> ({result.failedResources} failed)</span>
-            )}
-          </span>
-        </div>
-        <div className={styles.resultCard}>
-          <span className={styles.resultLabel}>Total time</span>
-          <span className={styles.resultValue}>{formatMs(result.totalDurationMs)}</span>
-        </div>
-        <div className={styles.resultCard}>
-          <span className={styles.resultLabel}>Time to first byte</span>
-          <span className={styles.resultValue}>{formatMs(result.timeToFirstByteMs)}</span>
-        </div>
-        <div className={styles.resultCard}>
-          <span className={styles.resultLabel}>Average speed</span>
-          <span className={styles.resultValue}>{formatMbps(result.averageMbps)}</span>
-        </div>
-        <div className={styles.resultCard}>
-          <span className={styles.resultLabel}>Bytes received</span>
-          <span className={styles.resultValue}>{formatBytes(result.totalBytesReceived)}</span>
-        </div>
-        <div className={styles.resultCard}>
-          <span className={styles.resultLabel}>Target URL</span>
-          <span className={styles.resultValue}>{result.url}</span>
-        </div>
-      </div>
+  const toggleType = (resourceType: PageResourceType) => {
+    setFilters((previous) => {
+      const types = new Set(previous.types)
+      if (types.has(resourceType)) {
+        types.delete(resourceType)
+      } else {
+        types.add(resourceType)
+      }
+      return { ...previous, types }
+    })
+  }
 
-      <div>
-        <div className={styles.tableCaption}>
-          Top 5 slowest resources are highlighted.
+  const setStatusFilter = (value: string) => {
+    let status: StatusFilter
+    switch (value) {
+      case "all":
+      case "2xx":
+      case "3xx":
+      case "4xx":
+      case "5xx":
+      case "failed":
+        status = value
+        break
+      default:
+        return
+    }
+    setFilters((previous) => ({ ...previous, status }))
+  }
+
+  const changeSort = (key: SortKey, defaultDir: SortDir) => {
+    if (sortKey === key) {
+      setSortDir((previous) => (previous === "asc" ? "desc" : "asc"))
+      return
+    }
+    setSortKey(key)
+    setSortDir(defaultDir)
+  }
+
+  return (
+    <div className={styles.pageResult}>
+      <Card className={styles.pageSummary} pad>
+        <SectionHeader
+          title="Page load result"
+          aside={`${result.successfulResources}/${result.totalResources} resources`}
+        />
+        <div className={styles.results}>
+          <div className={styles.statCell}>
+            <Stat
+              label="Resources"
+              value={
+                <>
+                  {result.successfulResources}/{result.totalResources}
+                  {result.failedResources > 0 && (
+                    <span className={styles.failedCount}> ({result.failedResources} failed)</span>
+                  )}
+                </>
+              }
+            />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Total time" value={formatMs(result.totalDurationMs)} />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Time to first byte" value={formatMs(result.timeToFirstByteMs)} />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Average speed" value={formatMbps(result.averageMbps)} />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Bytes received" value={formatBytes(result.totalBytesReceived)} />
+          </div>
+          <div className={styles.statCell}>
+            <Stat label="Target URL" value={result.url} />
+          </div>
+        </div>
+      </Card>
+
+      <Card className={styles.tableCard}>
+        <div className={styles.panelHeading}>
+          <SectionHeader
+            title="Request waterfall"
+            aside={`${result.totalResources} requests · ${formatBytes(result.totalBytesReceived)}`}
+          />
+          <div className={styles.tableCaption} aria-live="polite">
+            Showing {visibleResources.length} of {result.totalResources} resources · Top 5 slowest
+            resources are highlighted.
+          </div>
+        </div>
+        <div className={styles.filterBar} aria-label="Resource filters">
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>Type</span>
+            <div className={styles.typeChips}>
+              {PAGE_RESOURCE_TYPES.map((resourceType) => (
+                <button
+                  key={resourceType}
+                  type="button"
+                  className={`${styles.typeChip}${
+                    filters.types.has(resourceType) ? ` ${styles.typeChipActive}` : ""
+                  }`}
+                  aria-pressed={filters.types.has(resourceType)}
+                  onClick={() => toggleType(resourceType)}
+                >
+                  {resourceType}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className={styles.statusFilter}>
+            <span className={styles.filterLabel}>Status</span>
+            <select
+              value={filters.status}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="2xx">2xx</option>
+              <option value="3xx">3xx</option>
+              <option value="4xx">4xx</option>
+              <option value="5xx">5xx</option>
+              <option value="failed">Failed</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className={`${styles.typeChip} ${styles.slowestToggle}${
+              filters.slowestOnly ? ` ${styles.typeChipActive}` : ""
+            }`}
+            aria-pressed={filters.slowestOnly}
+            onClick={() =>
+              setFilters((previous) => ({
+                ...previous,
+                slowestOnly: !previous.slowestOnly,
+              }))
+            }
+          >
+            Slowest only
+          </button>
         </div>
         <div className={styles.tableWrapper}>
           <table className={styles.resourceTable} data-testid="page-resource-table">
             <thead>
               <tr>
-                <th>Type</th>
-                <th>URL</th>
-                <th>Status</th>
-                <th>Size</th>
-                <th>Start</th>
-                <th>Duration</th>
-                <th>Speed</th>
-                <th>Error</th>
+                {RESOURCE_SORT_COLUMNS.map((column) => {
+                  const active = sortKey === column.key
+                  return (
+                    <th
+                      key={column.key}
+                      scope="col"
+                      className={styles.sortHeader}
+                      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => changeSort(column.key, column.defaultDir)}
+                        aria-label={`Sort by ${column.label}`}
+                      >
+                        <span>{column.label}</span>
+                        <span className={styles.sortIndicator} aria-hidden="true">
+                          {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+                        </span>
+                      </button>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {result.resources.map((resource) => {
-                const rank = slowestByRank.get(resource.url)
+              {visibleResources.map((resource, index) => {
+                const rank = slowestByRank.get(resource)
                 const isSlow = rank !== undefined
                 return (
                   <tr
-                    key={resource.url}
+                    key={`${index}:${resource.url}`}
                     className={isSlow ? styles.slowResource : undefined}
                     data-slow={isSlow ? "true" : undefined}
                   >
                     <td>{resource.resourceType}</td>
                     <td title={resource.url} className={styles.urlCell}>
-                      {resource.url}
+                      {(() => {
+                        const { head, tail } = splitUrlForDisplay(resource.url)
+                        return (
+                          <span className={styles.urlText}>
+                            <span className={styles.urlHead}>{head}</span>
+                            {tail !== "" && <span className={styles.urlTail}>{tail}</span>}
+                          </span>
+                        )
+                      })()}
                       {isSlow && (
                         <span className={styles.slowBadge} aria-label={`Slowest resource rank ${rank}`}>
                           #{rank} slowest
@@ -479,8 +690,46 @@ function PageResult({ result }: { readonly result: import("../lib/types").PageSp
             </tbody>
           </table>
         </div>
+      </Card>
+    </div>
+  )
+}
+
+function EmptyThroughputPanel() {
+  return (
+    <Card className={styles.emptyChartCard} pad>
+      <SectionHeader title="Throughput" aside="waiting for sample" />
+      <div className={styles.emptyChart}>
+        <svg
+          viewBox="0 0 640 180"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Empty throughput chart"
+        >
+          <title>Throughput appears here after a test</title>
+          <line x1="0" y1="24" x2="640" y2="24" />
+          <line x1="0" y1="68" x2="640" y2="68" />
+          <line x1="0" y1="112" x2="640" y2="112" />
+          <line x1="0" y1="156" x2="640" y2="156" />
+        </svg>
+        <p>Run a download, page load, or detailed benchmark to plot measured throughput.</p>
       </div>
-    </>
+      <div className={styles.chartAxis}>
+        <span>0 s</span>
+        <span>measurement window</span>
+        <span>complete</span>
+      </div>
+      <div className={styles.legend} aria-label="Throughput chart legend">
+        <span className={styles.legendChip}>
+          <span className={`${styles.legendSwatch} ${styles.legendThroughput}`} />
+          throughput
+        </span>
+        <span className={styles.legendChip}>
+          <span className={`${styles.legendSwatch} ${styles.legendAverage}`} />
+          session average
+        </span>
+      </div>
+    </Card>
   )
 }
 
@@ -515,6 +764,11 @@ export default function DownloadSpeedView() {
       await deleteSession(id)
     }
   }
+  const handleDeleteSessions = async (ids: readonly number[]) => {
+    if (ids.length === 0) return
+    if (!(await confirm(`Delete ${ids.length} speed tests?`))) return
+    await Promise.all(ids.map((id) => deleteSession(id)))
+  }
 
   const progressPercent =
     progress?.kind === "single" &&
@@ -548,120 +802,171 @@ export default function DownloadSpeedView() {
     ) : null
 
   return (
-    <div className={styles.content}>
-      <div className={styles.livePane}>
-        <div className={styles.view} data-testid="download-speed-view">
-          <h1>Web Benchmark</h1>
+    <div className={styles.view} data-testid="download-speed-view">
+      <h1 className={styles.srOnly}>Web Benchmark</h1>
+      <header className={styles.header}>
+        <ViewHeader>
+          <div className={styles.headerStack}>
+            <div className={styles.toolbar}>
+              <div className={styles.urlControl}>
+                <div className={styles.urlChip}>
+                  <Chip
+                    label={<label htmlFor="download-url">URL</label>}
+                    value={
+                      <input
+                        id="download-url"
+                        className={styles.urlInput}
+                        type="text"
+                        value={url}
+                        onChange={(event) => setUrl(event.target.value)}
+                        placeholder="https://example.com"
+                        disabled={isRunning}
+                        data-testid="download-url"
+                      />
+                    }
+                    aside={`${VERSION_LABELS[httpSettings.version]} · ${httpSettings.ipFamily.toUpperCase()}`}
+                  />
+                </div>
+                {url.trim().length > 0 && !isValid && (
+                  <span className={styles.inlineError}>
+                    URL must start with http:// or https://
+                  </span>
+                )}
+              </div>
 
-          <div className={styles.controls}>
-            <div className={styles.field}>
-              <label htmlFor="download-url">URL</label>
-              <input
-                id="download-url"
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com"
-                disabled={isRunning}
-                data-testid="download-url"
-              />
-              {url.trim().length > 0 && !isValid && (
-                <span className={styles.inlineError}>
-                  URL must start with http:// or https://
-                </span>
-              )}
-            </div>
-
-            <div className={styles.field}>
-              <label htmlFor="download-mode">Mode</label>
-              <select
-                id="download-mode"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as import("../hooks/useDownloadSpeedTest").SpeedMode)}
-                disabled={isRunning}
-                data-testid="download-mode"
-              >
-                <option value="single">Single file</option>
-                <option value="page">Full page</option>
-                <option value="benchmark">Benchmark (detailed)</option>
-              </select>
-            </div>
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                onClick={() => void start()}
-                disabled={isRunning || !isValid}
-                data-testid="download-start"
-              >
-                Start
-              </button>
-              {result !== null && (
-                <button type="button" onClick={reset} data-testid="download-reset">
-                  Reset
-                </button>
-              )}
-            </div>
-          </div>
-
-          {mode === "benchmark" && (
-            <BenchmarkControls
-              config={benchmarkConfig}
-              onChange={updateBenchmarkConfig}
-              onReset={resetBenchmarkConfig}
-              disabled={isRunning}
-            />
-          )}
-
-          <HttpSettingsPanel
-            settings={httpSettings}
-            onChange={updateHttpSettings}
-            onReset={resetHttpSettings}
-          />
-
-          {error.length > 0 && (
-            <div className={`${styles.banner} ${styles.error}`} data-testid="download-error">
-              {error}
-            </div>
-          )}
-
-          {isRunning && progress !== null && (
-            <div className={styles.progress}>
-              <div className={styles.progressBarTrack}>
-                <div
-                  className={styles.progressBarFill}
-                  style={{ width: `${progressPercent}%` }}
+              <div className={styles.modeChip}>
+                <Chip
+                  label={<label htmlFor="download-mode">Mode</label>}
+                  value={
+                    <select
+                      id="download-mode"
+                      value={mode}
+                      onChange={(event) => setMode(event.target.value as SpeedMode)}
+                      disabled={isRunning}
+                      data-testid="download-mode"
+                    >
+                      <option value="single">Single file</option>
+                      <option value="page">Full page</option>
+                      <option value="benchmark">Benchmark (detailed)</option>
+                    </select>
+                  }
                 />
               </div>
-              <div className={styles.progressText}>{progressText}</div>
-            </div>
-          )}
 
-          {result?.kind === "single" && (
-            <div data-testid="download-results">
-              <SingleResult result={result.data} />
+              <div className={`vk-view-actions ${styles.headerActions}`}>
+                {result !== null && (
+                  <Button onClick={reset} data-testid="download-reset">
+                    Reset
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={() => void start()}
+                  disabled={isRunning || !isValid}
+                  data-testid="download-start"
+                >
+                  {isRunning ? "Running…" : mode === "benchmark" ? "Benchmark" : "Start"}
+                </Button>
+              </div>
             </div>
-          )}
-          {result?.kind === "page" && (
-            <div data-testid="download-results">
-              <PageResult result={result.data} />
+
+            <nav className={styles.tabs} role="tablist" aria-label="Web benchmark mode">
+              {SPEED_MODES.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === item.value}
+                  aria-controls="download-benchmark-body"
+                  className={`${styles.tab}${mode === item.value ? ` ${styles.tabActive}` : ""}`}
+                  disabled={isRunning}
+                  onClick={() => setMode(item.value)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </ViewHeader>
+      </header>
+
+      <div id="download-benchmark-body" className={styles.body}>
+        <div className={styles.content}>
+          <section className={styles.livePane} aria-label="Web benchmark results">
+            <div className={styles.configPanels}>
+              {mode === "benchmark" && (
+                <BenchmarkControls
+                  config={benchmarkConfig}
+                  onChange={updateBenchmarkConfig}
+                  onReset={resetBenchmarkConfig}
+                  disabled={isRunning}
+                />
+              )}
+
+              <HttpSettingsPanel
+                settings={httpSettings}
+                onChange={updateHttpSettings}
+                onReset={resetHttpSettings}
+              />
             </div>
-          )}
-          {result?.kind === "benchmark" && (
-            <div data-testid="download-results">
-              <BenchmarkResultPanel result={result.data} />
-            </div>
-          )}
+
+            {error.length > 0 && (
+              <div
+                className={`${styles.banner} ${styles.error}`}
+                role="alert"
+                data-testid="download-error"
+              >
+                {error}
+              </div>
+            )}
+
+            {isRunning && progress !== null && (
+              <Card className={styles.progress} pad>
+                <SectionHeader title="Transfer progress" aside={<Live>measuring</Live>} />
+                <Meter
+                  label={progressText}
+                  value={`${Math.round(progressPercent)}%`}
+                  pct={progressPercent}
+                />
+              </Card>
+            )}
+
+            {result === null && <EmptyThroughputPanel />}
+            {result?.kind === "single" && (
+              <div data-testid="download-results">
+                <SingleResult result={result.data} />
+              </div>
+            )}
+            {result?.kind === "page" && (
+              <div data-testid="download-results">
+                <PageResult result={result.data} />
+              </div>
+            )}
+            {result?.kind === "benchmark" && (
+              <div data-testid="download-results">
+                <BenchmarkResultPanel result={result.data} />
+              </div>
+            )}
+          </section>
+          <aside className={styles.historyPane} aria-label="Saved speed tests">
+            <DownloadSpeedSessionPanel
+              sessions={sessions}
+              disabled={isRunning || sessionsLoading}
+              onOpen={loadSession}
+              onDelete={handleDeleteSession}
+              onDeleteMany={handleDeleteSessions}
+            />
+          </aside>
         </div>
       </div>
-      <div className={styles.historyPane}>
-        <DownloadSpeedSessionPanel
-          sessions={sessions}
-          disabled={isRunning || sessionsLoading}
-          onOpen={loadSession}
-          onDelete={handleDeleteSession}
-        />
-      </div>
+      <StatusBar>
+        {isRunning ? <Live>benchmark active</Live> : <span className="vk-statusbar-ok">ready</span>}
+        <span>{SPEED_MODES.find((item) => item.value === mode)?.label}</span>
+        {result !== null && <span>latest result shown</span>}
+        <span className="vk-statusbar-right">
+          {sessionsLoading ? "loading history" : `${sessions.length} saved sessions`}
+        </span>
+      </StatusBar>
       {confirmDialog}
     </div>
   )
