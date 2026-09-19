@@ -19,6 +19,7 @@ playwright-report/
 *.local
 *.log
 .DS_Store
+.debug-journal.md
 
 .playwright-mcp/
 
