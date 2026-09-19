@@ -84,15 +84,19 @@ fn enumerate_candidates() -> Result<Vec<InterfaceCandidate>, InterfaceError> {
     Ok(addrs
         .into_iter()
         .filter_map(|iface| match iface.addr {
-            if_addrs::IfAddr::V4(addr) => Some(InterfaceCandidate {
-                name: iface.name.clone(),
-                description: iface.name,
-                ipv4: addr.ip,
-                prefix_len: prefix_len(addr.netmask),
-                is_up: true,
-                is_loopback: iface.is_loopback(),
-                has_default_gateway: false,
-            }),
+            if_addrs::IfAddr::V4(addr) => {
+                // Query before the struct literal moves `iface.name`.
+                let is_loopback = iface.is_loopback();
+                Some(InterfaceCandidate {
+                    name: iface.name.clone(),
+                    description: iface.name,
+                    ipv4: addr.ip,
+                    prefix_len: prefix_len(addr.netmask),
+                    is_up: true,
+                    is_loopback,
+                    has_default_gateway: false,
+                })
+            }
             if_addrs::IfAddr::V6(_) => None,
         })
         .collect())

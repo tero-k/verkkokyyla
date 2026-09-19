@@ -289,8 +289,12 @@ mod tests {
     // Then the probe is an Error (no panic).
     #[tokio::test]
     async fn osping_missing_binary_yields_error() {
-        let mut pinger =
-            OsPinger::with_program(PathBuf::from("/nonexistent/definitely-no-ping"), target());
+        let mut pinger = OsPinger::with_program(
+            PathBuf::from("/nonexistent/definitely-no-ping"),
+            target(),
+            32,
+            false,
+        );
         assert!(matches!(pinger.probe(1).await, ProbeResult::Error(_)));
     }
 
