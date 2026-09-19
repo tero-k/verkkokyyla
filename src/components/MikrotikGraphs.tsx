@@ -36,7 +36,7 @@ function graphAxisConfig(label: string): object {
     stroke: cssVar("--graph-axis"),
     grid: { stroke: cssVar("--graph-grid") },
     ticks: { stroke: cssVar("--graph-grid") },
-    font: `${AXIS_LABEL_SIZE}px system-ui, sans-serif`,
+    font: `10px "JetBrains Mono", ui-monospace, monospace`,
     label,
     labelColor: cssVar("--graph-axis"),
     labelSize: AXIS_LABEL_SIZE,
@@ -50,8 +50,32 @@ function xAxisConfig(): object {
     ...graphAxisConfig(""),
     space: X_TICK_SPACE,
     size: 36,
-    values: (_plot: UPlot, splits: readonly number[]) =>
-      splits.map((value) => `:${String(new Date(value * 1_000).getUTCSeconds()).padStart(2, "0")}`),
+    values: (plot: UPlot, splits: readonly number[]) => {
+      // Adaptive tick format: seconds only matter on short live windows;
+      // longer ranges read better as HH:mm (with a date once multi-day).
+      const xs = plot.data[0]
+      const span = xs.length >= 2 ? xs[xs.length - 1] - xs[0] : 0
+      return splits.map((value) => {
+        const date = new Date(value * 1_000)
+        if (span > 36 * 3_600) {
+          return date.toLocaleString(undefined, {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+        }
+        if (span > 180) {
+          return date.toLocaleTimeString(undefined, {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+        }
+        return date.toLocaleTimeString(undefined, { hour12: false })
+      })
+    },
   }
 }
 
@@ -205,17 +229,17 @@ export function MikrotikGraphs({
           {
             label: "RX",
             stroke: cssVar("--accent"),
-            width: 3,
+            width: 2,
             spanGaps: false,
-            points: { show: true, size: 8, stroke: cssVar("--accent"), fill: cssVar("--accent") },
+            points: { show: false },
           },
           {
             label: "TX",
-            stroke: cssVar("--success-secondary"),
-            width: 3,
-            dash: [10, 6],
+            stroke: cssVar("--warning"),
+            width: 2,
+            dash: [4, 3],
             spanGaps: false,
-            points: { show: true, size: 3, stroke: cssVar("--success-secondary"), fill: cssVar("--surface-1") },
+            points: { show: false },
           },
         ],
       },

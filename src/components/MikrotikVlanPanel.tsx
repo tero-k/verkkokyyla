@@ -22,7 +22,7 @@ function StateBadge({
     return <span className={`${styles.badge} ${styles.disabled}`}>Disabled</span>
   }
   if (running === true) {
-    return <span className={`${styles.badge} ${styles.running}`}>Running</span>
+    return <span className={`${styles.badge} ${styles.running}`}>Up</span>
   }
   return <span className={`${styles.badge} ${styles.down}`}>Down</span>
 }

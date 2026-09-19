@@ -44,7 +44,7 @@ describe("MikrotikVlanPanel", () => {
     expect(within(vlanTable).getByText("staff-vlan")).toBeDefined()
     expect(within(vlanTable).getByText("20")).toBeDefined()
     expect(within(vlanTable).getByText("bridge-core")).toBeDefined()
-    expect(within(vlanTable).getByText("Running").className).toMatch(/running/)
+    expect(within(vlanTable).getByText("Up").className).toMatch(/running/)
     expect(within(vlanTable).getByText("Disabled").className).toMatch(/disabled/)
     expect(within(bridgeTable).getByText("20, 30-31")).toBeDefined()
     expect(within(bridgeTable).getByText("bridge-core")).toBeDefined()

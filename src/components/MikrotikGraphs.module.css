@@ -1,40 +1,41 @@
 .wrapper {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
+  gap: 16px;
   min-inline-size: 0;
 }
 
 .panel {
   min-inline-size: 0;
-  padding-block-end: 1rem;
+  padding-block-end: 12px;
   overflow: hidden;
-  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface-1);
 }
 
 .title {
   margin: 0;
-  padding: 1rem 1rem 0.25rem;
-  color: var(--text);
-  font-size: 0.875rem;
-  font-weight: 600;
+  padding: 12px 15px 4px;
+  font: 600 10px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 14px;
   margin: 0;
-  padding: 0 1rem 0.35rem;
+  padding: 0 15px 6px;
   color: var(--text-muted);
-  font-size: 0.875rem;
-  font-variant-numeric: tabular-nums;
+  font: 400 10.5px/1.5 var(--font-mono);
 }
 
 .rxKey,
 .txKey {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .rxKey {
@@ -42,7 +43,7 @@
 }
 
 .txKey {
-  color: var(--success);
+  color: var(--warning);
   text-decoration-line: underline;
   text-decoration-style: dashed;
   text-underline-offset: 0.2em;

@@ -66,7 +66,9 @@ describe("MikrotikStatusCards", () => {
     ).toBeTruthy()
     expect(view.getByText("3d 04:12:33")).toBeTruthy()
     expect(view.getByText("CCR2216-live")).toBeTruthy()
-    expect(view.getByText("7.20-live")).toBeTruthy()
+    // RouterOS version is intentionally not duplicated here; it lives in the
+    // version panel with the update check.
+    expect(view.queryByText("ROUTEROS VERSION")).toBeNull()
     expect(view.getByText("ARCHITECTURE")).toBeTruthy()
     expect(view.getByText("arm64-live")).toBeTruthy()
   })
@@ -80,7 +82,6 @@ describe("MikrotikStatusCards", () => {
     )
 
     expect(view.getByText("CCR2004-1G-12S+2XS")).toBeTruthy()
-    expect(view.getByText("7.19.4")).toBeTruthy()
     expect(view.getByText("arm64")).toBeTruthy()
   })
 

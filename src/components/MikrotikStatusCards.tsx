@@ -135,13 +135,8 @@ export function MikrotikStatusCards({
       highlighted: false,
       unsupported: false,
     },
-    {
-      id: "routeros",
-      label: "ROUTEROS VERSION",
-      value: resources?.routerosVersion ?? metadata?.routerosVersion ?? "-",
-      highlighted: false,
-      unsupported: false,
-    },
+    // RouterOS version lives in the version panel (with Check for updates);
+    // no duplicate card here.
     {
       id: "architecture",
       label: "ARCHITECTURE",
