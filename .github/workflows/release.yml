@@ -44,9 +44,7 @@ jobs:
           # cleanly-linked legacy p12 from it. Direct p12→p12 re-export fails
           # when the bag localKeyID attributes don't match up.
           openssl pkcs12 -in /tmp/cert-modern.p12 -out /tmp/cert.pem -nodes -passin "pass:$APPLE_CERTIFICATE_PASSWORD"
-          grep -c "PRIVATE KEY" /tmp/cert.pem
-          # Log the leaf cert's type — codesigning needs "Developer ID Application".
-          openssl x509 -in /tmp/cert.pem -noout -subject -issuer -ext extendedKeyUsage
+          grep -q "PRIVATE KEY" /tmp/cert.pem || { echo "certificate has no private key"; exit 1; }
           openssl pkcs12 -export -in /tmp/cert.pem -out /tmp/cert-legacy.p12 \
             -passout "pass:$APPLE_CERTIFICATE_PASSWORD" \
             -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
