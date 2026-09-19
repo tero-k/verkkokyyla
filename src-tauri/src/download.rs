@@ -107,6 +107,12 @@ pub(crate) fn mbps_from(bytes: u64, elapsed: Duration) -> f64 {
     (bytes as f64) * 8.0 / secs / 1_000_000.0
 }
 
+/// Milliseconds for a completed operation, ceiled so a real (sub-millisecond)
+/// transfer never reports 0 — a 0 ms reading renders as "broken" in the UI.
+fn elapsed_ms_ceiled(elapsed: Duration) -> u64 {
+    (elapsed.as_millis() as u64).max(1)
+}
+
 /// Run a download speed test against `url` and stream progress via `on_progress`.
 pub async fn run_download_speed_test<F>(
     url: &str,
@@ -182,7 +188,7 @@ where
         status_code,
         content_length,
         bytes_received,
-        total_time_ms: total_elapsed.as_millis() as u64,
+        total_time_ms: elapsed_ms_ceiled(total_elapsed),
         time_to_first_byte_ms,
         dns_resolution_ms,
         tls_handshake_ms: None,
