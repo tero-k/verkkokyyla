@@ -130,12 +130,19 @@ test("successful mocked full-page test shows resource table", async ({ page }) =
   await slowestOnly.click()
   await expect(slowestOnly).toHaveAttribute("aria-pressed", "true")
   await expect(slowestOnly).toHaveClass(/typeChipActive/)
-  const activeTypeBackground = await scriptFilter.evaluate(
-    (element) => getComputedStyle(element).backgroundColor,
-  )
+  // Both active chips share .typeChipActive, whose background transitions over
+  // 100ms — poll both sides so a mid-transition capture cannot flake.
   await expect
-    .poll(() => slowestOnly.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toBe(activeTypeBackground)
+    .poll(async () => {
+      const typeBackground = await scriptFilter.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      )
+      const slowestBackground = await slowestOnly.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      )
+      return slowestBackground === typeBackground
+    })
+    .toBe(true)
   await expect(resourceRows).toHaveCount(5)
 
   await expect(page.locator('[data-testid="download-start"]')).not.toBeDisabled()
