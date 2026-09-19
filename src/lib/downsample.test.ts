@@ -79,4 +79,59 @@ describe("downsample", () => {
     }
     expect(sawNonNull && sawNull && sawNonNullAfterNull).toBe(true)
   })
+
+  it("computes jitter even when every bucket holds a single probe", () => {
+    const canvasWidth = 100
+    const probes: ProbePoint[] = [
+      makeProbe(1, 10, false),
+      makeProbe(2, 20, false),
+      makeProbe(3, 20, false),
+      makeProbe(4, 20, false),
+    ]
+    const result = downsample(probes, canvasWidth)
+    const jitterValues = result.jitter
+      .map((point) => point.y)
+      .filter((y): y is number => y !== null)
+    expect(jitterValues.length).toBeGreaterThan(0)
+    // First jitter estimate is the raw |RTT delta| of the second probe.
+    expect(jitterValues[0]).toBeCloseTo(10, 9)
+  })
+
+  it("applies the 1/16 smoothing to subsequent jitter estimates", () => {
+    const canvasWidth = 100
+    const probes: ProbePoint[] = [
+      makeProbe(1, 10, false),
+      makeProbe(2, 20, false),
+      makeProbe(3, 10, false),
+    ]
+    const result = downsample(probes, canvasWidth)
+    const jitterValues = result.jitter
+      .map((point) => point.y)
+      .filter((y): y is number => y !== null)
+    expect(jitterValues[0]).toBeCloseTo(10, 9)
+    expect(jitterValues[1]).toBeCloseTo(10 + (10 - 10) / 16, 9)
+  })
+
+  it("skips lost probes when chaining jitter estimates", () => {
+    const canvasWidth = 100
+    const probes: ProbePoint[] = [
+      makeProbe(1, 10, false),
+      makeProbe(2, null, true),
+      makeProbe(3, 30, false),
+    ]
+    const result = downsample(probes, canvasWidth)
+    const jitterValues = result.jitter
+      .map((point) => point.y)
+      .filter((y): y is number => y !== null)
+    // Delta is measured against the last successful RTT (10), not the loss.
+    expect(jitterValues[0]).toBeCloseTo(20, 9)
+  })
+
+  it("returns null jitter for a bucket with no chained successful probes", () => {
+    const canvasWidth = 100
+    const probes: ProbePoint[] = [makeProbe(1, 10, false)]
+    const result = downsample(probes, canvasWidth)
+    const jitterValues = result.jitter.map((point) => point.y)
+    expect(jitterValues.every((y) => y === null)).toBe(true)
+  })
 })

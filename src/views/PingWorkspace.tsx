@@ -4,6 +4,7 @@ import { PingSessionPanel } from "../components/PingSessionPanel"
 import { deleteSession, listSessions } from "../lib/ipc"
 import { useConfirmDialog } from "../hooks/useConfirmDialog"
 import type { SessionSummaryDto } from "../lib/types"
+import { Button, ViewHeader } from "../components/ui/ui"
 
 import styles from "./PingWorkspace.module.css"
 
@@ -61,6 +62,15 @@ export default function PingWorkspace() {
     setTabs((prev) => [...prev, { id: nextId }])
   }, [])
 
+  // Refresh the persisted list whenever the workspace falls back to the
+  // empty state (e.g. the last card was closed): sessions stopped in the
+  // meantime only exist in the database, not in this component's state.
+  useEffect(() => {
+    if (ready && tabs.length === 0) {
+      void refreshPast()
+    }
+  }, [ready, tabs.length, refreshPast])
+
   const openPastSession = useCallback((id: number) => {
     nextId += 1
     setTabs((prev) => [...prev, { id: nextId, initialSessionId: id }])
@@ -79,46 +89,69 @@ export default function PingWorkspace() {
     [refreshPast, confirm],
   )
 
+  const handleDeleteMany = useCallback(
+    async (ids: readonly number[]) => {
+      if (ids.length === 0) return
+      if (!(await confirm(`Delete ${ids.length} sessions?`))) return
+      await Promise.all(ids.map((id) => deleteSession(id)))
+      void refreshPast()
+    },
+    [refreshPast, confirm],
+  )
+
   const isEmpty = tabs.length === 0
 
   return (
     <div className={styles.workspace}>
-      <div className={styles.header}>
-        <h1>Ping</h1>
-        <button
-          type="button"
-          className={styles.newButton}
-          onClick={addSession}
-          data-testid="new-ping"
-        >
-          + New ping
-        </button>
-      </div>
-      {!ready ? (
-        <p className={styles.loading}>Loading…</p>
-      ) : isEmpty ? (
-        <div className={styles.emptyState}>
-          <p className={styles.emptyHint}>No active pings.</p>
-          <div className={styles.emptyPanel}>
-            <PingSessionPanel
-              sessions={pastSessions}
-              disabled={false}
-              onOpen={openPastSession}
-              onDelete={handleDelete}
-            />
+      <ViewHeader
+        title={<h1 className={styles.title}>Ping / ICMP</h1>}
+        subtitle={ready ? `${tabs.length} active workspace${tabs.length === 1 ? "" : "s"}` : "Preparing workspace"}
+      >
+        <div className="vk-view-actions">
+          <Button
+            variant="primary"
+            onClick={addSession}
+            data-testid="new-ping"
+          >
+            New ping
+          </Button>
+        </div>
+      </ViewHeader>
+
+      <div className={styles.body}>
+        {!ready ? (
+          <p className={styles.loading}>Loading ping history…</p>
+        ) : isEmpty ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyCopy}>
+              <span className={styles.eyebrow}>Ping workspace</span>
+              <h2>No active pings</h2>
+              <p className={styles.emptyHint}>
+                Start a new ICMP session or reopen a saved run below.
+              </p>
+            </div>
+            <div className={styles.emptyPanel}>
+              <PingSessionPanel
+                sessions={pastSessions}
+                disabled={false}
+                onOpen={openPastSession}
+                onDelete={handleDelete}
+                onDeleteMany={handleDeleteMany}
+              />
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className={styles.grid}>
-          {tabs.map((tab) => (
-            <PingView
-              key={tab.id}
-              onClose={() => closeSession(tab.id)}
-              initialSessionId={tab.initialSessionId}
-            />
-          ))}
-        </div>
-      )}
+        ) : (
+          <div className={styles.grid}>
+            {tabs.map((tab) => (
+              <PingView
+                key={tab.id}
+                onClose={() => closeSession(tab.id)}
+                initialSessionId={tab.initialSessionId}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       {confirmDialog}
     </div>
   )

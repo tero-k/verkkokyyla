@@ -144,6 +144,47 @@ test("run, stop, list, reopen, and delete a session", async ({ page }) => {
   await expect(page.locator('[data-testid="session-item"]')).toHaveCount(0)
 })
 
+test("history caps at five sessions and supports multi-select delete", async ({
+  page,
+}) => {
+  await installMockTauri(page)
+  await page.goto("/")
+
+  for (let index = 0; index < 6; index++) {
+    await page.fill('[data-testid="ping-target"]', `cap-host-${index}`)
+    await page.click('[data-testid="ping-start"]')
+    await page.click('[data-testid="ping-stop"]')
+    await expect(
+      page.locator('[data-testid="session-item"]').first(),
+    ).toContainText(`cap-host-${index}`)
+  }
+
+  // Only the five newest sessions are listed, with an expander for the rest.
+  await expect(page.locator('[data-testid="session-item"]')).toHaveCount(5)
+  const reveal = page.locator('[data-testid="history-reveal"]')
+  await expect(reveal).toContainText("Show 1 older")
+  await reveal.click()
+  await expect(page.locator('[data-testid="session-item"]')).toHaveCount(6)
+
+  // Select two rows and delete them in one confirmed batch.
+  await page.click('[data-testid="history-select-toggle"]')
+  const checkboxes = page.locator('[data-testid="session-delete-select"]')
+  await expect(checkboxes).toHaveCount(6)
+  await checkboxes.nth(0).check()
+  await checkboxes.nth(1).check()
+  await expect(page.locator('[data-testid="history-selection-bar"]')).toContainText(
+    "2 selected",
+  )
+  await page.click('[data-testid="history-delete-selected"]')
+  await expect(
+    page.locator('[data-testid="confirm-dialog"]'),
+  ).toBeVisible()
+  await page.click('[data-testid="confirm-dialog-confirm"]')
+
+  await expect(page.locator('[data-testid="session-item"]')).toHaveCount(4)
+  await expect(page.locator('[data-testid="history-reveal"]')).toHaveCount(0)
+})
+
 test("engine error pauses session and retry falls back", async ({ page }) => {
   await installMockTauri(page)
   await page.goto("/")

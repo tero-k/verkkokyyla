@@ -1,206 +1,348 @@
 .view {
+  container-name: ping-view;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  min-width: 0;
   min-height: 0;
-  padding: 1rem;
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  background: var(--bg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+  color: var(--text);
 }
 
 .cardHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 12px 8px 15px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
 }
 
-.cardTitle {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
+.sessionIdentity {
+  flex: 1;
+  min-width: 0;
+}
+
+.sessionIdentity :global(.vk-section) {
+  justify-content: flex-start;
+}
+
+.sessionIdentity :global(.vk-section-aside) {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .closeButton {
-  padding: 0.1rem 0.4rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  flex: none;
+  color: var(--text-faint);
+  font: 500 16px/1 var(--font-ui);
 }
 
-.closeButton:hover {
-  color: var(--text);
-  background: var(--surface-2);
+.view > :global(.vk-view-header) {
+  flex: none;
+  padding: 12px 14px;
+  background: var(--header-bg);
 }
 
 .controls {
   display: flex;
+  align-items: flex-start;
+  flex: 1;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 1rem;
+  gap: 8px;
+  min-width: 0;
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  min-width: 0;
 }
 
-.field label {
-  font-size: 0.8rem;
-  color: var(--text-muted);
+.field :global(.vk-chip) {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 11px;
+  gap: 8px;
 }
 
-.field input,
-.field select {
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 0.9rem;
-  min-width: 220px;
-}
-
-.field input[type="number"] {
-  min-width: 100px;
-}
-
-.checkboxField label {
+.field :global(.vk-chip-value) {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.9rem;
+  min-width: 0;
+}
+
+.targetField {
+  flex: 1 1 20rem;
+}
+
+.targetField :global(.vk-chip) {
+  width: 100%;
+}
+
+.targetField :global(.vk-chip-value) {
+  flex: 1;
+}
+
+.targetField :global(.vk-chip-aside) {
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipInput,
+.chipNumber,
+.chipSelect {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline-offset: 3px;
+  background: transparent;
   color: var(--text);
-  cursor: pointer;
-  min-width: auto;
+  font: 500 12px/1 var(--font-mono);
 }
 
-.checkboxField input {
-  min-width: auto;
-  width: auto;
+.chipInput {
+  width: 100%;
+}
+
+.chipNumber {
+  width: 54px;
+}
+
+.chipSelect {
+  width: 66px;
   cursor: pointer;
 }
 
-.field input:disabled,
-.field select:disabled {
-  opacity: 0.6;
+.chipInput:focus-visible,
+.chipNumber:focus-visible,
+.chipSelect:focus-visible {
+  outline: 1px solid var(--accent);
+}
+
+.chipInput:disabled,
+.chipNumber:disabled,
+.chipSelect:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.checkboxControl {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font: 500 11px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.checkboxControl input {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.checkboxControl:has(input:disabled) {
+  cursor: default;
+  opacity: 0.62;
 }
 
 .inlineError {
-  font-size: 0.8rem;
+  display: block;
+  margin: 5px 3px 0;
   color: var(--danger);
+  font: 500 10px/1.35 var(--font-ui);
 }
 
 .actions {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  margin-left: auto;
 }
 
-.actions button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.actions button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-
-.actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.banner {
+.body {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  background: var(--surface-1);
-}
-
-.status {
-  color: var(--accent);
-  font-size: 0.85rem;
-}
-
-.error {
-  color: var(--danger);
-  font-size: 0.85rem;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  background: var(--bg);
 }
 
 .pauseBanner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--status-error-bg);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--status-error-panel-bg);
 }
 
 .pauseMessage {
-  color: var(--status-error-text);
-  font-size: 0.85rem;
+  min-width: 0;
+  color: var(--status-error-panel-text);
+  font: 500 11px/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
-.pauseBanner button {
-  padding: 0.45rem 0.9rem;
-  border: 1px solid var(--status-error-bg);
-  border-radius: 4px;
-  background: var(--status-error-subtle-bg);
-  color: var(--status-error-subtle-text);
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
+.banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
 }
 
-.pauseBanner button:hover:not(:disabled) {
-  background: var(--status-error-bg);
+.statusLine,
+.errorLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.pauseBanner button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.status,
+.error {
+  font: 500 10.5px/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.status {
+  color: var(--accent);
+}
+
+.error {
+  color: var(--danger);
 }
 
 .resolved {
-  font-size: 0.85rem;
-  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .resolvedIp {
+  overflow: hidden;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .answers {
-  margin-left: 0.5rem;
+  overflow: hidden;
   color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tableWrapper {
-  flex: 1;
-  min-height: 0;
+.answers::before {
+  content: "·";
+  margin-right: 6px;
 }
 
-.graphsWrapper {
+.dataGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr);
+  gap: 16px;
+  align-items: start;
   min-width: 0;
 }
 
+.tableWrapper,
+.graphsWrapper,
 .sessionsWrapper {
   min-width: 0;
+}
+
+@container ping-view (max-width: 900px) {
+  .dataGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container ping-view (max-width: 620px) {
+  .cardHeader {
+    padding-inline: 12px;
+  }
+
+  .view > :global(.vk-view-header) {
+    padding: 10px 12px;
+  }
+
+  .targetField {
+    flex-basis: 100%;
+  }
+
+  .targetField :global(.vk-chip-aside) {
+    max-width: 38%;
+  }
+
+  .actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+
+  .body {
+    gap: 12px;
+    padding: 12px;
+  }
+}
+
+@container ping-view (max-width: 420px) {
+  .field {
+    flex: 1 1 auto;
+  }
+
+  .checkboxField {
+    flex-basis: 100%;
+  }
+
+  .targetField :global(.vk-chip) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+  }
+
+  .targetField :global(.vk-chip-value) {
+    grid-column: 2;
+  }
+
+  .targetField :global(.vk-chip-aside) {
+    grid-column: 2;
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .pauseBanner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }

@@ -3,6 +3,7 @@ import UPlot from "uplot/dist/uPlot.esm.js"
 import { buildGraphData } from "../lib/graphData"
 import type { ProbeRow } from "../lib/types"
 import { useTheme } from "../theme"
+import { Card, SectionHeader } from "./ui/ui"
 
 import "uplot/dist/uPlot.min.css"
 import styles from "./PingGraphs.module.css"
@@ -20,7 +21,7 @@ function graphAxisConfig(label: string): object {
     stroke: cssVar("--graph-axis"),
     grid: { stroke: cssVar("--graph-grid") },
     ticks: { stroke: cssVar("--graph-grid") },
-    font: `12px system-ui, sans-serif`,
+    font: `10px ${cssVar("--font-mono")}`,
     label,
     labelColor: cssVar("--graph-axis"),
     labelSize: 12,
@@ -28,7 +29,6 @@ function graphAxisConfig(label: string): object {
 }
 
 export function PingGraphs({ probes }: PingGraphsProps) {
-  const wrapperRef = useRef<HTMLDivElement>(null)
   const rttRef = useRef<HTMLDivElement>(null)
   const lossRef = useRef<HTMLDivElement>(null)
   const jitterRef = useRef<HTMLDivElement>(null)
@@ -41,7 +41,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
   }>({ rtt: null, loss: null, jitter: null })
 
   useEffect(() => {
-    const element = wrapperRef.current
+    const element = rttRef.current
     if (element === null) return
 
     const observer = new ResizeObserver((entries) => {
@@ -67,7 +67,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
       {
         width,
         height: 160,
-        title: "RTT",
+        legend: { show: false },
         scales: { x: { time: true }, y: {} },
         axes: [graphAxisConfig(""), graphAxisConfig("ms")],
         series: [
@@ -75,6 +75,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
           {
             label: "RTT",
             stroke: cssVar("--graph-rtt"),
+            width: 2,
             spanGaps: false,
             points: { show: false },
           },
@@ -93,7 +94,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
       {
         width,
         height: 120,
-        title: "Loss %",
+        legend: { show: false },
         scales: { x: { time: true }, y: {} },
         axes: [graphAxisConfig(""), graphAxisConfig("%")],
         series: [
@@ -101,6 +102,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
           {
             label: "Loss %",
             stroke: cssVar("--graph-loss"),
+            width: 2,
             fill: cssVar("--graph-loss-fill"),
             points: { show: false },
           },
@@ -114,7 +116,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
       {
         width,
         height: 120,
-        title: "Jitter",
+        legend: { show: false },
         scales: { x: { time: true }, y: {} },
         axes: [graphAxisConfig(""), graphAxisConfig("ms")],
         series: [
@@ -122,6 +124,7 @@ export function PingGraphs({ probes }: PingGraphsProps) {
           {
             label: "Jitter",
             stroke: cssVar("--graph-jitter"),
+            width: 2,
             points: { show: false },
           },
         ],
@@ -168,10 +171,40 @@ export function PingGraphs({ probes }: PingGraphsProps) {
   }, [probes, width])
 
   return (
-    <div className={styles.wrapper} ref={wrapperRef}>
-      <div className={styles.chart} ref={rttRef} />
-      <div className={styles.chart} ref={lossRef} />
-      <div className={styles.chart} ref={jitterRef} />
+    <div className={styles.wrapper}>
+      <Card className={styles.chartCard}>
+        <div className={styles.chartHeader}>
+          <SectionHeader title="Round-trip time" aside="milliseconds" />
+        </div>
+        <div
+          className={styles.chart}
+          ref={rttRef}
+          role="img"
+          aria-label="Round-trip time chart"
+        />
+      </Card>
+      <Card className={styles.chartCard}>
+        <div className={styles.chartHeader}>
+          <SectionHeader title="Packet loss" aside="percent" />
+        </div>
+        <div
+          className={styles.chart}
+          ref={lossRef}
+          role="img"
+          aria-label="Packet loss chart"
+        />
+      </Card>
+      <Card className={styles.chartCard}>
+        <div className={styles.chartHeader}>
+          <SectionHeader title="Jitter" aside="milliseconds" />
+        </div>
+        <div
+          className={styles.chart}
+          ref={jitterRef}
+          role="img"
+          aria-label="Jitter chart"
+        />
+      </Card>
     </div>
   )
 }

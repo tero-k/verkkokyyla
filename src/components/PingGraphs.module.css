@@ -1,24 +1,56 @@
 .wrapper {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
   min-width: 0;
+}
+
+.chartCard {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface-1);
+}
+
+.chartHeader {
+  padding: 13px 15px 0;
 }
 
 .chart {
-  min-width: 0;
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 9px 7px 5px;
 }
 
-.chart :global(.u-title) {
-  font-size: 0.85rem;
-  color: var(--text);
-}
-
-.chart :global(.u-axis) {
+.chart :global(.uplot) {
+  max-width: 100%;
+  background: transparent;
   color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
+.chart :global(.u-wrap) {
+  max-width: 100%;
+}
+
+.chart :global(.u-axis),
 .chart :global(.u-label) {
-  color: var(--text-muted);
+  color: var(--graph-axis);
+  font-family: var(--font-mono);
+}
+
+.chart :global(canvas) {
+  display: block;
+  max-width: 100%;
+}
+
+@container ping-view (max-width: 620px) {
+  .wrapper {
+    gap: 12px;
+  }
+
+  .chartHeader {
+    padding-inline: 12px;
+  }
 }

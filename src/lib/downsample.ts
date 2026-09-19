@@ -16,17 +16,34 @@ export type DownsampleResult = {
   readonly globalMax: number | null
 }
 
-function bucketJitter(rtts: readonly number[]): number | null {
-  if (rtts.length < 2) return null
-  let jitter = Math.abs(rtts[1] - rtts[0])
-  for (let i = 2; i < rtts.length; i++) {
-    const delta = Math.abs(rtts[i] - rtts[i - 1])
-    jitter += (delta - jitter) / 16
-  }
-  return jitter
+type EnrichedPoint = {
+  readonly probe: ProbePoint
+  readonly jitter: number | null
 }
 
-function aggregateBucket(bucket: readonly ProbePoint[]) {
+/// Running RFC 3550 jitter estimate per successful probe, mirroring
+/// `computeSnapshot` in snapshot.ts: each probe gets the estimate computed
+/// from consecutive successful RTTs, so the series starts at the second
+/// successful probe and survives buckets that hold a single probe.
+function attachJitter(probes: readonly ProbePoint[]): EnrichedPoint[] {
+  let previousRtt: number | null = null
+  let runningJitter: number | null = null
+  return probes.map((probe) => {
+    let jitter: number | null = null
+    if (!probe.lost && probe.rttMs !== null) {
+      if (previousRtt !== null) {
+        const delta = Math.abs(probe.rttMs - previousRtt)
+        runningJitter =
+          runningJitter === null ? delta : runningJitter + (delta - runningJitter) / 16
+        jitter = runningJitter
+      }
+      previousRtt = probe.rttMs
+    }
+    return { probe, jitter }
+  })
+}
+
+function aggregateBucket(bucket: readonly EnrichedPoint[]) {
   let count = 0
   let lossCount = 0
   let firstLossX: number | null = null
@@ -34,8 +51,10 @@ function aggregateBucket(bucket: readonly ProbePoint[]) {
   let minRtt: { readonly x: number; readonly rtt: number } | null = null
   let maxRtt: { readonly x: number; readonly rtt: number } | null = null
   const rtts: number[] = []
+  let sumJitter = 0
+  let jitterCount = 0
 
-  for (const probe of bucket) {
+  for (const { probe, jitter } of bucket) {
     count += 1
     if (probe.lost || probe.rttMs === null) {
       lossCount += 1
@@ -45,6 +64,10 @@ function aggregateBucket(bucket: readonly ProbePoint[]) {
     const rtt = probe.rttMs
     sumRtt += rtt
     rtts.push(rtt)
+    if (jitter !== null) {
+      sumJitter += jitter
+      jitterCount += 1
+    }
     if (minRtt === null || rtt < minRtt.rtt) {
       minRtt = { x: probe.x, rtt }
     }
@@ -54,7 +77,7 @@ function aggregateBucket(bucket: readonly ProbePoint[]) {
   }
 
   const avgRtt = rtts.length > 0 ? sumRtt / rtts.length : null
-  const jitter = bucketJitter(rtts)
+  const jitter = jitterCount > 0 ? sumJitter / jitterCount : null
 
   return {
     count,
@@ -64,7 +87,7 @@ function aggregateBucket(bucket: readonly ProbePoint[]) {
     maxRtt,
     avgRtt,
     jitter,
-    lastX: bucket[bucket.length - 1]?.x ?? 0,
+    lastX: bucket[bucket.length - 1]?.probe.x ?? 0,
   }
 }
 
@@ -75,6 +98,7 @@ export function downsample(probes: readonly ProbePoint[], canvasWidth: number): 
 
   const bucketCount = Math.max(1, Math.floor(canvasWidth))
   const bucketSize = probes.length / bucketCount
+  const enriched = attachJitter(probes)
 
   let globalMin: number | null = null
   let globalMax: number | null = null
@@ -103,7 +127,7 @@ export function downsample(probes: readonly ProbePoint[], canvasWidth: number): 
     const end = Math.min(probes.length, Math.floor((bucketIndex + 1) * bucketSize))
     if (start >= end) continue
 
-    const bucket = probes.slice(start, end)
+    const bucket = enriched.slice(start, end)
     const stats = aggregateBucket(bucket)
 
     const representativeX = stats.maxRtt?.x ?? stats.firstLossX ?? stats.lastX
