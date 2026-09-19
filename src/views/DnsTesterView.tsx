@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
+import { useSessionHistory } from "../hooks/useSessionHistory"
+import {
+  RevealButton,
+  SelectionBar,
+  SelectionToggle,
+} from "../components/HistoryControls"
 import {
   deleteDnsRun,
   listDnsRuns,
@@ -29,10 +35,41 @@ import type {
   SampleCell,
   SpfReportDto,
 } from "../lib/types"
-import styles from "./DnsTesterView.module.css"
 import { useConfirmDialog } from "../hooks/useConfirmDialog"
+import {
+  Button,
+  Card,
+  Chip,
+  Diamond,
+  Meter,
+  SectionHeader,
+  Segmented,
+  StatusBar,
+  ViewHeader,
+} from "../components/ui/ui"
+import styles from "./DnsTesterView.module.css"
 
 type Tab = "lookup" | "benchmark" | "diagnostics" | "email" | "history"
+
+const TAB_OPTIONS: readonly { readonly key: Tab; readonly label: string }[] = [
+  { key: "lookup", label: "Lookup" },
+  { key: "benchmark", label: "Benchmark" },
+  { key: "diagnostics", label: "Diagnostics" },
+  { key: "email", label: "Email" },
+  { key: "history", label: "History" },
+]
+
+const LOOKUP_RECORD_TYPES = ["A", "AAAA", "MX", "NS", "SOA", "TXT"] as const
+type LookupRecordType = (typeof LOOKUP_RECORD_TYPES)[number]
+
+const BENCHMARK_PRESET_OPTIONS: readonly {
+  readonly value: BenchmarkPreset
+  readonly label: string
+}[] = [
+  { value: "quick", label: "Quick" },
+  { value: "stress", label: "Stress" },
+  { value: "cache-bust", label: "Cache-bust" },
+]
 
 const DEFAULT_ENDPOINT: ResolverEndpointDto = {
   name: "Cloudflare",
@@ -125,6 +162,7 @@ export default function DnsTesterView() {
   const [selectedRun, setSelectedRun] = useState<LoadedDnsRunDto | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const { confirm, dialog: confirmDialog } = useConfirmDialog()
+  const runHistory = useSessionHistory(runs)
 
   useEffect(() => {
     if (tab === "history") {
@@ -225,149 +263,518 @@ export default function DnsTesterView() {
     await refreshHistory()
   }
 
+  async function deleteRuns(ids: readonly number[]) {
+    if (ids.length === 0) return
+    if (!(await confirm(`Delete ${ids.length} runs?`))) return
+    await Promise.all(ids.map((id) => deleteDnsRun(id)))
+    setSelectedRun(null)
+    await refreshHistory()
+  }
+
+  function handleDeleteSelected() {
+    const ids = runs
+      .filter((run) => runHistory.selectedIds.has(run.id))
+      .map((run) => run.id)
+    void Promise.resolve(deleteRuns(ids)).then(() => runHistory.exitSelectMode())
+  }
+
   const latestMetrics: MetricsDto | null = useMemo(() => {
     if (!benchResult) return null
     return benchResult.metrics
   }, [benchResult])
 
+  const selectedLookupTypes = useMemo(
+    () =>
+      new Set(
+        lookupTypes
+          .split(",")
+          .map((recordType) => recordType.trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    [lookupTypes],
+  )
+
+  const lookupOutcomes = useMemo(
+    () =>
+      lookupEvents.map((event, eventIndex) => ({
+        event,
+        eventIndex,
+        result: unwrapResult<QueryResultDto>(event.result),
+      })),
+    [lookupEvents],
+  )
+
+  const successfulLookups = useMemo(
+    () =>
+      lookupOutcomes.flatMap((outcome) =>
+        outcome.result.ok ? [outcome.result.value] : [],
+      ),
+    [lookupOutcomes],
+  )
+
+  const failedLookups = useMemo(
+    () =>
+      lookupOutcomes.flatMap((outcome) =>
+        outcome.result.ok
+          ? []
+          : [
+              {
+                event: outcome.event,
+                eventIndex: outcome.eventIndex,
+                error: outcome.result.error,
+              },
+            ],
+      ),
+    [lookupOutcomes],
+  )
+
+  const rankedLookupResults = useMemo(
+    () => [...successfulLookups].sort((left, right) => left.latencyMs - right.latencyMs),
+    [successfulLookups],
+  )
+
+  const lookupRecordCount = successfulLookups.reduce(
+    (count, result) => count + result.answers.length,
+    0,
+  )
+  const lookupRcodes = new Set(successfulLookups.map((result) => result.rcode))
+  const lookupRcode =
+    lookupRcodes.size === 1
+      ? successfulLookups[0]?.rcode ?? "READY"
+      : lookupRcodes.size > 1
+        ? "MIXED"
+        : "READY"
+  const maxLookupLatency = Math.max(
+    1,
+    ...rankedLookupResults.map((result) => result.latencyMs),
+  )
+  const validatedResponseCount = successfulLookups.filter((result) => result.adFlag).length
+  const ednsResponseCount = successfulLookups.filter((result) => result.ednsPresent).length
+  const dnssecValidated =
+    successfulLookups.length > 0 && validatedResponseCount === successfulLookups.length
+  const latestBenchCell = benchCells.at(-1)
+
+  function toggleLookupRecordType(recordType: LookupRecordType) {
+    const currentTypes = lookupTypes
+      .split(",")
+      .map((currentType) => currentType.trim())
+      .filter(Boolean)
+    const hasRecordType = currentTypes.some(
+      (currentType) => currentType.toUpperCase() === recordType,
+    )
+    const nextTypes = hasRecordType
+      ? currentTypes.filter((currentType) => currentType.toUpperCase() !== recordType)
+      : [...currentTypes, recordType]
+    setLookupTypes(nextTypes.join(","))
+  }
+
   return (
     <div className={styles.container}>
-      <h1>DNS Toolkit</h1>
-      <div className={styles.tabs} role="tablist">
-        {[
-          { key: "lookup", label: "Lookup" },
-          { key: "benchmark", label: "Benchmark" },
-          { key: "diagnostics", label: "Diagnostics" },
-          { key: "email", label: "Email" },
-          { key: "history", label: "History" },
-        ].map((t) => (
+      <h1 className={styles.srOnly}>DNS Toolkit</h1>
+
+      <div className={styles.headerShell}>
+        {tab === "lookup" && (
+          <ViewHeader>
+            <div className={styles.headerField}>
+              <Chip
+                label={<label htmlFor="dns-lookup-domain">Domain</label>}
+                value={
+                  <input
+                    id="dns-lookup-domain"
+                    aria-label="Domain"
+                    className={styles.headerInput}
+                    value={lookupName}
+                    onChange={(event) => setLookupName(event.target.value)}
+                  />
+                }
+              />
+            </div>
+            <div
+              className={styles.recordTypeWell}
+              role="group"
+              aria-label="Record types (comma separated)"
+            >
+              {LOOKUP_RECORD_TYPES.map((recordType) => (
+                <button
+                  key={recordType}
+                  type="button"
+                  aria-pressed={selectedLookupTypes.has(recordType)}
+                  className={`${styles.recordTypeButton}${
+                    selectedLookupTypes.has(recordType) ? ` ${styles.recordTypeButtonActive}` : ""
+                  }`}
+                  onClick={() => toggleLookupRecordType(recordType)}
+                >
+                  {recordType}
+                </button>
+              ))}
+            </div>
+            <Button variant="primary" onClick={handleLookup} disabled={lookupRunning}>
+              {lookupRunning ? "Resolving..." : "Resolve"}
+            </Button>
+          </ViewHeader>
+        )}
+
+        {tab === "benchmark" && (
+          <ViewHeader>
+            <div className={styles.headerField}>
+              <Chip
+                label={<label htmlFor="dns-bench-domain">Domain</label>}
+                value={
+                  <input
+                    id="dns-bench-domain"
+                    aria-label="Query domain"
+                    className={styles.headerInput}
+                    value={benchName}
+                    onChange={(event) => setBenchName(event.target.value)}
+                  />
+                }
+              />
+            </div>
+            <Segmented
+              options={BENCHMARK_PRESET_OPTIONS}
+              value={benchPreset}
+              onChange={setBenchPreset}
+              ariaLabel="Preset"
+            />
+            <Button variant="primary" onClick={handleBenchmark} disabled={benchRunning}>
+              {benchRunning ? "Running..." : "Run benchmark"}
+            </Button>
+          </ViewHeader>
+        )}
+
+        {tab === "diagnostics" && (
+          <ViewHeader>
+            <div className={styles.headerField}>
+              <Chip
+                label={<label htmlFor="dns-diag-domain">Domain</label>}
+                value={
+                  <input
+                    id="dns-diag-domain"
+                    aria-label="Domain"
+                    className={styles.headerInput}
+                    value={diagDomain}
+                    onChange={(event) => setDiagDomain(event.target.value)}
+                  />
+                }
+                aside={`${diagEndpoint.name} · ${diagEndpoint.protocol.toUpperCase()}`}
+              />
+            </div>
+            <Button variant="primary" onClick={handleDiagnostics} disabled={diagRunning}>
+              {diagRunning ? "Running..." : "Run diagnostics"}
+            </Button>
+          </ViewHeader>
+        )}
+
+        {tab === "email" && (
+          <ViewHeader>
+            <div className={styles.headerField}>
+              <Chip
+                label={<label htmlFor="dns-email-domain">Domain</label>}
+                value={
+                  <input
+                    id="dns-email-domain"
+                    aria-label="Domain"
+                    className={styles.headerInput}
+                    value={emailDomain}
+                    onChange={(event) => setEmailDomain(event.target.value)}
+                  />
+                }
+              />
+            </div>
+            <Chip
+              label={<label htmlFor="dns-email-selectors">DKIM</label>}
+              value={
+                <input
+                  id="dns-email-selectors"
+                  aria-label="DKIM selectors (comma separated)"
+                  className={styles.selectorInput}
+                  value={emailSelectors}
+                  onChange={(event) => setEmailSelectors(event.target.value)}
+                  placeholder="default,google,selector1"
+                />
+              }
+            />
+            <Button variant="primary" onClick={handleEmail} disabled={emailRunning}>
+              {emailRunning ? "Running..." : "Check email security"}
+            </Button>
+          </ViewHeader>
+        )}
+
+        {tab === "history" && (
+          <ViewHeader title="DNS run history" subtitle="Persisted benchmarks and diagnostics" />
+        )}
+
+        <div className={styles.tabs} role="tablist">
+          {TAB_OPTIONS.map((tabOption) => (
           <button
-            key={t.key}
+            key={tabOption.key}
             role="tab"
-            aria-selected={tab === (t.key as Tab)}
-            className={`${styles.tab}${tab === (t.key as Tab) ? ` ${styles.tabActive}` : ""}`}
-            onClick={() => setTab(t.key as Tab)}
+            aria-selected={tab === tabOption.key}
+            className={`${styles.tab}${tab === tabOption.key ? ` ${styles.tabActive}` : ""}`}
+            onClick={() => setTab(tabOption.key)}
           >
-            {t.label}
+            {tabOption.label}
           </button>
-        ))}
+          ))}
+        </div>
       </div>
 
       {tab === "lookup" && (
-        <section className={styles.panel}>
-          <h2>Multi-record lookup</h2>
-          <div className={styles.formRow}>
-            <label>
-              Name
-              <input value={lookupName} onChange={(e) => setLookupName(e.target.value)} />
-            </label>
-          </div>
-          <div className={styles.formRow}>
-            <label>
-              Record types (comma separated)
-              <input value={lookupTypes} onChange={(e) => setLookupTypes(e.target.value)} />
-            </label>
-          </div>
-          <EndpointEditor value={lookupEndpoint} onChange={setLookupEndpoint} />
-          <button onClick={handleLookup} disabled={lookupRunning} className={styles.primaryButton}>
-            {lookupRunning ? "Running..." : "Run lookup"}
-          </button>
-          {lookupError && <p className={styles.error}>Lookup failed: {lookupError}</p>}
-          {lookupSummary && (
-            <div className={styles.summary}>
-              Completed {lookupSummary.completed}/{lookupSummary.completed + lookupSummary.failed} in{" "}
-              {lookupSummary.elapsedMs} ms
+        <div className={`vk-view-body ${styles.viewBody}`}>
+          <details className={styles.settingsPanel}>
+            <summary>Query and resolver settings</summary>
+            <div className={styles.settingsBody}>
+              <div className={styles.formRow}>
+                <label>
+                  Record types (comma separated)
+                  <input
+                    value={lookupTypes}
+                    onChange={(event) => setLookupTypes(event.target.value)}
+                  />
+                </label>
+              </div>
+              <EndpointEditor value={lookupEndpoint} onChange={setLookupEndpoint} />
             </div>
+          </details>
+
+          {lookupError && (
+            <p className={styles.errorBanner} role="alert">
+              Lookup failed: {lookupError}
+            </p>
           )}
-          <ul className={styles.eventList}>
-            {lookupEvents.map((event, idx) => {
-              const result = unwrapResult<QueryResultDto>(event.result)
-              return (
-                <li key={idx} className={styles.eventItem}>
-                  <div>
-                    <strong>{event.recordType}</strong>{" "}
-                    {result.ok ? (
-                      <span>
-                        {result.value.rcode} · {result.value.answers.length} answers ·{" "}
-                        {result.value.latencyMs} ms ({result.value.transportUsed})
+
+          <div className={styles.lookupGrid}>
+            <div className={styles.answerColumn}>
+              <Card className={styles.answerCard}>
+                <div className={styles.cardHeader}>
+                  <SectionHeader
+                    title="Answer section"
+                    aside={
+                      <span className={lookupSummary ? styles.answerStatus : undefined}>
+                        {lookupRunning
+                          ? `RESOLVING · ${lookupRecordCount} records`
+                          : lookupSummary
+                            ? `${lookupRcode} · ${lookupRecordCount} ${lookupRecordCount === 1 ? "record" : "records"} · ${lookupSummary.elapsedMs} ms`
+                            : `READY · ${selectedLookupTypes.size} types`}
                       </span>
-                    ) : (
-                      <span className={styles.error}>{result.error.message}</span>
-                    )}
+                    }
+                  />
+                </div>
+
+                <div className={styles.tableScroll}>
+                  <table className={styles.recordsTable}>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>TTL</th>
+                        <th>Data</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lookupOutcomes.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className={styles.emptyTable}>
+                            Resolve a name to inspect returned records.
+                          </td>
+                        </tr>
+                      )}
+                      {lookupOutcomes.flatMap(({ event, eventIndex, result }) => {
+                        if (!result.ok) {
+                          return [
+                            <tr key={`error-${eventIndex}`}>
+                              <td title={event.queryName}>{event.queryName}</td>
+                              <td>
+                                <span
+                                  className={styles.recordType}
+                                  data-record-type={event.recordType.toUpperCase()}
+                                >
+                                  {event.recordType}
+                                </span>
+                              </td>
+                              <td className={styles.ttl}>-</td>
+                              <td className={styles.tableError}>{result.error.message}</td>
+                            </tr>,
+                          ]
+                        }
+
+                        if (result.value.answers.length === 0) {
+                          return [
+                            <tr key={`empty-${eventIndex}`}>
+                              <td title={result.value.queryName}>{result.value.queryName}</td>
+                              <td>
+                                <span
+                                  className={styles.recordType}
+                                  data-record-type={result.value.recordType.toUpperCase()}
+                                >
+                                  {result.value.recordType}
+                                </span>
+                              </td>
+                              <td className={styles.ttl}>-</td>
+                              <td className={styles.noData}>{result.value.rcode} · no answers</td>
+                            </tr>,
+                          ]
+                        }
+
+                        return result.value.answers.map((answer, answerIndex) => (
+                          <tr key={`${eventIndex}-${answerIndex}`}>
+                            <td title={result.value.queryName}>{result.value.queryName}</td>
+                            <td>
+                              <span
+                                className={styles.recordType}
+                                data-record-type={result.value.recordType.toUpperCase()}
+                              >
+                                {result.value.recordType}
+                              </span>
+                            </td>
+                            <td className={styles.ttl}>{answer.ttl}</td>
+                            <td title={answer.data} className={styles.recordData}>
+                              {answer.data}
+                            </td>
+                          </tr>
+                        ))
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              <Card className={styles.dnssecStrip}>
+                <div className={styles.dnssecState}>
+                  <Diamond
+                    color={
+                      dnssecValidated
+                        ? "var(--accent-bright)"
+                        : successfulLookups.length > 0
+                          ? "var(--warning)"
+                          : "var(--text-faint)"
+                    }
+                  />
+                  <span>
+                    {dnssecValidated
+                      ? "DNSSEC validated"
+                      : successfulLookups.length > 0
+                        ? "DNSSEC not validated"
+                        : "DNSSEC status pending"}
+                  </span>
+                </div>
+                <span className={styles.dnssecDetail}>
+                  {successfulLookups.length > 0
+                    ? `${validatedResponseCount}/${successfulLookups.length} AD · ${ednsResponseCount}/${successfulLookups.length} EDNS0`
+                    : "Available after a successful response"}
+                </span>
+              </Card>
+            </div>
+
+            <Card className={styles.raceCard} pad>
+              <SectionHeader
+                title="Resolver race"
+                aside={`${rankedLookupResults.length} timed ${rankedLookupResults.length === 1 ? "query" : "queries"}`}
+              />
+              <div className={styles.raceList}>
+                {rankedLookupResults.length === 0 && (
+                  <p className={styles.emptyState}>
+                    Timing lanes appear as record-type queries return.
+                  </p>
+                )}
+                {rankedLookupResults.map((result, rankIndex) => {
+                  const meterColor =
+                    rankIndex === 0
+                      ? "var(--accent-bright)"
+                      : rankIndex === rankedLookupResults.length - 1
+                        ? "var(--danger)"
+                        : "var(--warning)"
+                  return (
+                    <div className={styles.raceItem} key={`${result.recordType}-${rankIndex}`}>
+                      <Meter
+                        label={
+                          <span className={styles.raceLabel}>
+                            <span className={styles.resolverName}>{lookupEndpoint.name}</span>
+                            <span className={styles.resolverAddress}>{lookupEndpoint.address}</span>
+                            <span className={styles.raceType}>{result.recordType}</span>
+                          </span>
+                        }
+                        value={`${result.latencyMs} ms`}
+                        pct={(result.latencyMs / maxLookupLatency) * 100}
+                        color={meterColor}
+                      />
+                      <div className={styles.raceNote}>
+                        {result.queryName} · {result.answers.length} {result.answers.length === 1 ? "answer" : "answers"} · {result.transportUsed.toUpperCase()}
+                      </div>
+                    </div>
+                  )
+                })}
+                {failedLookups.map(({ event, eventIndex, error }) => (
+                  <div className={styles.raceFailure} key={`race-error-${eventIndex}`}>
+                    <span>{event.recordType} · {lookupEndpoint.address}</span>
+                    <span>{error.message}</span>
                   </div>
-                  {result.ok && result.value.answers.length > 0 && (
-                    <ul className={styles.answerList}>
-                      {result.value.answers.map((answer, answerIdx) => (
-                        <li key={answerIdx} className={styles.answerItem}>
-                          {answer.data} <span className={styles.ttl}>(ttl {answer.ttl})</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
+                ))}
+              </div>
+              {lookupSummary && (
+                <div className={styles.raceFooter}>
+                  <span>Query completion</span>
+                  <p>
+                    {lookupSummary.completed} of {lookupSummary.completed + lookupSummary.failed} record types completed through {lookupSummary.resolver}.
+                  </p>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
       )}
 
       {tab === "benchmark" && (
-        <section className={styles.panel}>
-          <h2>Benchmark</h2>
-          <div className={styles.formRow}>
-            <label>
-              Query name
-              <input value={benchName} onChange={(e) => setBenchName(e.target.value)} />
-            </label>
-          </div>
-          <div className={styles.formRow}>
-            <label>
-              Preset
-              <select value={benchPreset} onChange={(e) => setBenchPreset(e.target.value as BenchmarkPreset)}>
-                <option value="quick">Quick probe</option>
-                <option value="stress">Stress</option>
-                <option value="cache-bust">Cache-bust</option>
-              </select>
-            </label>
-          </div>
-          <EndpointEditor value={benchEndpoint} onChange={setBenchEndpoint} />
-          <button onClick={handleBenchmark} disabled={benchRunning} className={styles.primaryButton}>
-            {benchRunning ? "Running..." : "Run benchmark"}
-          </button>
-          {benchError && <p className={styles.error}>Benchmark failed: {benchError}</p>}
-          {latestMetrics && (
-            <div className={styles.metrics}>
-              <div>Queries: {latestMetrics.count}</div>
-              <div>Success: {(latestMetrics.successRate * 100).toFixed(1)}%</div>
-              <div>Timeout: {(latestMetrics.timeoutRate * 100).toFixed(1)}%</div>
-              <div>Median: {latestMetrics.median?.toFixed(2) ?? "-"} ms</div>
-              <div>P95: {latestMetrics.p95?.toFixed(2) ?? latestMetrics.max?.toFixed(2) ?? "-"} ms</div>
-              <div>QPS: {latestMetrics.completedQps.toFixed(1)}</div>
+        <div className={`vk-view-body ${styles.viewBody}`}>
+          <details className={styles.settingsPanel}>
+            <summary>Resolver settings</summary>
+            <div className={styles.settingsBody}>
+              <EndpointEditor value={benchEndpoint} onChange={setBenchEndpoint} />
             </div>
-          )}
-          {benchResult && <div className={styles.summary}>Run #{benchResult.runId} · {benchResult.status}</div>}
-          {benchCells.length > 0 && (
-            <div className={styles.snapshot}>Snapshots: {benchCells.length} · latest {benchCells.at(-1)!.samples.length} samples</div>
-          )}
-        </section>
+          </details>
+          <Card className={styles.panel} pad>
+            <h2 className={styles.srOnly}>Benchmark</h2>
+            <SectionHeader
+              title="Benchmark result"
+              aside={benchResult ? `RUN #${benchResult.runId} · ${benchResult.status}` : "AWAITING RUN"}
+            />
+            {benchError && <p className={styles.errorBanner}>Benchmark failed: {benchError}</p>}
+            {latestMetrics ? (
+              <div className={styles.metrics}>
+                <div><span>Queries</span><strong>{latestMetrics.count}</strong></div>
+                <div><span>Success</span><strong>{(latestMetrics.successRate * 100).toFixed(1)}%</strong></div>
+                <div><span>Timeout</span><strong>{(latestMetrics.timeoutRate * 100).toFixed(1)}%</strong></div>
+                <div><span>Median</span><strong>{latestMetrics.median?.toFixed(2) ?? "-"} ms</strong></div>
+                <div><span>P95</span><strong>{latestMetrics.p95?.toFixed(2) ?? latestMetrics.max?.toFixed(2) ?? "-"} ms</strong></div>
+                <div><span>QPS</span><strong>{latestMetrics.completedQps.toFixed(1)}</strong></div>
+              </div>
+            ) : (
+              <p className={styles.emptyState}>Run a benchmark to inspect resolver throughput and latency.</p>
+            )}
+            {latestBenchCell && (
+              <div className={styles.snapshot}>
+                Snapshots: {benchCells.length} · latest {latestBenchCell.samples.length} samples
+              </div>
+            )}
+          </Card>
+        </div>
       )}
 
       {tab === "diagnostics" && (
-        <section className={styles.panel}>
-          <h2>Diagnostics</h2>
-          <div className={styles.formRow}>
-            <label>
-              Domain
-              <input value={diagDomain} onChange={(e) => setDiagDomain(e.target.value)} />
-            </label>
-          </div>
-          <EndpointEditor value={diagEndpoint} onChange={setDiagEndpoint} />
-          <button onClick={handleDiagnostics} disabled={diagRunning} className={styles.primaryButton}>
-            {diagRunning ? "Running..." : "Run diagnostics"}
-          </button>
-          {diagError && <p className={styles.error}>Diagnostics failed: {diagError}</p>}
-          {diagReport && (
-            <div className={styles.report}>
+        <div className={`vk-view-body ${styles.viewBody}`}>
+          <details className={styles.settingsPanel}>
+            <summary>Resolver settings</summary>
+            <div className={styles.settingsBody}>
+              <EndpointEditor value={diagEndpoint} onChange={setDiagEndpoint} />
+            </div>
+          </details>
+          {diagError && <p className={styles.errorBanner}>Diagnostics failed: {diagError}</p>}
+          {diagReport ? (
+            <Card className={styles.report} pad>
+              <SectionHeader
+                title="Diagnostics report"
+                aside={`${diagReport.durationMs} ms`}
+              />
               <div className={styles.emailSectionHeader}>
                 <h3>{diagReport.domain}</h3>
                 <DiagnosticChip status={diagReport.overallStatus} />
@@ -401,37 +808,39 @@ export default function DnsTesterView() {
                   </pre>
                 </details>
               )}
-            </div>
+            </Card>
+          ) : (
+            <Card className={styles.panel} pad>
+              <h2 className={styles.srOnly}>Diagnostics</h2>
+              <SectionHeader title="Diagnostics report" aside="AWAITING RUN" />
+              <p className={styles.emptyState}>Run diagnostics to inspect DNS health and delegation evidence.</p>
+            </Card>
           )}
-        </section>
+        </div>
       )}
 
       {tab === "email" && (
-        <section className={styles.panel}>
-          <h2>Email security</h2>
-          <div className={styles.formRow}>
-            <label>
-              Domain
-              <input value={emailDomain} onChange={(e) => setEmailDomain(e.target.value)} />
-            </label>
-          </div>
-          <div className={styles.formRow}>
-            <label>
-              DKIM selectors (comma separated)
-              <input
-                value={emailSelectors}
-                onChange={(e) => setEmailSelectors(e.target.value)}
-                placeholder="default,google,selector1"
-              />
-            </label>
-          </div>
-          <EndpointEditor value={emailEndpoint} onChange={setEmailEndpoint} />
-          <button onClick={handleEmail} disabled={emailRunning} className={styles.primaryButton}>
-            {emailRunning ? "Running..." : "Check email security"}
-          </button>
-          {emailError && <p className={styles.error}>Email check failed: {emailError}</p>}
-          {emailReport && (
-            <div className={styles.report}>
+        <div className={`vk-view-body ${styles.viewBody}`}>
+          <details className={styles.settingsPanel}>
+            <summary>Email and resolver settings</summary>
+            <div className={styles.settingsBody}>
+              <div className={styles.formRow}>
+                <label>
+                  DKIM selectors (comma separated)
+                  <input
+                    value={emailSelectors}
+                    onChange={(event) => setEmailSelectors(event.target.value)}
+                    placeholder="default,google,selector1"
+                  />
+                </label>
+              </div>
+              <EndpointEditor value={emailEndpoint} onChange={setEmailEndpoint} />
+            </div>
+          </details>
+          {emailError && <p className={styles.errorBanner}>Email check failed: {emailError}</p>}
+          {emailReport ? (
+            <Card className={styles.report} pad>
+              <SectionHeader title="Email security report" aside={`${emailReport.elapsedMs} ms`} />
               <h3>{emailReport.domain}</h3>
               <p>Elapsed: {emailReport.elapsedMs} ms</p>
               <EmailSection title="SPF" report={emailReport.spf}>
@@ -472,34 +881,73 @@ export default function DnsTesterView() {
                     {sel.record && <pre className={styles.pre}>{sel.record}</pre>}
                     {sel.notes.length > 0 && <NoteList notes={sel.notes} />}
                   </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+            </Card>
+          ) : (
+            <Card className={styles.panel} pad>
+              <h2 className={styles.srOnly}>Email security</h2>
+              <SectionHeader title="Email security report" aside="AWAITING RUN" />
+              <p className={styles.emptyState}>Check a domain to inspect SPF, DKIM, and DMARC posture.</p>
+            </Card>
           )}
-        </section>
+        </div>
       )}
 
       {tab === "history" && (
-        <section className={styles.panel}>
-          <h2>History</h2>
+        <div className={`vk-view-body ${styles.viewBody}`}>
+          <Card className={styles.panel} pad>
+          <h2 className={styles.srOnly}>History</h2>
+          <div className={styles.historyHeader}>
+            <SectionHeader title="Saved runs" aside={`${runs.length} ${runs.length === 1 ? "RUN" : "RUNS"}`} />
+            {runs.length > 0 && !runHistory.selectMode && (
+              <SelectionToggle onClick={runHistory.enterSelectMode} />
+            )}
+          </div>
+          {runHistory.selectMode && (
+            <SelectionBar
+              count={runHistory.selectedCount}
+              onDelete={handleDeleteSelected}
+              onCancel={runHistory.exitSelectMode}
+            />
+          )}
           {historyLoading ? (
-            <p>Loading...</p>
+            <p className={styles.emptyState}>Loading...</p>
           ) : runs.length === 0 ? (
-            <p>No DNS runs recorded yet.</p>
+            <p className={styles.emptyState}>No DNS runs recorded yet.</p>
           ) : (
             <ul className={styles.runList}>
-              {runs.map((run) => (
-                <li key={run.id} className={styles.runItem}>
-                  <button className={styles.link} onClick={() => handleLoadRun(run.id)}>
+              {runHistory.visible.map((run) => (
+                <li
+                  key={run.id}
+                  className={`${styles.runItem}${runHistory.selectedIds.has(run.id) ? ` ${styles.selected}` : ""}`}
+                >
+                  {runHistory.selectMode && (
+                    <input
+                      className={styles.select}
+                      type="checkbox"
+                      checked={runHistory.selectedIds.has(run.id)}
+                      onChange={() => runHistory.toggleSelected(run.id)}
+                      data-testid="dns-run-select"
+                      aria-label={`Select run ${run.id} for deletion`}
+                    />
+                  )}
+                  <Button small className={styles.link} onClick={() => handleLoadRun(run.id)}>
                     #{run.id} {run.kind} · {run.targetInput} · {run.status}
-                  </button>
-                  <button className={styles.dangerButton} onClick={() => handleDeleteRun(run.id)}>
+                  </Button>
+                  <Button variant="outline-danger" small onClick={() => handleDeleteRun(run.id)}>
                     Delete
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
           )}
+          <RevealButton
+            totalCount={runs.length}
+            hiddenCount={runHistory.hiddenCount}
+            expanded={runHistory.expanded}
+            onToggle={runHistory.toggleExpanded}
+          />
           {selectedRun && (
             <div className={styles.report}>
               <h3>Run #{selectedRun.id}</h3>
@@ -512,8 +960,50 @@ export default function DnsTesterView() {
               ))}
             </div>
           )}
-        </section>
+          </Card>
+        </div>
       )}
+
+      <StatusBar>
+        {tab === "lookup" && (
+          <>
+            <span>{lookupEndpoint.protocol.toUpperCase()} · {lookupEndpoint.address}</span>
+            {ednsResponseCount > 0 && <span>EDNS0</span>}
+            {successfulLookups.length > 0 && successfulLookups.every((result) => !result.truncated) && (
+              <span>no truncation</span>
+            )}
+            <span className="vk-statusbar-right">
+              {lookupSummary
+                ? `${lookupSummary.completed}/${lookupSummary.completed + lookupSummary.failed} queries`
+                : "ready"}
+            </span>
+          </>
+        )}
+        {tab === "benchmark" && (
+          <>
+            <span>{benchEndpoint.protocol.toUpperCase()} · {benchEndpoint.address}</span>
+            <span className="vk-statusbar-right">{benchResult ? benchResult.status : "ready"}</span>
+          </>
+        )}
+        {tab === "diagnostics" && (
+          <>
+            <span>{diagEndpoint.protocol.toUpperCase()} · {diagEndpoint.address}</span>
+            <span className="vk-statusbar-right">{diagReport ? diagReport.overallStatus : "ready"}</span>
+          </>
+        )}
+        {tab === "email" && (
+          <>
+            <span>{emailEndpoint.protocol.toUpperCase()} · {emailEndpoint.address}</span>
+            <span className="vk-statusbar-right">{emailReport ? `${emailReport.elapsedMs} ms` : "ready"}</span>
+          </>
+        )}
+        {tab === "history" && (
+          <>
+            <span>DNS history</span>
+            <span className="vk-statusbar-right">{runs.length} saved</span>
+          </>
+        )}
+      </StatusBar>
       {confirmDialog}
     </div>
   )
