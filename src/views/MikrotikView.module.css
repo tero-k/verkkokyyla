@@ -1,134 +1,116 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
   min-height: 0;
-  padding: 1rem;
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
+  flex: 1;
   background: var(--bg);
 }
 
-.header h1 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.controls,
-.actions {
+.controls {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .field {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  align-items: center;
+  gap: 9px;
 }
 
-.field label,
-.selected,
-.hint {
-  color: var(--text-muted);
-  font-size: 0.875rem;
+.field label {
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .field select {
-  min-width: 220px;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 0.9rem;
+  min-width: 200px;
+  padding: 8px 11px;
+  font: 500 12px/1 var(--font-mono);
 }
 
-.actions button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.9rem;
-  cursor: pointer;
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.actions button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-
-.actions button:disabled,
-.field select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.hint,
+.selected {
+  margin: 0;
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-faint);
 }
 
 .banner {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--danger);
-  font-size: 0.85rem;
+  margin: 0 20px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--status-error-panel-bg);
+  color: var(--status-error-panel-text);
+  font-size: 12px;
 }
 
 .tabBar {
   display: flex;
-  gap: 0.25rem;
+  gap: 22px;
   overflow-x: auto;
-  padding: 0.25rem;
-  border-radius: 0.5rem;
-  background: var(--surface-1);
-  scrollbar-color: var(--surface-3) var(--surface-1);
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
 }
 
 .tabBar button {
   flex: 0 0 auto;
-  padding: 0.5rem 0.75rem;
+  padding: 10px 0 9px;
   border: 0;
-  border-block-end: 0.25rem solid transparent;
-  border-radius: 0.25rem;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.875rem;
-  font-weight: 500;
+  font: 600 12.5px/1 var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
+  transition: color 150ms ease-in-out;
 }
 
 .tabBar button:hover {
-  background: var(--surface-2);
   color: var(--text);
 }
 
 .tabBar button[aria-selected="true"] {
-  border-block-end-color: var(--accent);
-  background: var(--surface-2);
+  border-bottom-color: var(--accent);
   color: var(--text);
 }
 
-.tabPanel,
-.tabStack {
+.tabPanel {
   min-width: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.tabPanel[hidden] {
+  display: none;
 }
 
 .tabStack {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-.hint {
-  margin: 0;
+  gap: 16px;
+  min-width: 0;
 }
 
 .content {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  gap: 1rem;
+  gap: 16px;
   min-height: 0;
 }
 
@@ -137,11 +119,7 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 1rem;
-}
-
-.selected {
-  margin: 0;
+  gap: 16px;
 }
 
 @media (max-width: 960px) {
@@ -150,13 +128,62 @@
   }
 }
 
-@media (max-width: 30rem) {
-  :global(#root > div):has(.view) {
-    flex-direction: column;
-  }
+.deviceStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+}
 
-  :global(#root > div):has(.view) > :global(aside) {
-    box-sizing: border-box;
-    width: 100%;
-  }
+.deviceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-1);
+}
+
+.deviceChipSelected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.deviceSelect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--text);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.deviceSelect:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.deviceDetached {
+  font: 500 9.5px var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+
+/* Marks a device whose SSH terminal is open; the accent matches the
+   terminal panel's identity tag so a chip and its shell pair visually. */
+.deviceChipTerm {
+  padding: 2px 5px;
+  border: 1px solid var(--terminal-accent, var(--accent));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--terminal-accent, var(--accent)) 18%, transparent);
+  color: var(--terminal-accent, var(--accent));
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }

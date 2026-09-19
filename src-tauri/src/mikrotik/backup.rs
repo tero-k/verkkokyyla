@@ -165,6 +165,15 @@ pub enum BackupError {
     #[error("no MikroTik backup record with id {0}")]
     BackupRecordNotFound(i64),
 
+    /// A diff was requested for a backup that has no `.rsc` text export
+    /// (binary `.backup` files are not diffable).
+    #[error("backup {0} has no .rsc export to diff (enable \".rsc export\" when creating it)")]
+    MissingExport(i64),
+
+    /// Reading a local `.rsc` export for diffing failed.
+    #[error("failed to read {path}: {message}")]
+    DiffRead { path: String, message: String },
+
     /// Deleting a backup file from disk failed; the library record is kept.
     #[error("failed to delete {path}: {message}")]
     DeleteFailed { path: String, message: String },
@@ -201,6 +210,8 @@ impl BackupError {
             },
             BackupError::Db(_) => "Db",
             BackupError::BackupRecordNotFound(_) => "BackupRecordNotFound",
+            BackupError::MissingExport(_) => "MissingExport",
+            BackupError::DiffRead { .. } => "DiffRead",
             BackupError::DeleteFailed { .. } => "DeleteFailed",
         }
     }
@@ -277,8 +288,9 @@ pub trait SftpFetch: Send + Sync {
 }
 
 /// Accept-unknown-host-key policy: an accepted risk for LAN routers,
-/// documented in the README.
-struct AcceptUnknownHostKey;
+/// documented in the README. Shared by the backup SFTP flow and the
+/// interactive terminal (same trust decision).
+pub(crate) struct AcceptUnknownHostKey;
 
 impl russh::client::Handler for AcceptUnknownHostKey {
     type Error = russh::Error;
@@ -301,7 +313,10 @@ fn classify_connect_error(host: &str, message: String) -> BackupError {
         || lower.contains("unreachable")
         || lower.contains("no connection could be made")
     {
-        BackupError::SshUnreachable { host: host.to_owned(), message }
+        BackupError::SshUnreachable {
+            host: host.to_owned(),
+            message,
+        }
     } else {
         BackupError::Sftp(message)
     }
@@ -321,13 +336,10 @@ impl SftpFetch for RusshSftpFetch {
         remote_name: &str,
     ) -> Result<Vec<u8>, BackupError> {
         let config = russh::client::Config::default();
-        let mut session = russh::client::connect(
-            Arc::new(config),
-            (host, port),
-            AcceptUnknownHostKey,
-        )
-        .await
-        .map_err(|err| classify_connect_error(host, err.to_string()))?;
+        let mut session =
+            russh::client::connect(Arc::new(config), (host, port), AcceptUnknownHostKey)
+                .await
+                .map_err(|err| classify_connect_error(host, err.to_string()))?;
 
         let auth = session
             .authenticate_password(username, password)
@@ -431,10 +443,9 @@ pub async fn run_backup(params: &BackupParams<'_>) -> Result<BackupResultDto, Ba
     // Canonicalize the destination dir and REQUIRE it to exist and be a
     // directory; JOIN the validated basename — never canonicalize the output
     // file itself (it may not exist yet).
-    let dir = params
-        .destination_dir
-        .canonicalize()
-        .map_err(|err| BackupError::DestinationInvalid(format!("{}: {err}", params.destination_dir.display())))?;
+    let dir = params.destination_dir.canonicalize().map_err(|err| {
+        BackupError::DestinationInvalid(format!("{}: {err}", params.destination_dir.display()))
+    })?;
     if !dir.is_dir() {
         return Err(BackupError::DestinationInvalid(format!(
             "{} is not a directory",
@@ -449,7 +460,10 @@ pub async fn run_backup(params: &BackupParams<'_>) -> Result<BackupResultDto, Ba
     }
 
     // Router-side creation. Everything from here on MUST attempt cleanup.
-    params.client.backup_save(params.backup_name, params.password).await?;
+    params
+        .client
+        .backup_save(params.backup_name, params.password)
+        .await?;
 
     let created_files = if params.include_rsc {
         vec![
@@ -482,7 +496,11 @@ pub async fn run_backup(params: &BackupParams<'_>) -> Result<BackupResultDto, Ba
 
 /// Wait for `name` to appear on `/rest/file` (2s interval, 60s deadline),
 /// then return. A never-appearing file → `BackupTimeout`.
-async fn wait_for_file(client: &MikrotikClient, name: &str, poll: FilePoll) -> Result<(), BackupError> {
+async fn wait_for_file(
+    client: &MikrotikClient,
+    name: &str,
+    poll: FilePoll,
+) -> Result<(), BackupError> {
     let deadline = tokio::time::Instant::now() + poll.timeout;
     loop {
         let files = client.list_files().await?;
@@ -512,7 +530,7 @@ fn write_output(path: &Path, bytes: &[u8]) -> Result<(), BackupError> {
 async fn download_and_write(
     params: &BackupParams<'_>,
     backup_path: &Path,
-    export_path: &PathBuf,
+    export_path: &Path,
 ) -> Result<BackupResultDto, BackupError> {
     let backup_remote = format!("{}.backup", params.backup_name);
     wait_for_file(params.client, &backup_remote, params.file_poll).await?;
@@ -546,7 +564,9 @@ async fn download_and_write(
 
     let export_path = match export_remote {
         Some(remote) => {
-            let bytes = fetch(&remote, params).await.map_err(classify_download_error)?;
+            let bytes = fetch(&remote, params)
+                .await
+                .map_err(classify_download_error)?;
             write_output(export_path, &bytes)?;
             Some(export_path.display().to_string())
         }
@@ -728,6 +748,205 @@ fn remove_backup_file(path: &str, warnings: &mut Vec<String>) -> Result<(), Back
 }
 
 // ---------------------------------------------------------------------------
+// Remembered destination directory + config diff
+// ---------------------------------------------------------------------------
+
+/// App-settings key under which the last-used backup destination is stored.
+pub const BACKUP_DESTINATION_SETTING: &str = "mikrotik.backup_destination";
+
+/// One line of a config diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDiffLineDto {
+    /// `same` (context), `add` (only in newer), `remove` (only in older).
+    pub kind: &'static str,
+    pub text: String,
+}
+
+/// Diff of two backups' `.rsc` exports, older → newer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupDiffDto {
+    pub older_id: i64,
+    pub older_name: String,
+    pub older_created_at: String,
+    pub newer_id: i64,
+    pub newer_name: String,
+    pub newer_created_at: String,
+    pub lines: Vec<BackupDiffLineDto>,
+    pub added: usize,
+    pub removed: usize,
+}
+
+/// `mikrotik_get_backup_destination()` — the remembered destination dir, or
+/// NULL when the user never picked one.
+#[tauri::command]
+pub async fn mikrotik_get_backup_destination(
+    state: tauri::State<'_, MikrotikBackupState>,
+) -> Result<Option<String>, BackupError> {
+    Ok(state.db.get_setting(BACKUP_DESTINATION_SETTING).await?)
+}
+
+/// `mikrotik_set_backup_destination(path)` — remembers the destination dir.
+/// Validates that the path exists and is a directory, same rule as backups.
+#[tauri::command]
+pub async fn mikrotik_set_backup_destination(
+    state: tauri::State<'_, MikrotikBackupState>,
+    path: String,
+) -> Result<(), BackupError> {
+    let candidate = PathBuf::from(&path);
+    let meta = std::fs::metadata(&candidate).map_err(|err| {
+        BackupError::DestinationInvalid(format!("{}: {err}", candidate.display()))
+    })?;
+    if !meta.is_dir() {
+        return Err(BackupError::DestinationInvalid(format!(
+            "{}: not a directory",
+            candidate.display()
+        )));
+    }
+    state
+        .db
+        .set_setting(BACKUP_DESTINATION_SETTING, &path)
+        .await?;
+    Ok(())
+}
+
+/// `mikrotik_diff_backups(older_id, newer_id)` — line diff of the two
+/// backups' `.rsc` text exports. Pure local file IO: no router access.
+#[tauri::command]
+pub async fn mikrotik_diff_backups(
+    state: tauri::State<'_, MikrotikBackupState>,
+    older_id: i64,
+    newer_id: i64,
+) -> Result<BackupDiffDto, BackupError> {
+    diff_backup_records(&state.db, older_id, newer_id).await
+}
+
+/// Testable diff core: load both records, read both exports, diff the lines.
+pub async fn diff_backup_records(
+    db: &Database,
+    older_id: i64,
+    newer_id: i64,
+) -> Result<BackupDiffDto, BackupError> {
+    let older = db
+        .load_mikrotik_backup(older_id)
+        .await?
+        .ok_or(BackupError::BackupRecordNotFound(older_id))?;
+    let newer = db
+        .load_mikrotik_backup(newer_id)
+        .await?
+        .ok_or(BackupError::BackupRecordNotFound(newer_id))?;
+
+    let read_export = |record: &MikrotikBackupRecord| -> Result<String, BackupError> {
+        let path = record
+            .export_path
+            .clone()
+            .ok_or(BackupError::MissingExport(record.id))?;
+        std::fs::read_to_string(&path).map_err(|err| BackupError::DiffRead {
+            path: path.clone(),
+            message: err.to_string(),
+        })
+    };
+    let older_text = read_export(&older)?;
+    let newer_text = read_export(&newer)?;
+
+    let lines = diff_lines(&older_text, &newer_text);
+    let added = lines.iter().filter(|line| line.kind == "add").count();
+    let removed = lines.iter().filter(|line| line.kind == "remove").count();
+    Ok(BackupDiffDto {
+        older_id,
+        older_name: older.name,
+        older_created_at: older.created_at,
+        newer_id,
+        newer_name: newer.name,
+        newer_created_at: newer.created_at,
+        lines,
+        added,
+        removed,
+    })
+}
+
+/// Line-based LCS diff with common prefix/suffix trimming. `.rsc` exports
+/// are a few thousand lines, so the O(n·m) table stays small; beyond the
+/// cap we fall back to remove-all/add-all rather than allocating hundreds
+/// of megabytes.
+pub fn diff_lines(older: &str, newer: &str) -> Vec<BackupDiffLineDto> {
+    let old_lines: Vec<&str> = older.lines().collect();
+    let new_lines: Vec<&str> = newer.lines().collect();
+
+    // Trim the shared prefix/suffix; only the changed middle gets the table.
+    let mut start = 0;
+    while start < old_lines.len() && start < new_lines.len() && old_lines[start] == new_lines[start]
+    {
+        start += 1;
+    }
+    let mut old_end = old_lines.len();
+    let mut new_end = new_lines.len();
+    while old_end > start && new_end > start && old_lines[old_end - 1] == new_lines[new_end - 1] {
+        old_end -= 1;
+        new_end -= 1;
+    }
+
+    let old_mid = &old_lines[start..old_end];
+    let new_mid = &new_lines[start..new_end];
+
+    let same = |text: &str| BackupDiffLineDto {
+        kind: "same",
+        text: text.to_owned(),
+    };
+    let add = |text: &str| BackupDiffLineDto {
+        kind: "add",
+        text: text.to_owned(),
+    };
+    let remove = |text: &str| BackupDiffLineDto {
+        kind: "remove",
+        text: text.to_owned(),
+    };
+
+    let mut out: Vec<BackupDiffLineDto> =
+        old_lines[..start].iter().map(|line| same(line)).collect();
+
+    const MAX_CELLS: usize = 16_000_000; // e.g. 4000×4000 lines
+    if old_mid.len().saturating_mul(new_mid.len()) > MAX_CELLS {
+        out.extend(old_mid.iter().map(|line| remove(line)));
+        out.extend(new_mid.iter().map(|line| add(line)));
+    } else {
+        // LCS length table (row-major, u32 is plenty for line counts).
+        let rows = old_mid.len() + 1;
+        let cols = new_mid.len() + 1;
+        let mut table = vec![0u32; rows * cols];
+        for i in (0..old_mid.len()).rev() {
+            for j in (0..new_mid.len()).rev() {
+                table[i * cols + j] = if old_mid[i] == new_mid[j] {
+                    table[(i + 1) * cols + (j + 1)] + 1
+                } else {
+                    table[(i + 1) * cols + j].max(table[i * cols + (j + 1)])
+                };
+            }
+        }
+        let (mut i, mut j) = (0, 0);
+        while i < old_mid.len() && j < new_mid.len() {
+            if old_mid[i] == new_mid[j] {
+                out.push(same(old_mid[i]));
+                i += 1;
+                j += 1;
+            } else if table[(i + 1) * cols + j] >= table[i * cols + (j + 1)] {
+                out.push(remove(old_mid[i]));
+                i += 1;
+            } else {
+                out.push(add(new_mid[j]));
+                j += 1;
+            }
+        }
+        out.extend(old_mid[i..].iter().map(|line| remove(line)));
+        out.extend(new_mid[j..].iter().map(|line| add(line)));
+    }
+
+    out.extend(old_lines[old_end..].iter().map(|line| same(line)));
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -737,8 +956,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    use serde_json::json;
     use russh::server::Server as _;
+    use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
@@ -896,9 +1115,16 @@ mod tests {
         // Full Windows device set: CON, PRN, AUX, NUL, COM1-9, LPT1-9 —
         // mixed case and dotted extensions must all reject.
         let mut reserved: Vec<String> = vec![
-            "CON".into(), "con.txt".into(), "Con".into(), "cOn.bAk".into(),
-            "PRN".into(), "prn.log".into(), "AUX".into(), "aux.txt".into(),
-            "NUL".into(), "nul.rsc".into(),
+            "CON".into(),
+            "con.txt".into(),
+            "Con".into(),
+            "cOn.bAk".into(),
+            "PRN".into(),
+            "prn.log".into(),
+            "AUX".into(),
+            "aux.txt".into(),
+            "NUL".into(),
+            "nul.rsc".into(),
         ];
         for n in 1..=9 {
             reserved.push(format!("COM{n}"));
@@ -908,21 +1134,44 @@ mod tests {
         }
         for name in reserved {
             assert!(
-                matches!(validate_backup_name(&name), Err(BackupError::InvalidName(_))),
+                matches!(
+                    validate_backup_name(&name),
+                    Err(BackupError::InvalidName(_))
+                ),
                 "{name:?} must be rejected"
             );
         }
         // COM0/LPT0/COM10 are NOT reserved; ordinary names are fine.
         for name in [
-            "demo", "verkkokyyla-20260101-120000", "a.b.c", "COM0", "LPT0",
-            "COM10", "LPT10", "conx", "console", "ok_1.2",
+            "demo",
+            "verkkokyyla-20260101-120000",
+            "a.b.c",
+            "COM0",
+            "LPT0",
+            "COM10",
+            "LPT10",
+            "conx",
+            "console",
+            "ok_1.2",
         ] {
-            assert!(validate_backup_name(name).is_ok(), "{name:?} must be accepted");
+            assert!(
+                validate_backup_name(name).is_ok(),
+                "{name:?} must be accepted"
+            );
         }
         // Regex violations: empty, bad first char, illegal chars, >64 chars.
         // `_ok-1.2` starts with `_`: the spec regex requires an alphanumeric
         // FIRST char (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), so it rejects too.
-        for name in ["", ".hidden", "-dash", "_ok-1.2", "a b", "a/b", "a\\b", &"x".repeat(65)] {
+        for name in [
+            "",
+            ".hidden",
+            "-dash",
+            "_ok-1.2",
+            "a b",
+            "a/b",
+            "a\\b",
+            &"x".repeat(65),
+        ] {
             assert!(
                 matches!(validate_backup_name(name), Err(BackupError::InvalidName(_))),
                 "{name:?} must be rejected"
@@ -988,8 +1237,14 @@ mod tests {
         // canonicalize() yields verbatim (\\?\) paths on Windows — compare
         // canonical-to-canonical.
         let cdir = dir.canonicalize().unwrap();
-        assert_eq!(dto.backup_path, cdir.join("demo.backup").display().to_string());
-        assert_eq!(dto.export_path.as_deref(), Some(cdir.join("demo.rsc").display().to_string().as_str()));
+        assert_eq!(
+            dto.backup_path,
+            cdir.join("demo.backup").display().to_string()
+        );
+        assert_eq!(
+            dto.export_path.as_deref(),
+            Some(cdir.join("demo.rsc").display().to_string().as_str())
+        );
         assert_eq!(std::fs::read(dir.join("demo.backup")).unwrap(), DEMO_BACKUP);
         assert_eq!(std::fs::read(dir.join("demo.rsc")).unwrap(), DEMO_RSC);
         assert!(dto.cleanup_warnings.is_empty());
@@ -997,7 +1252,10 @@ mod tests {
         // SFTP fetched both files, in order.
         let fetches = fake.fetches.lock().unwrap();
         assert_eq!(
-            fetches.iter().map(|(_, _, name)| name.as_str()).collect::<Vec<_>>(),
+            fetches
+                .iter()
+                .map(|(_, _, name)| name.as_str())
+                .collect::<Vec<_>>(),
             vec!["demo.backup", "demo.rsc"]
         );
     }
@@ -1153,7 +1411,10 @@ mod tests {
         // Paths are still returned so the UI can show the saved files.
         assert!(dto.backup_path.ends_with("demo.backup"));
         let cdir = dir.canonicalize().unwrap();
-        assert_eq!(dto.export_path.as_deref(), Some(cdir.join("demo.rsc").display().to_string().as_str()));
+        assert_eq!(
+            dto.export_path.as_deref(),
+            Some(cdir.join("demo.rsc").display().to_string().as_str())
+        );
     }
 
     #[tokio::test]
@@ -1282,7 +1543,9 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
 
     struct FixtureSession {
         clients: Arc<
-            tokio::sync::Mutex<std::collections::HashMap<russh::ChannelId, russh::Channel<russh::server::Msg>>>,
+            tokio::sync::Mutex<
+                std::collections::HashMap<russh::ChannelId, russh::Channel<russh::server::Msg>>,
+            >,
         >,
         file_name: Arc<String>,
         file_bytes: Arc<Vec<u8>>,
@@ -1368,7 +1631,10 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
             _attrs: russh_sftp::protocol::FileAttributes,
         ) -> Result<russh_sftp::protocol::Handle, Self::Error> {
             if filename.trim_start_matches('/') == self.file_name.as_str() {
-                Ok(russh_sftp::protocol::Handle { id, handle: "h".to_owned() })
+                Ok(russh_sftp::protocol::Handle {
+                    id,
+                    handle: "h".to_owned(),
+                })
             } else {
                 Err(russh_sftp::protocol::StatusCode::NoSuchFile)
             }
@@ -1399,14 +1665,19 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
             }
             let start = offset as usize;
             let end = (start + len as usize).min(self.file_bytes.len());
-            Ok(russh_sftp::protocol::Data { id, data: self.file_bytes[start..end].to_vec() })
+            Ok(russh_sftp::protocol::Data {
+                id,
+                data: self.file_bytes[start..end].to_vec(),
+            })
         }
     }
 
     #[tokio::test]
     async fn mikrotik_backup_real_russh_sftp_roundtrip() {
         let payload: Vec<u8> = (0u8..=255).cycle().take(300_000).collect();
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let port = listener.local_addr().unwrap().port();
         let config = russh::server::Config {
             keys: vec![russh::keys::decode_secret_key(FIXTURE_HOST_KEY, None).unwrap()],
@@ -1421,7 +1692,10 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
             let file_name = file_name.clone();
             let file_bytes = file_bytes.clone();
             async move {
-                let mut server = FixtureServer { file_name, file_bytes };
+                let mut server = FixtureServer {
+                    file_name,
+                    file_bytes,
+                };
                 server
                     .run_on_socket(Arc::new(config), &listener)
                     .await
@@ -1442,7 +1716,10 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
             .fetch_file("127.0.0.1", port, "admin", "s3cr3t", "missing.backup")
             .await
             .unwrap_err();
-        assert!(matches!(err, BackupError::Sftp(_)), "unexpected error: {err}");
+        assert!(
+            matches!(err, BackupError::Sftp(_)),
+            "unexpected error: {err}"
+        );
 
         server_task.abort();
     }
@@ -1450,7 +1727,9 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
     #[tokio::test]
     async fn mikrotik_backup_sftp_connect_refused_is_ssh_unreachable() {
         // Grab a port, drop the listener, and connect to the dead port.
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
 
@@ -1629,5 +1908,96 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
         assert_eq!(err.kind(), "BackupRecordNotFound");
         let _ = std::fs::remove_dir_all(&root);
     }
-}
 
+    #[test]
+    fn diff_lines_marks_adds_and_removes() {
+        let older = "line a\nline b\nline c\n";
+        let newer = "line a\nline B\nline c\nline d\n";
+        let lines = diff_lines(older, newer);
+        let rendered: Vec<(&str, &str)> = lines
+            .iter()
+            .map(|line| (line.kind, line.text.as_str()))
+            .collect();
+        assert_eq!(
+            rendered,
+            vec![
+                ("same", "line a"),
+                ("remove", "line b"),
+                ("add", "line B"),
+                ("same", "line c"),
+                ("add", "line d"),
+            ]
+        );
+    }
+
+    #[test]
+    fn diff_lines_identical_is_all_same() {
+        let lines = diff_lines("a\nb\n", "a\nb\n");
+        assert!(lines.iter().all(|line| line.kind == "same"));
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn diff_backup_records_diffs_two_exports() {
+        let root = unique_temp_dir("diff-ok");
+        let (db, profile_id) = db_with_profile(&root).await;
+
+        let old_backup = root.join("old.backup");
+        let old_export = root.join("old.rsc");
+        std::fs::write(&old_backup, b"backup").expect("write");
+        std::fs::write(&old_export, "/ip firewall filter\nadd chain=forward\n").expect("write");
+        let old = insert_record(&db, profile_id, &old_backup, Some(&old_export)).await;
+
+        let new_backup = root.join("new.backup");
+        let new_export = root.join("new.rsc");
+        std::fs::write(&new_backup, b"backup").expect("write");
+        std::fs::write(
+            &new_export,
+            "/ip firewall filter\nadd chain=forward\nadd chain=input\n",
+        )
+        .expect("write");
+        let new = insert_record(&db, profile_id, &new_backup, Some(&new_export)).await;
+
+        let diff = diff_backup_records(&db, old.id, new.id)
+            .await
+            .expect("diff");
+        assert_eq!(diff.added, 1);
+        assert_eq!(diff.removed, 0);
+        assert!(diff
+            .lines
+            .iter()
+            .any(|line| line.kind == "add" && line.text == "add chain=input"));
+        assert_eq!(diff.older_name, "demo");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn diff_backup_records_requires_rsc_export() {
+        let root = unique_temp_dir("diff-no-export");
+        let (db, profile_id) = db_with_profile(&root).await;
+        let backup_file = root.join("a.backup");
+        std::fs::write(&backup_file, b"backup").expect("write");
+        let without_export = insert_record(&db, profile_id, &backup_file, None).await;
+
+        let other_backup = root.join("b.backup");
+        let other_export = root.join("b.rsc");
+        std::fs::write(&other_backup, b"backup").expect("write");
+        std::fs::write(&other_export, "x\n").expect("write");
+        let with_export = insert_record(&db, profile_id, &other_backup, Some(&other_export)).await;
+
+        let err = diff_backup_records(&db, without_export.id, with_export.id)
+            .await
+            .expect_err("must fail");
+        assert_eq!(err.kind(), "MissingExport");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn diff_backup_records_unknown_id_errors() {
+        let root = unique_temp_dir("diff-unknown");
+        let (db, _) = db_with_profile(&root).await;
+        let err = diff_backup_records(&db, 1, 2).await.expect_err("must fail");
+        assert_eq!(err.kind(), "BackupRecordNotFound");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

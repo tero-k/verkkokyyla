@@ -1,14 +1,28 @@
 .panel {
   display: grid;
-  gap: 1rem;
-  padding: 1rem;
-  border-radius: 0.5rem;
+  gap: 14px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface-1);
 }
 
 .header {
   display: grid;
-  gap: 0.25rem;
+  gap: 4px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.compareHint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
 .header h2,
@@ -22,7 +36,10 @@
 }
 
 .header h2 {
-  font-size: 1.4rem;
+  font: 600 10px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .header p,
@@ -31,7 +48,7 @@
 .path,
 .notice,
 .error {
-  font-size: 0.875rem;
+  font-size: 11.5px;
 }
 
 .header p,
@@ -46,9 +63,9 @@
 
 .notice {
   display: grid;
-  gap: 0.25rem;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
   background: var(--warning-soft);
   color: var(--warning);
 }
@@ -59,72 +76,183 @@
 
 .list {
   display: grid;
-  gap: 0.5rem;
   margin: 0;
   padding: 0;
   list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  background: var(--surface-0);
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+.item:hover {
+  background: var(--surface-2);
+}
+
+.itemSelected {
+  background: var(--accent-soft);
+}
+
+.itemSelected:hover {
+  background: var(--accent-soft);
+}
+
+.compareCheck {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.compareCheck:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* --- Config diff panel (mockup 1h language) --- */
+.diffPanel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.diffBody {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font: 400 11px/1.5 var(--font-mono);
+}
+
+.diffLine {
+  display: flex;
+  gap: 8px;
+  padding: 1px 10px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diffSign {
+  flex: none;
+  width: 10px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.diffText {
+  min-width: 0;
+}
+
+.diffAdd {
+  background: var(--status-success-soft-bg);
+  color: var(--success-secondary);
+}
+
+.diffAdd .diffSign {
+  color: var(--success-secondary);
+}
+
+.diffRemove {
+  background: var(--status-error-soft-bg);
+  color: var(--status-error-text);
+}
+
+.diffRemove .diffSign {
+  color: var(--status-error-text);
+}
+
+.diffGap {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: var(--well);
+  color: var(--text-faint);
+  font: 400 10.5px/1.4 var(--font-mono);
+  text-align: center;
+  cursor: pointer;
+}
+
+.diffGap:hover {
+  color: var(--text-secondary);
 }
 
 .summary {
   display: grid;
   min-width: 0;
-  gap: 0.25rem;
+  gap: 4px;
 }
 
 .titleRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
+  font: 500 12px/1.3 var(--font-mono);
+  color: var(--text);
 }
 
 .metadata {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
+  gap: 4px 14px;
+  font: 400 10.5px/1.4 var(--font-mono);
 }
 
 .badge {
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.5rem;
+  padding: 3px 8px;
+  border-radius: 5px;
   background: var(--status-info-bg);
   color: var(--status-info-text);
-  font-size: 0.75rem;
-  font-weight: 500;
+  font: 600 10px/1.3 var(--font-mono);
 }
 
 .path {
-  color: var(--text-secondary);
+  color: var(--text-faint);
+  font: 400 10.5px/1.4 var(--font-mono);
   overflow-wrap: anywhere;
 }
 
 .deleteButton {
   flex: 0 0 auto;
-  padding: 0.5rem 0.75rem;
-  border-color: var(--danger);
-  background: var(--danger);
-  color: var(--text-on-accent);
+  margin-left: auto;
+  padding: 7px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--danger);
+  font: 500 11.5px/1 var(--font-ui);
   cursor: pointer;
+  transition: background-color 150ms ease-in-out;
 }
 
 .deleteButton:hover:not(:disabled) {
-  border-color: var(--danger-secondary);
-  background: var(--danger-secondary);
+  background: var(--status-error-subtle-bg);
 }
 
 .deleteButton:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.55;
 }
 
 @media (max-width: 30rem) {

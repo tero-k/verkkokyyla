@@ -1,28 +1,36 @@
-//! Session manager for MikroTik monitoring: a single active session at a
-//! time (second start → typed `AlreadyRunning`), a watch<bool> cancel
-//! channel, and a spawned runtime task whose exit clears the active slot
-//! (mirrors `trace/manager.rs`).
+//! Session manager for MikroTik monitoring: MULTIPLE concurrent sessions,
+//! one per profile (second start of the same profile → typed
+//! `AlreadyRunningForProfile`), a global cap of [`MAX_CONCURRENT_SESSIONS`],
+//! per-session watch<bool> cancel channels, and spawned runtime tasks whose
+//! exit clears their own slot (mirrors `trace/manager.rs` per-session shape).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 
 use super::runtime::{run_mikrotik_session, MikrotikRunContext};
-use super::version::{self, ActiveVersionTarget, VersionFirmwareResultDto};
-use super::types::{
-    CreateMikrotikProfileRequest, DeleteProfileResultDto, LoadedMikrotikSessionDto,
-    MikrotikApiFactory, MikrotikManagerError, MikrotikProfileDto, MikrotikSessionSummaryDto,
-    MikrotikSnapshotDto, MikrotikStartDto, MikrotikStatusEvent, MikrotikStatusSink,
-    MikrotikStoppedDto, MikrotikTestConnectionDto, UpdateMikrotikProfileRequest,
-};
 use super::secrets::SecretStore;
+use super::types::{
+    ActiveSessionDto, CreateMikrotikProfileRequest, DeleteProfileResultDto,
+    LoadedMikrotikSessionDto, MikrotikApiFactory, MikrotikManagerError, MikrotikProfileDto,
+    MikrotikSessionSummaryDto, MikrotikSnapshotDto, MikrotikStartDto, MikrotikStatusEvent,
+    MikrotikStatusSink, MikrotikStoppedDto, MikrotikTestConnectionDto,
+    UpdateMikrotikProfileRequest,
+};
+use super::version::{self, ActiveVersionTarget, VersionFirmwareResultDto};
 use crate::db::{
     now_rfc3339, Database, MikrotikProfile, MikrotikSessionSummary, NewMikrotikProfile,
     NewMikrotikSession,
 };
 use crate::mikrotik::client::MikrotikConnection;
 use crate::mikrotik::error::MikrotikError;
+
+/// Upper bound on concurrent monitoring sessions. Each session polls the
+/// router every 5s, so unbounded growth would eventually hurt both this app
+/// and the managed devices.
+pub const MAX_CONCURRENT_SESSIONS: usize = 8;
 
 #[derive(Clone)]
 pub struct MikrotikManager {
@@ -32,9 +40,10 @@ pub struct MikrotikManager {
     inner: Arc<Mutex<MikrotikInner>>,
 }
 
+/// Live sessions keyed by `profile_id`: one running session per device.
 #[derive(Default)]
 struct MikrotikInner {
-    active: Option<ActiveSession>,
+    active: HashMap<i64, ActiveSession>,
 }
 
 struct ActiveSession {
@@ -51,34 +60,45 @@ impl MikrotikManager {
             db: Arc::new(db),
             store,
             factory,
-            inner: Arc::new(Mutex::new(MikrotikInner { active: None })),
+            inner: Arc::new(Mutex::new(MikrotikInner::default())),
         }
     }
 
-    /// The profile backing the currently active session, if any.
-    pub async fn active_profile_id(&self) -> Option<i64> {
-        self.inner.lock().await.active.as_ref().map(|a| a.profile_id)
+    /// Whether a live session currently backs this profile.
+    pub async fn is_profile_active(&self, profile_id: i64) -> bool {
+        self.inner.lock().await.active.contains_key(&profile_id)
     }
 
-    async fn require_profile(&self, id: i64) -> Result<MikrotikProfile, MikrotikManagerError> {
+    /// The API factory — used by sibling managers (e.g. the log stream
+    /// manager) that build their own per-task API handle from a profile
+    /// connection.
+    pub(crate) fn api_factory(&self) -> MikrotikApiFactory {
+        Arc::clone(&self.factory)
+    }
+
+    pub(crate) async fn require_profile(
+        &self,
+        id: i64,
+    ) -> Result<MikrotikProfile, MikrotikManagerError> {
         self.db
             .load_mikrotik_profile(id)
             .await?
             .ok_or(MikrotikManagerError::ProfileNotFound(id))
     }
 
-    async fn connection_for(
+    pub(crate) async fn connection_for(
         &self,
         profile: &MikrotikProfile,
     ) -> Result<MikrotikConnection, MikrotikManagerError> {
         let password = self.store.get(&profile.secret_key).await?;
         Ok(MikrotikConnection {
             host: profile.host.clone(),
-            port: u16::try_from(profile.port)
-                .map_err(|_| MikrotikManagerError::Api(MikrotikError::Connect(format!(
+            port: u16::try_from(profile.port).map_err(|_| {
+                MikrotikManagerError::Api(MikrotikError::Connect(format!(
                     "invalid port {}",
                     profile.port
-                ))))?,
+                )))
+            })?,
             use_tls: profile.use_tls,
             allow_invalid_certs: profile.allow_invalid_certs,
             username: profile.username.clone(),
@@ -146,7 +166,7 @@ impl MikrotikManager {
         &self,
         id: i64,
     ) -> Result<DeleteProfileResultDto, MikrotikManagerError> {
-        if self.active_profile_id().await == Some(id) {
+        if self.is_profile_active(id).await {
             return Err(MikrotikManagerError::ProfileInUse(id));
         }
         let profile = self.require_profile(id).await?;
@@ -192,7 +212,7 @@ impl MikrotikManager {
     }
 
     async fn profile_dto(&self, profile: MikrotikProfile) -> MikrotikProfileDto {
-        let has_password = matches!(self.store.get(&profile.secret_key).await, Ok(_));
+        let has_password = self.store.get(&profile.secret_key).await.is_ok();
         MikrotikProfileDto {
             id: profile.id,
             name: profile.name,
@@ -216,10 +236,17 @@ impl MikrotikManager {
     where
         E: Fn(crate::mikrotik::types::MikrotikEvent) + Send + Sync + 'static,
     {
-        let mut inner = self.inner.lock().await;
-        if inner.active.is_some() {
-            return Err(MikrotikManagerError::AlreadyRunning);
+        {
+            let inner = self.inner.lock().await;
+            if inner.active.contains_key(&profile_id) {
+                return Err(MikrotikManagerError::AlreadyRunningForProfile(profile_id));
+            }
+            if inner.active.len() >= MAX_CONCURRENT_SESSIONS {
+                return Err(MikrotikManagerError::TooManySessions);
+            }
         }
+        // The lifecycle lock is NOT held across the awaits below: a slow
+        // connect must not block stop/list for unrelated sessions.
         let profile = self.require_profile(profile_id).await?;
         let conn = self.connection_for(&profile).await?;
         let api = match (self.factory)(conn).await {
@@ -233,6 +260,15 @@ impl MikrotikManager {
             }
         };
 
+        // Re-validate under the lock: another start may have claimed the
+        // profile (or the last slot) while we were connecting.
+        let mut inner = self.inner.lock().await;
+        if inner.active.contains_key(&profile_id) {
+            return Err(MikrotikManagerError::AlreadyRunningForProfile(profile_id));
+        }
+        if inner.active.len() >= MAX_CONCURRENT_SESSIONS {
+            return Err(MikrotikManagerError::TooManySessions);
+        }
         let session_id = self
             .db
             .create_mikrotik_session(&NewMikrotikSession {
@@ -261,38 +297,66 @@ impl MikrotikManager {
             })
             .await
         });
-        inner.active = Some(ActiveSession {
-            session_id,
+        inner.active.insert(
             profile_id,
-            on_status: active_status,
-            stop_tx,
-            join_handle,
-        });
+            ActiveSession {
+                session_id,
+                profile_id,
+                on_status: active_status,
+                stop_tx,
+                join_handle,
+            },
+        );
         Ok(MikrotikStartDto {
             session_id,
             profile_id,
         })
     }
 
-    pub async fn stop(&self) -> Result<MikrotikStoppedDto, MikrotikManagerError> {
+    /// Cancel ONE session by id and wait for its task. The entry is removed
+    /// under the lock before awaiting the join handle, so concurrent stops
+    /// of other sessions never block on this one's shutdown.
+    pub async fn stop(&self, session_id: i64) -> Result<MikrotikStoppedDto, MikrotikManagerError> {
         let active = {
-            self.inner
-                .lock()
-                .await
+            let mut inner = self.inner.lock().await;
+            let key = inner
                 .active
-                .take()
-                .ok_or(MikrotikManagerError::NoActiveSession)?
+                .iter()
+                .find(|(_, a)| a.session_id == session_id)
+                .map(|(k, _)| *k);
+            match key {
+                Some(key) => inner
+                    .active
+                    .remove(&key)
+                    .expect("key just found in active map"),
+                None => return Err(MikrotikManagerError::NoActiveSession),
+            }
         };
         let _ = active.stop_tx.send(true);
-        active
-            .join_handle
-            .await
-            .map_err(|err| MikrotikManagerError::Api(MikrotikError::Connect(format!(
+        active.join_handle.await.map_err(|err| {
+            MikrotikManagerError::Api(MikrotikError::Connect(format!(
                 "mikrotik task panicked: {err}"
-            ))))?
+            )))
+        })?
     }
 
-    pub async fn list_sessions(&self) -> Result<Vec<MikrotikSessionSummaryDto>, MikrotikManagerError> {
+    /// The currently live sessions, for rehydrating the UI after a reload.
+    pub async fn list_active(&self) -> Vec<ActiveSessionDto> {
+        self.inner
+            .lock()
+            .await
+            .active
+            .values()
+            .map(|a| ActiveSessionDto {
+                session_id: a.session_id,
+                profile_id: a.profile_id,
+            })
+            .collect()
+    }
+
+    pub async fn list_sessions(
+        &self,
+    ) -> Result<Vec<MikrotikSessionSummaryDto>, MikrotikManagerError> {
         Ok(self
             .db
             .list_mikrotik_sessions()
@@ -344,22 +408,22 @@ impl MikrotikManager {
 
     pub(crate) async fn clear_active(&self, session_id: i64) {
         let mut inner = self.inner.lock().await;
-        if inner
-            .active
-            .as_ref()
-            .is_some_and(|active| active.session_id == session_id)
-        {
-            inner.active.take();
-        }
+        inner.active.retain(|_, a| a.session_id != session_id);
     }
 
-    pub(crate) async fn active_version_target(&self, profile_id: i64) -> Option<ActiveVersionTarget> {
-        self.inner.lock().await.active.as_ref().and_then(|active| {
-            (active.profile_id == profile_id).then(|| ActiveVersionTarget {
+    pub(crate) async fn active_version_target(
+        &self,
+        profile_id: i64,
+    ) -> Option<ActiveVersionTarget> {
+        self.inner
+            .lock()
+            .await
+            .active
+            .get(&profile_id)
+            .map(|active| ActiveVersionTarget {
                 session_id: active.session_id,
                 on_status: Arc::clone(&active.on_status),
             })
-        })
     }
 
     pub(crate) async fn is_active_session(&self, session_id: i64) -> bool {
@@ -367,8 +431,8 @@ impl MikrotikManager {
             .lock()
             .await
             .active
-            .as_ref()
-            .is_some_and(|active| active.session_id == session_id)
+            .values()
+            .any(|active| active.session_id == session_id)
     }
 
     pub async fn check_updates(

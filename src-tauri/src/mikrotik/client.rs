@@ -16,10 +16,11 @@ use serde_json::{json, Value};
 
 use crate::mikrotik::error::{classify_transport, MikrotikError};
 use crate::mikrotik::parse::{
-    parse_ethernet_monitor, parse_ethernet_stats, parse_files, parse_health, parse_interfaces,
-    parse_resource, parse_routerboard, parse_update_status, parse_vlans, parse_bridge_vlans,
-    BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, FileEntryDto, InterfaceDto,
-    ResourceDto, RouterboardDto, SensorDto, UpdateStatusDto, VlanDto,
+    parse_bonding, parse_bridge_vlans, parse_ethernet_monitor, parse_ethernet_stats, parse_files,
+    parse_health, parse_interfaces, parse_log_entries, parse_resource, parse_routerboard,
+    parse_update_status, parse_vlans, BondingDto, BridgeVlanDto, EthernetMonitorDto,
+    EthernetStatsDto, FileEntryDto, InterfaceDto, LogEntryDto, ResourceDto, RouterboardDto,
+    SensorDto, UpdateStatusDto, VlanDto,
 };
 use crate::mikrotik::types::MikrotikApi;
 
@@ -124,10 +125,7 @@ impl MikrotikClient {
         let status = response.status().as_u16();
         // Read the body even for error statuses: RouterOS explains failures
         // in the body (as JSON, HTML, or plain text). Snippet only.
-        let body = response
-            .text()
-            .await
-            .map_err(|e| classify_transport(&e))?;
+        let body = response.text().await.map_err(|e| classify_transport(&e))?;
         match status {
             200..=299 => {
                 if body.trim().is_empty() {
@@ -177,7 +175,7 @@ impl MikrotikClient {
                 "interface/print",
                 json!({
                     "stats": "",
-                    ".proplist": "name,type,running,disabled,rx-byte,tx-byte,rx-packet,\
+                    ".proplist": "name,comment,type,running,disabled,rx-byte,tx-byte,rx-packet,\
                         tx-packet,tx-queue-drop,link-downs,rx-error,tx-error,rx-drop"
                 }),
                 DEFAULT_REQUEST_TIMEOUT,
@@ -247,6 +245,13 @@ impl MikrotikClient {
         parse_bridge_vlans(&value)
     }
 
+    /// `GET /rest/interface/bonding` — bonding masters and their slave
+    /// ports. Boards without any bonding print return an empty array.
+    pub async fn get_bonding(&self) -> Result<Vec<BondingDto>, MikrotikError> {
+        let value = self.get("interface/bonding", Probe::Plain).await?;
+        parse_bonding(&value)
+    }
+
     /// `GET /rest/system/package/update`.
     pub async fn get_update_status(&self) -> Result<UpdateStatusDto, MikrotikError> {
         let value = self.get("system/package/update", Probe::Plain).await?;
@@ -301,6 +306,20 @@ impl MikrotikClient {
     pub async fn list_files(&self) -> Result<Vec<FileEntryDto>, MikrotikError> {
         let value = self.get("file", Probe::Plain).await?;
         parse_files(&value)
+    }
+
+    /// `POST /rest/log/print` — in-memory log entries (`.id,time,topics,
+    /// message`). REST offers no streaming, so the log stream runtime polls
+    /// this and dedupes by record id.
+    pub async fn get_log(&self) -> Result<Vec<LogEntryDto>, MikrotikError> {
+        let value = self
+            .post(
+                "log/print",
+                json!({ ".proplist": ".id,time,topics,message" }),
+                DEFAULT_REQUEST_TIMEOUT,
+            )
+            .await?;
+        parse_log_entries(&value)
     }
 
     /// Resolve a file NAME to its record id via `/rest/file`, then DELETE by
@@ -401,6 +420,10 @@ impl MikrotikApi for MikrotikClient {
         MikrotikClient::get_bridge_vlans(self).await
     }
 
+    async fn get_bonding(&self) -> Result<Vec<BondingDto>, MikrotikError> {
+        MikrotikClient::get_bonding(self).await
+    }
+
     async fn get_update_status(&self) -> Result<UpdateStatusDto, MikrotikError> {
         MikrotikClient::get_update_status(self).await
     }
@@ -411,6 +434,10 @@ impl MikrotikApi for MikrotikClient {
 
     async fn get_routerboard(&self) -> Result<RouterboardDto, MikrotikError> {
         MikrotikClient::get_routerboard(self).await
+    }
+
+    async fn get_log(&self) -> Result<Vec<LogEntryDto>, MikrotikError> {
+        MikrotikClient::get_log(self).await
     }
 }
 

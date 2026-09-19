@@ -25,14 +25,20 @@ use super::types::{
 use crate::db::{now_rfc3339, Database, MikrotikSessionVersionStatus, MikrotikSnapshotRow};
 use crate::mikrotik::error::MikrotikError;
 use crate::mikrotik::parse::{
-    BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, ResourceDto, SensorDto,
-    SensorKind, VlanDto,
+    BondingDto, BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, ResourceDto,
+    SensorDto, SensorKind, VlanDto,
 };
 
 pub const TICK: Duration = Duration::from_secs(5);
 pub const HEALTH_EVERY: u64 = 2;
-pub const STATS_DETAIL_EVERY: u64 = 6;
+/// Monitor/stats cadence. The FIRST run is on tick 1 (see `want_stats`)
+/// so negotiated link rate/duplex is visible immediately after connect
+/// instead of one full interval later; afterwards this is a 15s refresh.
+pub const STATS_DETAIL_EVERY: u64 = 3;
 pub const VLAN_EVERY: u64 = 12;
+/// Bonding slave lists change only on operator config edits, so the same
+/// infrequent cadence as VLANs suffices.
+pub const BONDING_EVERY: u64 = 12;
 pub const MAX_CORE_FAILURES: u32 = 3;
 /// Per-tick enricher time budget — strictly below the 5s tick so a hung
 /// enricher can never delay the next core snapshot.
@@ -47,6 +53,13 @@ struct EnricherState {
     interfaces: Option<Vec<MikrotikInterfaceDto>>,
     vlans: Option<Vec<VlanDto>>,
     bridge_vlans: Option<Vec<BridgeVlanDto>>,
+    /// Bonding masters with their slave ports (`None` = never fetched
+    /// successfully this session; aggregation simply does not run).
+    bonding: Option<Vec<BondingDto>>,
+    /// Last known negotiated rate/duplex per interface name. Monitors run
+    /// only every `STATS_DETAIL_EVERY` ticks; the UI keeps showing the last
+    /// known values in between.
+    link: HashMap<String, (Option<String>, Option<bool>)>,
 }
 
 impl EnricherState {
@@ -143,6 +156,7 @@ fn base_to_dto(
         tx_drop: iface.tx_drop,
         rate: iface.rate,
         full_duplex: iface.full_duplex,
+        comment: iface.comment,
         rx_bits_per_second: rx_rate,
         tx_bits_per_second: tx_rate,
     }
@@ -177,14 +191,11 @@ fn merge_stats_detail(wire: &mut [MikrotikInterfaceDto], detail: Vec<InterfaceDt
 /// matching on `default-name` when ether ports were renamed.
 fn merge_ethernet_stats(wire: &mut [MikrotikInterfaceDto], stats: Vec<EthernetStatsDto>) {
     for stat in stats {
-        let idx = wire
-            .iter()
-            .position(|w| w.name == stat.name)
-            .or_else(|| {
-                stat.default_name
-                    .as_deref()
-                    .and_then(|d| wire.iter().position(|w| w.name == d))
-            });
+        let idx = wire.iter().position(|w| w.name == stat.name).or_else(|| {
+            stat.default_name
+                .as_deref()
+                .and_then(|d| wire.iter().position(|w| w.name == d))
+        });
         let Some(i) = idx else { continue };
         let target = &mut wire[i];
         for (slot, value) in [
@@ -222,6 +233,107 @@ fn merge_monitors(
         }
     }
 }
+/// Remember negotiated rate/duplex after a successful monitor run, and fill
+/// them back on ticks where the enricher did not run. Never resurrects a
+/// link for an interface that is currently down or disabled.
+fn retain_link_params(
+    wire: &mut [MikrotikInterfaceDto],
+    cache: &mut HashMap<String, (Option<String>, Option<bool>)>,
+    learned: bool,
+) {
+    if learned {
+        for w in wire.iter() {
+            if w.rate.is_some() || w.full_duplex.is_some() {
+                cache.insert(w.name.clone(), (w.rate.clone(), w.full_duplex));
+            }
+        }
+    }
+    for w in wire.iter_mut() {
+        if w.rate.is_none() && w.running == Some(true) && w.disabled != Some(true) {
+            if let Some((rate, duplex)) = cache.get(&w.name) {
+                w.rate = rate.clone();
+                w.full_duplex = *duplex;
+            }
+        }
+    }
+}
+
+/// Parse a RouterOS link-rate string ("10Mbps", "100Mbps", "1Gbps",
+/// "2.5Gbps") into Mbps. Anything unparseable ("unknown", absent, exotic
+/// suffix) yields `None` and is excluded from bonding sums.
+fn parse_link_rate_mbps(rate: &str) -> Option<f64> {
+    let lower = rate.trim().to_ascii_lowercase();
+    let (digits, mult) = if let Some(m) = lower.strip_suffix("gbps") {
+        (m, 1000.0)
+    } else if let Some(m) = lower.strip_suffix("mbps") {
+        (m, 1.0)
+    } else {
+        return None;
+    };
+    digits.trim().parse::<f64>().ok().map(|v| v * mult)
+}
+
+/// Format an Mbps total back in RouterOS style ("150Mbps", "2Gbps",
+/// "2.5Gbps"), rounding to one decimal at most.
+fn format_link_rate(mbps: f64) -> String {
+    let (value, unit) = if mbps >= 1000.0 {
+        (mbps / 1000.0, "Gbps")
+    } else {
+        (mbps, "Mbps")
+    };
+    let rounded = (value * 10.0).round() / 10.0;
+    if rounded.fract() == 0.0 {
+        format!("{}{}", rounded as u64, unit)
+    } else {
+        format!("{rounded}{unit}")
+    }
+}
+
+/// Derive a bonding master's link rate/duplex from its slave ports: the
+/// master's rate is the SUM of its running slaves' rates, and duplex reads
+/// "full" only when every running slave with known duplex reports full.
+/// Masters that are down/disabled, or whose running slaves all lack a
+/// parseable rate, keep `rate = None`. Must run AFTER
+/// `retain_link_params` so plain ticks see the cached slave rates — and so
+/// the synthetic master rate never enters the retention cache.
+fn apply_bonding_link(wire: &mut [MikrotikInterfaceDto], bonding: &[BondingDto]) {
+    for entry in bonding {
+        let Some(master_idx) = wire.iter().position(|w| w.name == entry.name) else {
+            continue;
+        };
+        if wire[master_idx].running != Some(true) || wire[master_idx].disabled == Some(true) {
+            continue;
+        }
+        let mut total_mbps = 0.0;
+        let mut any_rate = false;
+        let mut duplex_known = false;
+        let mut all_full = true;
+        for slave_name in &entry.slaves {
+            let Some(slave) = wire.iter().find(|w| &w.name == slave_name) else {
+                continue;
+            };
+            if slave.running != Some(true) || slave.disabled == Some(true) {
+                continue;
+            }
+            if let Some(mbps) = slave.rate.as_deref().and_then(parse_link_rate_mbps) {
+                total_mbps += mbps;
+                any_rate = true;
+            }
+            if let Some(full) = slave.full_duplex {
+                duplex_known = true;
+                all_full &= full;
+            }
+        }
+        if any_rate {
+            let master = &mut wire[master_idx];
+            master.rate = Some(format_link_rate(total_mbps));
+            if duplex_known {
+                master.full_duplex = Some(all_full);
+            }
+        }
+    }
+}
+
 /// RouterOS marks unsupported endpoints with 404 or a 400/406
 /// no-such-command body (both surfaced by todo 2/4 error helpers).
 fn is_unsupported(err: &MikrotikError) -> bool {
@@ -305,6 +417,23 @@ async fn run_vlans(
         .map_err(|err| format!("bridge-vlans: {err}"))?;
     Ok((vlans, bridge_vlans))
 }
+
+enum BondingOutcome {
+    Succeeded(Vec<BondingDto>),
+    /// No such endpoint (older RouterOS or a fake that does not implement
+    /// it) — there is simply nothing to aggregate; never a warning.
+    Unsupported,
+    Failed(String),
+}
+
+async fn run_bonding(api: &Arc<dyn MikrotikApi>) -> BondingOutcome {
+    match timeout(ENRICHER_BUDGET, api.get_bonding()).await {
+        Ok(Ok(bonding)) => BondingOutcome::Succeeded(bonding),
+        Ok(Err(err)) if is_unsupported(&err) => BondingOutcome::Unsupported,
+        Ok(Err(err)) => BondingOutcome::Failed(format!("bonding: {err}")),
+        Err(_) => BondingOutcome::Failed("bonding: timed out".to_owned()),
+    }
+}
 fn core_failure_message(
     resource: &Result<ResourceDto, MikrotikError>,
     interfaces: &Result<Vec<InterfaceDto>, MikrotikError>,
@@ -333,7 +462,10 @@ fn snapshot_row(payload: &MikrotikSnapshotPayload) -> MikrotikSnapshotRow {
             .as_ref()
             .and_then(|s| serde_json::to_string(s).ok()),
         interfaces_json: serde_json::to_string(&payload.interfaces).ok(),
-        vlans_json: payload.vlans.as_ref().and_then(|v| serde_json::to_string(v).ok()),
+        vlans_json: payload
+            .vlans
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok()),
         bridge_vlans_json: payload
             .bridge_vlans
             .as_ref()
@@ -474,12 +606,15 @@ pub async fn run_mikrotik_session(
             .map(|w| w.name.clone())
             .collect();
 
-        let want_health = tick % HEALTH_EVERY == 0;
-        let want_stats = tick % STATS_DETAIL_EVERY == 0;
-        let want_vlans = tick == 1 || tick % VLAN_EVERY == 0;
+        let want_health = tick.is_multiple_of(HEALTH_EVERY);
+        // Tick 1 is included so the first snapshot already carries
+        // negotiated rate/duplex (mirrors the VLAN/bonding first-tick fetch).
+        let want_stats = tick == 1 || tick.is_multiple_of(STATS_DETAIL_EVERY);
+        let want_vlans = tick == 1 || tick.is_multiple_of(VLAN_EVERY);
+        let want_bonding = tick == 1 || tick.is_multiple_of(BONDING_EVERY);
 
         let api_stats = Arc::clone(&api);
-        let (health, stats, vlans) = tokio::join!(
+        let (health, stats, vlans, bonding) = tokio::join!(
             async {
                 if want_health {
                     Some(run_health(&api).await)
@@ -497,6 +632,13 @@ pub async fn run_mikrotik_session(
             async {
                 if want_vlans {
                     Some(run_vlans(&api).await)
+                } else {
+                    None
+                }
+            },
+            async {
+                if want_bonding {
+                    Some(run_bonding(&api).await)
                 } else {
                     None
                 }
@@ -527,12 +669,25 @@ pub async fn run_mikrotik_session(
         } else if let Some(Err(note)) = vlans {
             warnings.push(note);
         }
-        let vlans_out = if want_vlans { enrichers.vlans.clone() } else { None };
+        let vlans_out = if want_vlans {
+            enrichers.vlans.clone()
+        } else {
+            None
+        };
         let bridge_out = if want_vlans {
             enrichers.bridge_vlans.clone()
         } else {
             None
         };
+        if let Some(outcome) = bonding {
+            match outcome {
+                BondingOutcome::Succeeded(list) => enrichers.bonding = Some(list),
+                // Nothing to aggregate on this board/fake: an empty list
+                // disables aggregation without ever warning again.
+                BondingOutcome::Unsupported => enrichers.bonding = Some(Vec::new()),
+                BondingOutcome::Failed(note) => warnings.push(note),
+            }
+        }
         let stats_failed = matches!(stats, Some(Err(_)));
         if let Some(result) = stats {
             match result {
@@ -540,15 +695,27 @@ pub async fn run_mikrotik_session(
                     merge_stats_detail(&mut wire, enrich.detail);
                     merge_ethernet_stats(&mut wire, enrich.ether_stats);
                     merge_monitors(&mut wire, enrich.monitors);
+                    retain_link_params(&mut wire, &mut enrichers.link, true);
                     enrichers.interfaces = Some(wire.clone());
                 }
                 Err(note) => warnings.push(note),
             }
         }
-        let interfaces_out = match (want_stats, stats_failed, &enrichers.interfaces) {
+        // Stats enrichment (which carries rate/duplex) runs only every
+        // STATS_DETAIL_EVERY ticks; restore the last known values on the
+        // ticks in between so the UI column does not blank out.
+        if !want_stats || stats_failed {
+            retain_link_params(&mut wire, &mut enrichers.link, false);
+        }
+        let mut interfaces_out = match (want_stats, stats_failed, &enrichers.interfaces) {
             (true, true, Some(last_known)) => last_known.clone(),
             _ => wire,
         };
+        // Bonding masters cannot be ethernet-monitored; their link rate is
+        // the sum of their slave rows' (already resolved) rates.
+        if let Some(bonding) = &enrichers.bonding {
+            apply_bonding_link(&mut interfaces_out, bonding);
+        }
 
         let warning = match warnings.is_empty() {
             true => None,
@@ -580,7 +747,8 @@ pub async fn run_mikrotik_session(
 
     let ended_at = now_rfc3339();
     let status = if cancelled { "cancelled" } else { "error" };
-    db.complete_mikrotik_session(session_id, &ended_at, status).await?;
+    db.complete_mikrotik_session(session_id, &ended_at, status)
+        .await?;
     if cancelled {
         (on_status)(MikrotikStatusEvent::Cancelled {
             session_id,
@@ -594,4 +762,173 @@ pub async fn run_mikrotik_session(
         ended_at,
         status: status.to_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn iface(
+        name: &str,
+        running: Option<bool>,
+        rate: Option<&str>,
+        duplex: Option<bool>,
+    ) -> MikrotikInterfaceDto {
+        iface_typed(name, "ether", running, rate, duplex)
+    }
+
+    fn iface_typed(
+        name: &str,
+        iface_type: &str,
+        running: Option<bool>,
+        rate: Option<&str>,
+        duplex: Option<bool>,
+    ) -> MikrotikInterfaceDto {
+        MikrotikInterfaceDto {
+            name: name.to_owned(),
+            iface_type: Some(iface_type.to_owned()),
+            running,
+            disabled: None,
+            rx_byte: None,
+            tx_byte: None,
+            rx_packet: None,
+            tx_packet: None,
+            tx_queue_drop: None,
+            link_downs: None,
+            rx_error: None,
+            tx_error: None,
+            rx_drop: None,
+            rx_error_events: None,
+            tx_error_events: None,
+            rx_fcs_error: None,
+            rx_align_error: None,
+            tx_collision: None,
+            tx_drop: None,
+            rate: rate.map(str::to_owned),
+            full_duplex: duplex,
+            comment: None,
+            rx_bits_per_second: None,
+            tx_bits_per_second: None,
+        }
+    }
+
+    fn bonding_entry(name: &str, slaves: &[&str]) -> BondingDto {
+        BondingDto {
+            name: name.to_owned(),
+            slaves: slaves.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn retain_link_params_keeps_rate_visible_between_enricher_runs() {
+        let mut cache = HashMap::new();
+        // Enricher tick: learn the negotiated link.
+        let mut wire = vec![iface("ether1", Some(true), Some("1Gbps"), Some(true))];
+        retain_link_params(&mut wire, &mut cache, true);
+
+        // Plain tick: base fetch carries no rate; cache fills it back.
+        let mut wire = vec![iface("ether1", Some(true), None, None)];
+        retain_link_params(&mut wire, &mut cache, false);
+        assert_eq!(wire[0].rate.as_deref(), Some("1Gbps"));
+        assert_eq!(wire[0].full_duplex, Some(true));
+    }
+
+    #[test]
+    fn retain_link_params_never_revives_a_down_interface() {
+        let mut cache = HashMap::new();
+        let mut wire = vec![iface("ether2", Some(true), Some("1Gbps"), Some(true))];
+        retain_link_params(&mut wire, &mut cache, true);
+
+        // Link dropped: running=false must NOT show the stale negotiated rate.
+        let mut wire = vec![iface("ether2", Some(false), None, None)];
+        retain_link_params(&mut wire, &mut cache, false);
+        assert_eq!(wire[0].rate, None);
+        assert_eq!(wire[0].full_duplex, None);
+    }
+
+    #[test]
+    fn apply_bonding_link_sums_running_slave_rates() {
+        let mut wire = vec![
+            iface_typed("bonding1", "bonding", Some(true), None, None),
+            iface("ether1", Some(true), Some("1Gbps"), Some(true)),
+            iface("ether2", Some(true), Some("1Gbps"), Some(true)),
+        ];
+        apply_bonding_link(
+            &mut wire,
+            &[bonding_entry("bonding1", &["ether1", "ether2"])],
+        );
+        assert_eq!(wire[0].rate.as_deref(), Some("2Gbps"));
+        assert_eq!(wire[0].full_duplex, Some(true));
+    }
+
+    #[test]
+    fn apply_bonding_link_excludes_down_and_unknown_slaves() {
+        let mut wire = vec![
+            iface_typed("bonding1", "bonding", Some(true), None, None),
+            iface("ether1", Some(true), Some("1Gbps"), Some(true)),
+            // Down slave: must not contribute.
+            iface("ether2", Some(false), Some("1Gbps"), Some(true)),
+            // Link up but rate not negotiated ("unknown"): excluded too.
+            iface("ether3", Some(true), Some("unknown"), Some(true)),
+        ];
+        apply_bonding_link(
+            &mut wire,
+            &[bonding_entry("bonding1", &["ether1", "ether2", "ether3"])],
+        );
+        assert_eq!(wire[0].rate.as_deref(), Some("1Gbps"));
+    }
+
+    #[test]
+    fn apply_bonding_link_reports_half_when_any_slave_is_half() {
+        let mut wire = vec![
+            iface_typed("bonding1", "bonding", Some(true), None, None),
+            iface("ether1", Some(true), Some("1Gbps"), Some(true)),
+            iface("ether2", Some(true), Some("100Mbps"), Some(false)),
+        ];
+        apply_bonding_link(
+            &mut wire,
+            &[bonding_entry("bonding1", &["ether1", "ether2"])],
+        );
+        assert_eq!(wire[0].rate.as_deref(), Some("1.1Gbps"));
+        assert_eq!(wire[0].full_duplex, Some(false));
+    }
+
+    #[test]
+    fn apply_bonding_link_leaves_master_without_any_known_slave_rate() {
+        let mut wire = vec![
+            iface_typed("bonding1", "bonding", Some(true), None, None),
+            iface("ether1", Some(true), None, None),
+            iface("ether2", Some(true), None, Some(true)),
+        ];
+        apply_bonding_link(
+            &mut wire,
+            &[bonding_entry("bonding1", &["ether1", "ether2"])],
+        );
+        assert_eq!(wire[0].rate, None);
+        assert_eq!(wire[0].full_duplex, None);
+    }
+
+    #[test]
+    fn apply_bonding_link_never_revives_a_down_master() {
+        let mut wire = vec![
+            iface_typed("bonding1", "bonding", Some(false), None, None),
+            iface("ether1", Some(true), Some("1Gbps"), Some(true)),
+        ];
+        apply_bonding_link(&mut wire, &[bonding_entry("bonding1", &["ether1"])]);
+        assert_eq!(wire[0].rate, None);
+        assert_eq!(wire[0].full_duplex, None);
+    }
+
+    #[test]
+    fn link_rate_parsing_and_formatting() {
+        assert_eq!(parse_link_rate_mbps("100Mbps"), Some(100.0));
+        assert_eq!(parse_link_rate_mbps("1Gbps"), Some(1000.0));
+        assert_eq!(parse_link_rate_mbps("2.5Gbps"), Some(2500.0));
+        assert_eq!(parse_link_rate_mbps("unknown"), None);
+        assert_eq!(parse_link_rate_mbps(""), None);
+        assert_eq!(format_link_rate(100.0), "100Mbps");
+        assert_eq!(format_link_rate(1000.0), "1Gbps");
+        assert_eq!(format_link_rate(1100.0), "1.1Gbps");
+        assert_eq!(format_link_rate(2500.0), "2.5Gbps");
+    }
 }

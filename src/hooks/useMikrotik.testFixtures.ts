@@ -35,7 +35,7 @@ export function liveSnapshot(at: string, rxBitsPerSecond: number | null): Mikrot
       name: "ether1", type: "ether", running: true, disabled: false, rxByte: 1_000, txByte: 2_000,
       rxPacket: null, txPacket: null, txQueueDrop: null, linkDowns: null, rxError: null, txError: null,
       rxDrop: null, rxErrorEvents: null, txErrorEvents: null, rxFcsError: null, rxAlignError: null,
-      txCollision: null, txDrop: null, rate: "1G", fullDuplex: true, rxBitsPerSecond, txBitsPerSecond: 2_000,
+      txCollision: null, txDrop: null, rate: "1G", fullDuplex: true, comment: "uplink", rxBitsPerSecond, txBitsPerSecond: 2_000,
     }],
     vlans: [{ name: "vlan10", vlanId: 10, interface: "bridge", running: true, disabled: false }],
     bridgeVlans: [{ bridge: "bridge", vlanIds: ["10"], tagged: ["ether1"], untagged: [], currentTagged: ["ether1"], currentUntagged: [] }],

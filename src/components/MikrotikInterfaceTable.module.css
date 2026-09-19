@@ -3,8 +3,8 @@
   min-inline-size: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  border: 1px solid var(--surface-2);
-  border-radius: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface-1);
 }
 
@@ -12,14 +12,14 @@
   inline-size: max-content;
   min-inline-size: 100%;
   border-collapse: collapse;
-  color: var(--text);
-  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-size: 11.5px;
 }
 
 .table th,
 .table td {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--surface-2);
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
@@ -36,21 +36,14 @@
 
 .table thead {
   background: var(--surface-1);
-  color: var(--text-muted);
 }
 
 .table th {
-  font-size: 0.75rem;
-  font-weight: 500;
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.table tbody tr:nth-child(odd) {
-  background: var(--surface-0);
-}
-
-.table tbody tr:nth-child(even) {
-  background: var(--surface-1);
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
 }
 
 .table tbody tr:last-child td {
@@ -71,8 +64,7 @@
   border: 0;
   background: transparent;
   color: var(--text);
-  font: inherit;
-  font-weight: 600;
+  font: 500 11.5px/1 var(--font-mono);
   cursor: pointer;
 }
 
@@ -81,17 +73,16 @@
 }
 
 .numeric {
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.5rem;
-  border-radius: 1em;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1;
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font: 600 10px/1.3 var(--font-mono);
   white-space: nowrap;
 }
 
@@ -119,25 +110,32 @@
   .table {
     inline-size: 100%;
     table-layout: fixed;
-    font-size: 0.8125rem;
   }
 
   .table th,
   .table td {
-    padding-inline: 0.45rem;
+    padding-inline: 10px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .table th:nth-child(2),
-  .table td:nth-child(2),
-  .table th:nth-child(4),
-  .table td:nth-child(4) {
+  /* Hide Type (3) and the byte/error tails; Name, Comment, State, Link rate
+     and RX/TX rates stay visible at the default 1024px window. */
+  .table th:nth-child(3),
+  .table td:nth-child(3) {
     display: none;
   }
 
-  .table th:nth-child(n + 7),
-  .table td:nth-child(n + 7) {
+  .table th:nth-child(n + 8),
+  .table td:nth-child(n + 8) {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Very narrow: drop Comment (2) too, keep Name/State/Link/RX/TX. */
+  .table th:nth-child(2),
+  .table td:nth-child(2) {
     display: none;
   }
 }

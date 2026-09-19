@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MikrotikBackupPanel } from "./MikrotikBackupPanel"
 const ipc = vi.hoisted(() => ({
   mikrotikBackup: vi.fn<() => Promise<{ readonly backupPath: string; readonly exportPath: string | null; readonly cleanupWarnings: readonly string[] }>>(),
+  mikrotikGetBackupDestination: vi.fn<() => Promise<string | null>>(),
+  mikrotikSetBackupDestination: vi.fn<() => Promise<void>>(),
 }))
 const dialog = vi.hoisted(() => ({
   open: vi.fn<() => Promise<string | null>>(),
@@ -26,6 +28,8 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
   dialog.open.mockResolvedValue("C:/backups")
+  ipc.mikrotikGetBackupDestination.mockResolvedValue(null)
+  ipc.mikrotikSetBackupDestination.mockResolvedValue(undefined)
   ipc.mikrotikBackup.mockResolvedValue({
     backupPath: "C:/backups/verkkokyyla.backup",
     exportPath: "C:/backups/verkkokyyla.rsc",
@@ -46,7 +50,7 @@ describe("MikrotikBackupPanel", () => {
     const backupName = screen.getByLabelText("Backup name")
     fireEvent.change(backupName, { target: { value: name } })
     chooseDirectory()
-    await waitFor(() => expect(dialog.open).toHaveBeenCalledWith({ directory: true }))
+    await waitFor(() => expect(dialog.open).toHaveBeenCalledWith({ directory: true, defaultPath: undefined }))
     expect(screen.getByRole("button", { name: "Create backup" }).hasAttribute("disabled")).toBe(true)
   })
 
@@ -73,7 +77,7 @@ describe("MikrotikBackupPanel", () => {
     await waitFor(() => expect(screen.getByTestId("confirm-dialog")).toBeTruthy())
     fireEvent.click(screen.getByTestId("confirm-dialog-confirm"))
     await waitFor(() => expect(ipc.mikrotikBackup).toHaveBeenCalledTimes(2))
-    expect(ipc.mikrotikBackup).toHaveBeenLastCalledWith(7, "C:/backups", "lab", undefined, false, true)
+    expect(ipc.mikrotikBackup).toHaveBeenLastCalledWith(7, "C:/backups", "lab", undefined, true, true)
     expect(screen.getByText("C:/backups/lab.backup")).toBeTruthy()
   })
 
@@ -81,7 +85,8 @@ describe("MikrotikBackupPanel", () => {
     renderPanel()
     fireEvent.change(screen.getByLabelText("Backup name"), { target: { value: "lab" } })
     fireEvent.change(screen.getByLabelText("Encryption password (optional)"), { target: { value: "secret" } })
-    fireEvent.click(screen.getByLabelText("Include .rsc export"))
+    // .rsc export is on by default so backups stay diffable.
+    expect(screen.getByLabelText<HTMLInputElement>("Include .rsc export").checked).toBe(true)
     chooseDirectory()
     await waitFor(() => expect(screen.getByText("C:/backups")).toBeTruthy())
     fireEvent.click(screen.getByRole("button", { name: "Create backup" }))
@@ -120,5 +125,38 @@ describe("MikrotikBackupPanel", () => {
     await waitFor(() => expect(screen.getByText("C:/backups")).toBeTruthy())
     fireEvent.click(screen.getByRole("button", { name: "Create backup" }))
     await waitFor(() => expect(screen.getByText(/Enable the SSH service on the router/)).toBeTruthy())
+  })
+
+  it("prefills the remembered destination directory", async () => {
+    ipc.mikrotikGetBackupDestination.mockResolvedValue("D:/saved-backups")
+    renderPanel()
+
+    await waitFor(() => expect(screen.getByText("D:/saved-backups")).toBeTruthy())
+    // A remembered destination already enables the submit button.
+    expect(screen.getByRole("button", { name: "Create backup" }).hasAttribute("disabled")).toBe(false)
+  })
+
+  it("remembers the directory chosen in the picker", async () => {
+    renderPanel()
+    chooseDirectory()
+
+    await waitFor(() => expect(ipc.mikrotikSetBackupDestination).toHaveBeenCalledWith("C:/backups"))
+    // The picker opens at the remembered path next time.
+    ipc.mikrotikGetBackupDestination.mockResolvedValue("C:/backups")
+    dialog.open.mockClear()
+    chooseDirectory()
+    await waitFor(() =>
+      expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, defaultPath: "C:/backups" }),
+    )
+  })
+
+  it("remembers the destination after a successful backup", async () => {
+    renderPanel()
+    chooseDirectory()
+    await waitFor(() => expect(screen.getByText("C:/backups")).toBeTruthy())
+
+    fireEvent.click(screen.getByRole("button", { name: "Create backup" }))
+
+    await waitFor(() => expect(ipc.mikrotikSetBackupDestination).toHaveBeenCalledWith("C:/backups"))
   })
 })

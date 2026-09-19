@@ -49,7 +49,12 @@ function formatCount(value: number | null): string {
 }
 
 function formatLink(networkInterface: MikrotikInterfaceDto): string {
-  if (networkInterface.type !== "ether" || networkInterface.rate === null) {
+  // Bonding masters carry a rate aggregated from their slave ports by the
+  // backend; RouterOS reports their interface type as "bond". Other
+  // non-ethernet types (vlan, bridge, ...) have none.
+  const linkBearing =
+    networkInterface.type === "ether" || networkInterface.type === "bond"
+  if (!linkBearing || networkInterface.rate === null) {
     return "-"
   }
   if (networkInterface.fullDuplex === null) return networkInterface.rate
@@ -68,7 +73,7 @@ function StateBadge({
     return <span className={`${styles.badge} ${styles.disabled}`}>Disabled</span>
   }
   if (running === true) {
-    return <span className={`${styles.badge} ${styles.running}`}>Running</span>
+    return <span className={`${styles.badge} ${styles.running}`}>Up</span>
   }
   return <span className={`${styles.badge} ${styles.down}`}>Down</span>
 }
@@ -96,6 +101,7 @@ export function MikrotikInterfaceTable({
         <thead>
           <tr>
             <th scope="col">Name</th>
+            <th scope="col">Comment</th>
             <th scope="col">Type</th>
             <th scope="col">State</th>
             <th scope="col">Link rate / duplex</th>
@@ -133,6 +139,9 @@ export function MikrotikInterfaceTable({
                 >
                   {networkInterface.name}
                 </button>
+              </td>
+              <td className={styles.secondary} title={networkInterface.comment ?? undefined}>
+                {networkInterface.comment ?? "-"}
               </td>
               <td className={styles.secondary}>{networkInterface.type ?? "-"}</td>
               <td>

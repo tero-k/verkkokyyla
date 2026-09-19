@@ -159,6 +159,8 @@ pub struct InterfaceDto {
     pub rate: Option<String>,
     /// Negotiated duplex from the ethernet monitor call (todo 5 merges).
     pub full_duplex: Option<bool>,
+    /// Operator comment from `/interface/print` (null when unset).
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -191,6 +193,16 @@ pub struct VlanDto {
     pub interface: Option<String>,
     pub running: Option<bool>,
     pub disabled: Option<bool>,
+}
+
+/// `GET /rest/interface/bonding` — a bonding master and its slave port
+/// names. The slaves' own interface rows carry the monitored rate/duplex;
+/// the runtime aggregates them onto the master's row.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BondingDto {
+    pub name: String,
+    pub slaves: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -276,7 +288,11 @@ fn normalize_sensor_value(kind: SensorKind, raw: f64) -> f64 {
         SensorKind::Voltage => raw > 100.0,
         SensorKind::Fan | SensorKind::Other => false,
     };
-    if deci { raw / 10.0 } else { raw }
+    if deci {
+        raw / 10.0
+    } else {
+        raw
+    }
 }
 
 fn make_sensor(name: &str, raw: &str) -> Option<SensorDto> {
@@ -325,8 +341,12 @@ pub fn parse_health(value: &Value) -> Result<Vec<SensorDto>, MikrotikError> {
         Value::Array(records) => {
             let mut sensors = Vec::new();
             for record in records {
-                let Some(map) = record.as_object() else { continue };
-                let Some(name) = get_str(map, "name") else { continue };
+                let Some(map) = record.as_object() else {
+                    continue;
+                };
+                let Some(name) = get_str(map, "name") else {
+                    continue;
+                };
                 let raw_number;
                 let raw: Option<&str> = match map.get("value") {
                     Some(Value::String(s)) => Some(s.as_str()),
@@ -379,6 +399,7 @@ fn parse_interface(map: &Map<String, Value>) -> Option<InterfaceDto> {
         tx_drop: get_u64(map, "tx-drop"),
         rate: None,
         full_duplex: None,
+        comment: get_str(map, "comment").map(str::to_owned),
     })
 }
 
@@ -481,6 +502,24 @@ fn string_list(value: Option<&Value>) -> Vec<String> {
     }
 }
 
+/// `GET /rest/interface/bonding` — `slaves` arrives either as a list or as a
+/// comma-separated string.
+pub fn parse_bonding(value: &Value) -> Result<Vec<BondingDto>, MikrotikError> {
+    if !matches!(value, Value::Array(_) | Value::Object(_)) {
+        return Err(parse_err("bonding list"));
+    }
+    Ok(object_list(value)
+        .into_iter()
+        .filter_map(|map| {
+            let name = get_str(map, "name")?.to_owned();
+            Some(BondingDto {
+                name,
+                slaves: string_list(map.get("slaves")),
+            })
+        })
+        .collect())
+}
+
 /// `GET /rest/interface/bridge/vlan`.
 pub fn parse_bridge_vlans(value: &Value) -> Result<Vec<BridgeVlanDto>, MikrotikError> {
     if !matches!(value, Value::Array(_) | Value::Object(_)) {
@@ -541,6 +580,85 @@ pub fn parse_files(value: &Value) -> Result<Vec<FileEntryDto>, MikrotikError> {
             size: get_u64(map, "size"),
         })
         .collect())
+}
+
+/// One entry of the router's in-memory log (`/log/print`). RouterOS encodes
+/// severity as facility-independent TOPICS (`critical`, `error`, `warning`,
+/// `debug`, `info`) alongside the origin topics (e.g. `dhcp`, `system`), so
+/// `topics` carries both and `severity` is classified from it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogEntryDto {
+    /// RouterOS record id (`*17`) — monotonic for the life of the memory
+    /// buffer; the stream dedupes on it.
+    pub id: String,
+    /// Entry time as the router reports it (`12:52:24`), `None` when absent.
+    pub time: Option<String>,
+    /// Comma-separated `topics` field split into individual topics.
+    pub topics: Vec<String>,
+    pub message: String,
+    pub severity: LogSeverity,
+}
+
+/// Severity derived from the entry's topics. Serialized lowercase for the
+/// wire (same convention as `SensorKind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogSeverity {
+    Critical,
+    Error,
+    Warning,
+    Info,
+    Debug,
+}
+
+/// Highest severity word present in the topic list wins; entries with no
+/// severity topic (or unrecognized ones) classify as `Info`.
+pub fn classify_log_severity(topics: &[String]) -> LogSeverity {
+    if topics.iter().any(|topic| topic == "critical") {
+        LogSeverity::Critical
+    } else if topics.iter().any(|topic| topic == "error") {
+        LogSeverity::Error
+    } else if topics.iter().any(|topic| topic == "warning") {
+        LogSeverity::Warning
+    } else if topics.iter().any(|topic| topic == "debug") {
+        LogSeverity::Debug
+    } else {
+        LogSeverity::Info
+    }
+}
+
+/// `POST /rest/log/print` — an array of records with stringly
+/// `.id`/`time`/`topics`/`message` fields. An entry without a usable `.id`
+/// is a parse error: the stream cannot dedupe without it.
+pub fn parse_log_entries(value: &Value) -> Result<Vec<LogEntryDto>, MikrotikError> {
+    if !matches!(value, Value::Array(_) | Value::Object(_)) {
+        return Err(parse_err("log entry list"));
+    }
+    let mut entries = Vec::new();
+    for map in object_list(value) {
+        let id = get_str(map, ".id").unwrap_or_default();
+        if id.is_empty() {
+            return Err(parse_err("log entry with .id"));
+        }
+        let topics = get_str(map, "topics")
+            .map(|raw| {
+                raw.split(',')
+                    .map(|topic| topic.trim().to_owned())
+                    .filter(|topic| !topic.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let severity = classify_log_severity(&topics);
+        entries.push(LogEntryDto {
+            id: id.to_owned(),
+            time: get_str(map, "time").map(str::to_owned),
+            topics,
+            message: get_str(map, "message").unwrap_or_default().to_owned(),
+            severity,
+        });
+    }
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -650,9 +768,7 @@ mod tests {
         assert!(names.contains(&"sfp-temperature"));
         assert!(names.contains(&"fan1-speed"));
         assert!(names.contains(&"psu1-voltage"));
-        assert!(sensors
-            .iter()
-            .all(|s| s.kind != SensorKind::Other));
+        assert!(sensors.iter().all(|s| s.kind != SensorKind::Other));
     }
 
     #[test]
@@ -679,8 +795,20 @@ mod tests {
                 "alias not classified: {name}"
             );
         }
-        for name in ["fan-speed", "fan1", "fan2", "fan3", "fan4", "fan1-speed", "fan4-speed"] {
-            assert_eq!(sensor_kind(name), SensorKind::Fan, "alias not classified: {name}");
+        for name in [
+            "fan-speed",
+            "fan1",
+            "fan2",
+            "fan3",
+            "fan4",
+            "fan1-speed",
+            "fan4-speed",
+        ] {
+            assert_eq!(
+                sensor_kind(name),
+                SensorKind::Fan,
+                "alias not classified: {name}"
+            );
         }
         for name in [
             "voltage",
@@ -738,7 +866,10 @@ mod tests {
 
     #[test]
     fn mikrotik_parse_health_wrong_shape_is_parse_error() {
-        assert!(matches!(parse_health(&json!(42)), Err(MikrotikError::Parse(_))));
+        assert!(matches!(
+            parse_health(&json!(42)),
+            Err(MikrotikError::Parse(_))
+        ));
     }
 
     #[test]
@@ -935,6 +1066,34 @@ mod tests {
     }
 
     #[test]
+    fn mikrotik_parse_bonding_both_slave_list_shapes() {
+        // Array form (typical RouterOS REST output).
+        let value = json!([
+            {
+                ".id": "*1A",
+                "name": "bonding-lacp",
+                "slaves": ["ether1", "ether2"]
+            },
+            {
+                ".id": "*1B",
+                "name": "bonding-active",
+                // Comma-separated string form also appears on some versions.
+                "slaves": "ether3, ether4"
+            }
+        ]);
+        let bonding = parse_bonding(&value).unwrap();
+        assert_eq!(bonding.len(), 2);
+        assert_eq!(bonding[0].name, "bonding-lacp");
+        assert_eq!(bonding[0].slaves, vec!["ether1", "ether2"]);
+        assert_eq!(bonding[1].slaves, vec!["ether3", "ether4"]);
+    }
+
+    #[test]
+    fn mikrotik_parse_bonding_rejects_non_list_payload() {
+        assert!(parse_bonding(&json!("nope")).is_err());
+    }
+
+    #[test]
     fn mikrotik_parse_bridge_vlans_both_list_shapes() {
         // Array form (typical RouterOS REST output).
         let value = json!([
@@ -953,7 +1112,10 @@ mod tests {
         assert_eq!(bvs[0].bridge.as_deref(), Some("bridge-lan"));
         assert_eq!(bvs[0].vlan_ids, vec!["10".to_owned(), "20".to_owned()]);
         assert_eq!(bvs[0].tagged, vec!["ether1".to_owned(), "sfp1".to_owned()]);
-        assert_eq!(bvs[0].untagged, vec!["ether2".to_owned(), "ether3".to_owned()]);
+        assert_eq!(
+            bvs[0].untagged,
+            vec!["ether2".to_owned(), "ether3".to_owned()]
+        );
         assert_eq!(bvs[0].current_tagged, vec!["ether1".to_owned()]);
         assert_eq!(bvs[0].current_untagged, vec!["ether2".to_owned()]);
         // Comma-separated string form (some versions serialize it so).
@@ -965,7 +1127,10 @@ mod tests {
         }]);
         let bvs = parse_bridge_vlans(&value).unwrap();
         assert_eq!(bvs[0].vlan_ids, vec!["30".to_owned(), "40".to_owned()]);
-        assert_eq!(bvs[0].untagged, vec!["ether2".to_owned(), "ether3".to_owned()]);
+        assert_eq!(
+            bvs[0].untagged,
+            vec!["ether2".to_owned(), "ether3".to_owned()]
+        );
     }
 
     #[test]
@@ -1055,5 +1220,96 @@ mod tests {
         );
         assert_eq!(files[0].size, Some(1_048_576));
         assert_eq!(files[1].id.as_deref(), Some("*2"));
+    }
+
+    #[test]
+    fn parse_log_entries_splits_topics_and_classifies_severity() {
+        let value = json!([
+            {
+                ".id": "*1",
+                "time": "12:52:24",
+                "topics": "system,info",
+                "message": "router rebooted"
+            },
+            {
+                ".id": "*2",
+                "time": "12:53:10",
+                "topics": "dhcp,warning",
+                "message": "lease expired"
+            },
+            {
+                ".id": "*3",
+                "time": "12:54:00",
+                "topics": "system,error,critical",
+                "message": "kernel panic"
+            }
+        ]);
+        let entries = parse_log_entries(&value).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].id, "*1");
+        assert_eq!(entries[0].time.as_deref(), Some("12:52:24"));
+        assert_eq!(entries[0].topics, vec!["system", "info"]);
+        assert_eq!(entries[0].message, "router rebooted");
+        assert_eq!(entries[0].severity, LogSeverity::Info);
+        assert_eq!(entries[1].severity, LogSeverity::Warning);
+        // critical outranks error when both are present.
+        assert_eq!(entries[2].severity, LogSeverity::Critical);
+    }
+
+    #[test]
+    fn parse_log_entries_rejects_entry_without_id() {
+        let value = json!([{ "time": "12:52:24", "topics": "system,info", "message": "x" }]);
+        assert!(parse_log_entries(&value).is_err());
+    }
+
+    #[test]
+    fn parse_log_entries_rejects_non_collection() {
+        assert!(parse_log_entries(&json!("nope")).is_err());
+    }
+
+    #[test]
+    fn parse_log_entries_tolerates_missing_optional_fields() {
+        let value = json!([{ ".id": "*9" }]);
+        let entries = parse_log_entries(&value).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].time, None);
+        assert!(entries[0].topics.is_empty());
+        assert_eq!(entries[0].message, "");
+        assert_eq!(entries[0].severity, LogSeverity::Info);
+    }
+
+    #[test]
+    fn classify_log_severity_picks_highest_present() {
+        let t = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            classify_log_severity(&t(&["critical", "error"])),
+            LogSeverity::Critical
+        );
+        assert_eq!(classify_log_severity(&t(&["error"])), LogSeverity::Error);
+        assert_eq!(
+            classify_log_severity(&t(&["warning", "info"])),
+            LogSeverity::Warning
+        );
+        assert_eq!(
+            classify_log_severity(&t(&["debug", "raw"])),
+            LogSeverity::Debug
+        );
+        assert_eq!(
+            classify_log_severity(&t(&["system", "info"])),
+            LogSeverity::Info
+        );
+        assert_eq!(classify_log_severity(&[]), LogSeverity::Info);
+    }
+
+    #[test]
+    fn log_severity_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&LogSeverity::Error).unwrap(),
+            "\"error\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LogSeverity::Warning).unwrap(),
+            "\"warning\""
+        );
     }
 }

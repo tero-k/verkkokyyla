@@ -1,0 +1,107 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-inline-size: 0;
+  min-block-size: 0;
+  block-size: 100%;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.section h2 {
+  margin: 0 0 12px;
+  font: 600 10px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--status-error-panel-bg);
+  color: var(--status-error-panel-text);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+/* Per-device identity tag: impossible to miss which router this shell
+   drives. The accent is stable per profile and matches the device-strip
+   pill, so a chip and its terminal pair at a glance. */
+.identity {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 5px solid var(--terminal-accent, var(--accent));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--terminal-accent, var(--accent)) 13%, var(--surface-1));
+}
+
+.identityKicker {
+  font: 600 9px/1 var(--font-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.identityName {
+  font: 700 15px/1.15 var(--font-ui);
+  color: var(--text);
+}
+
+.identityHost {
+  font: 500 11px/1 var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Fixed near-black surface: a terminal reads as one regardless of the
+   surrounding theme, and xterm draws its own background over it. */
+.terminal {
+  flex: 1;
+  min-block-size: 320px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0d1117;
+  overflow: hidden;
+}
+
+.terminal :global(.xterm) {
+  block-size: 100%;
+}
+
+.empty {
+  margin: 0;
+  padding: 10px 12px 0;
+  color: var(--text-faint);
+  font: 400 11.5px/1.4 var(--font-ui);
+}

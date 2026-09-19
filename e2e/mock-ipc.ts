@@ -178,6 +178,7 @@ type MockMikrotikInterface = {
   txDrop: number | null
   rate: string | null
   fullDuplex: boolean | null
+  comment: string | null
   rxBitsPerSecond: number | null
   txBitsPerSecond: number | null
 }
@@ -222,6 +223,55 @@ type MockMikrotikSession = {
 
 type ActiveMikrotik = {
   session: MockMikrotikSession
+  onEventChannel: { onmessage?: (message: unknown) => void }
+  onStatusChannel: { onmessage?: (message: unknown) => void }
+  timerIds: number[]
+}
+
+type MockMtuOutcome =
+  | { readonly outcome: "ok"; readonly rttMs: number }
+  | { readonly outcome: "too-big"; readonly hintMtu: number | null }
+  | { readonly outcome: "timeout" }
+  | { readonly outcome: "error"; readonly message: string }
+
+type MockMtuResult =
+  | { readonly kind: "exact"; readonly mtu: number }
+  | {
+      readonly kind: "lower-bound"
+      readonly mtu: number
+      readonly reason:
+        | { readonly reason: "timeout-above"; readonly triedMtu: number }
+        | { readonly reason: "ceiling-reached" }
+    }
+  | { readonly kind: "unreachable" }
+  | { readonly kind: "failed"; readonly message: string }
+
+type MockMtuProbe = {
+  seq: number
+  payloadSize: number
+  mtuSize: number
+  outcome: MockMtuOutcome
+  at: string
+}
+
+type MockMtuRunSummary = {
+  id: number
+  targetInput: string
+  resolvedIp: string
+  method: string
+  result: MockMtuResult
+  probesSent: number
+  startedAt: string
+  endedAt: string | null
+}
+
+type MockMtuRun = {
+  run: MockMtuRunSummary
+  probes: MockMtuProbe[]
+}
+
+type ActiveMtu = {
+  run: MockMtuRun
   onEventChannel: { onmessage?: (message: unknown) => void }
   onStatusChannel: { onmessage?: (message: unknown) => void }
   timerIds: number[]
@@ -280,6 +330,7 @@ export async function installMockTauri(page: Page): Promise<void> {
       let mikrotikBackupCount = 0
       let mikrotikBackups: MockMikrotikBackup[] = []
       let nextMikrotikBackupId = 1
+      let mikrotikBackupDestination: string | null = null
       const mikrotikCredentials = new Map<number, string>()
       let mikrotikProfiles: MockMikrotikProfile[] = [
         {
@@ -296,8 +347,125 @@ export async function installMockTauri(page: Page): Promise<void> {
       ]
       mikrotikCredentials.set(nextMikrotikProfileId, "lab-secret")
       nextMikrotikProfileId += 1
-      let activeMikrotik: ActiveMikrotik | null = null
+      /** Live monitoring sessions keyed by profile id — the mock mirrors the
+          backend's multi-session manager. */
+      const activeMikrotiks = new Map<number, ActiveMikrotik>()
       let endedMikrotikSessions: MockMikrotikSession[] = []
+      let activeMikrotikLogs: {
+        profileId: number
+        onEventChannel: { onmessage?: (message: unknown) => void }
+        onStatusChannel: { onmessage?: (message: unknown) => void }
+        intervalId: number
+        nextId: number
+      } | null = null
+      /** Interactive SSH terminals keyed by terminal id — the mock mirrors
+          the backend's terminal manager (echo shell). */
+      let nextMikrotikTerminalId = 0
+      const activeMikrotikTerminals = new Map<number, {
+        profileId: number
+        onDataChannel: { onmessage?: (message: unknown) => void }
+      }>()
+
+      // --- MTU discovery mock state -------------------------------------
+      // Scripted 1420-byte link: baseline ok, bracket too-big at 1500,
+      // binary search converging to adjacent payloads 1392/1393.
+      const MTU_SCRIPT: ReadonlyArray<
+        readonly [payloadSize: number, mtuSize: number, outcome: MockMtuOutcome]
+      > = [
+        [56, 84, { outcome: "ok", rttMs: 0.8 }],
+        [1472, 1500, { outcome: "too-big", hintMtu: null }],
+        [1010, 1038, { outcome: "ok", rttMs: 1.1 }],
+        [1241, 1269, { outcome: "ok", rttMs: 1.2 }],
+        [1356, 1384, { outcome: "ok", rttMs: 1.4 }],
+        [1414, 1442, { outcome: "too-big", hintMtu: null }],
+        [1385, 1413, { outcome: "ok", rttMs: 1.6 }],
+        [1399, 1427, { outcome: "too-big", hintMtu: null }],
+        [1392, 1420, { outcome: "ok", rttMs: 1.7 }],
+        [1393, 1421, { outcome: "too-big", hintMtu: null }],
+      ]
+
+      function mtuTimestamp(index: number): string {
+        return new Date(Date.UTC(2026, 8, 13, 12, 0, index)).toISOString()
+      }
+
+      function mtuProbesFromScript(startIndex: number): MockMtuProbe[] {
+        return MTU_SCRIPT.map(([payloadSize, mtuSize, outcome], index) => ({
+          seq: index + 1,
+          payloadSize,
+          mtuSize,
+          outcome,
+          at: mtuTimestamp(startIndex + index),
+        }))
+      }
+
+      function makeMtuRun(
+        id: number,
+        targetInput: string,
+        resolvedIp: string,
+        method: string,
+        result: MockMtuResult,
+        probes: MockMtuProbe[],
+        startedAt: string,
+        endedAt: string | null,
+      ): MockMtuRun {
+        return {
+          run: {
+            id,
+            targetInput,
+            resolvedIp,
+            method,
+            result,
+            probesSent: probes.length,
+            startedAt,
+            endedAt,
+          },
+          probes,
+        }
+      }
+
+      let nextMtuRunId = 2
+      let activeMtu: ActiveMtu | null = null
+      let endedMtuRuns: MockMtuRun[] = [
+        makeMtuRun(
+          1,
+          "core.example",
+          "192.0.2.1",
+          "icmp",
+          { kind: "exact", mtu: 1420 },
+          mtuProbesFromScript(0),
+          mtuTimestamp(0),
+          mtuTimestamp(20),
+        ),
+        makeMtuRun(
+          2,
+          "edge.example",
+          "198.51.100.2",
+          "tcp",
+          {
+            kind: "lower-bound",
+            mtu: 1500,
+            reason: { reason: "timeout-above", triedMtu: 1600 },
+          },
+          [
+            {
+              seq: 1,
+              payloadSize: 1472,
+              mtuSize: 1500,
+              outcome: { outcome: "ok", rttMs: 12.4 },
+              at: mtuTimestamp(30),
+            },
+            {
+              seq: 2,
+              payloadSize: 1572,
+              mtuSize: 1600,
+              outcome: { outcome: "timeout" },
+              at: mtuTimestamp(31),
+            },
+          ],
+          mtuTimestamp(30),
+          mtuTimestamp(32),
+        ),
+      ]
 
       function transformCallback(
         cb: (rawMessage: unknown) => void,
@@ -500,6 +668,88 @@ export async function installMockTauri(page: Page): Promise<void> {
         })
       }
 
+      function sendMtuProbe(active: ActiveMtu, probe: MockMtuProbe): void {
+        active.run.probes.push(probe)
+        sendChannel(active.onEventChannel, {
+          event: "attempt",
+          seq: probe.seq,
+          payloadSize: probe.payloadSize,
+          mtuSize: probe.mtuSize,
+        })
+        sendChannel(active.onEventChannel, {
+          event: "outcome",
+          seq: probe.seq,
+          outcome: probe.outcome,
+        })
+      }
+
+      function scheduleMtuStep(
+        active: ActiveMtu,
+        delayMs: number,
+        step: () => void,
+      ): void {
+        active.timerIds.push(window.setTimeout(step, delayMs))
+      }
+
+      function clearMtuTimers(active: ActiveMtu): void {
+        for (const timerId of active.timerIds) {
+          window.clearTimeout(timerId)
+        }
+        active.timerIds = []
+      }
+
+      function persistMtuRun(active: ActiveMtu, result: MockMtuResult): void {
+        active.run.run.endedAt = new Date().toISOString()
+        active.run.run.result = result
+        active.run.run.probesSent = active.run.probes.length
+        endedMtuRuns.push(active.run)
+      }
+
+      function startMtuScript(active: ActiveMtu): void {
+        const runId = active.run.run.id
+        MTU_SCRIPT.forEach(([payloadSize, mtuSize, outcome], index) => {
+          scheduleMtuStep(active, 15 * (index + 1), () => {
+            if (activeMtu?.run.run.id !== runId) return
+            sendMtuProbe(active, {
+              seq: index + 1,
+              payloadSize,
+              mtuSize,
+              outcome,
+              at: new Date().toISOString(),
+            })
+            if (index === MTU_SCRIPT.length - 1) {
+              persistMtuRun(active, { kind: "exact", mtu: 1420 })
+              sendChannel(active.onStatusChannel, {
+                event: "completed",
+                runId,
+                result: { kind: "exact", mtu: 1420 },
+                probesSent: active.run.probes.length,
+              })
+              activeMtu = null
+            }
+          })
+        })
+      }
+
+      function startMtuHang(active: ActiveMtu): void {
+        const runId = active.run.run.id
+        // Two probes, then idle: long enough for the stop button to be used.
+        const prefix = MTU_SCRIPT.slice(0, 2)
+        prefix.forEach(([payloadSize, mtuSize, outcome], index) => {
+          scheduleMtuStep(active, 20 * (index + 1), () => {
+            if (activeMtu?.run.run.id !== runId) return
+            sendMtuProbe(active, {
+              seq: index + 1,
+              payloadSize,
+              mtuSize,
+              outcome,
+              at: new Date().toISOString(),
+            })
+          })
+        })
+        scheduleMtuStep(active, 600_000, () => {})
+      }
+
       function resolveInfo(target: string): {
         resolvedIp: string
         engine: string
@@ -605,6 +855,7 @@ export async function installMockTauri(page: Page): Promise<void> {
           txDrop: fullCounters ? 10 : null,
           rate: "1Gbps",
           fullDuplex: true,
+          comment: name === "ether1" ? "WAN uplink" : null,
           rxBitsPerSecond: 800_000 * index,
           txBitsPerSecond: 500_000 * index,
         }
@@ -814,6 +1065,91 @@ export async function installMockTauri(page: Page): Promise<void> {
             endedTraces = endedTraces.filter((trace) => trace.trace.id !== args.id)
             return null
           }
+          case "start_mtu_probe": {
+            if (activeMtu !== null) {
+              throw {
+                kind: "already-running",
+                message: "an MTU discovery run is already active",
+              }
+            }
+            const targetInput = String(args.target)
+            const method = String(args.method)
+            const resolvedIp =
+              targetInput === "edge.example" ? "198.51.100.2" : "192.0.2.1"
+            nextMtuRunId += 1
+            const runId = nextMtuRunId
+            const run: MockMtuRun = makeMtuRun(
+              runId,
+              targetInput,
+              resolvedIp,
+              method,
+              { kind: "failed", message: "running" },
+              [],
+              new Date().toISOString(),
+              null,
+            )
+            activeMtu = {
+              run,
+              onEventChannel: args.onEvent as {
+                onmessage?: (message: unknown) => void
+              },
+              onStatusChannel: args.onStatus as {
+                onmessage?: (message: unknown) => void
+              },
+              timerIds: [],
+            }
+            if (targetInput === "cancel.example") {
+              startMtuHang(activeMtu)
+            } else {
+              startMtuScript(activeMtu)
+            }
+            return {
+              runId,
+              method,
+              resolvedIp,
+              answers: [resolvedIp],
+            }
+          }
+          case "stop_mtu_probe": {
+            if (activeMtu === null) {
+              throw {
+                kind: "no-active-run",
+                message: "no MTU discovery run is active",
+              }
+            }
+            const stopped = activeMtu
+            clearMtuTimers(stopped)
+            persistMtuRun(stopped, {
+              kind: "failed",
+              message: "cancelled",
+            })
+            activeMtu = null
+            sendChannel(stopped.onStatusChannel, {
+              event: "cancelled",
+              runId: stopped.run.run.id,
+              probesSent: stopped.run.probes.length,
+            })
+            return {
+              runId: stopped.run.run.id,
+              probesSent: stopped.run.probes.length,
+            }
+          }
+          case "list_mtu_runs":
+            return [...endedMtuRuns].reverse().map((entry) => entry.run)
+          case "load_mtu_run": {
+            const run = endedMtuRuns.find((entry) => entry.run.id === args.id)
+            if (run === undefined) {
+              throw {
+                kind: "run-not-found",
+                message: `no MTU run with id ${args.id}`,
+              }
+            }
+            return { run: run.run, probes: run.probes }
+          }
+          case "delete_mtu_run": {
+            endedMtuRuns = endedMtuRuns.filter((entry) => entry.run.id !== args.id)
+            return null
+          }
           case "stop_session": {
             const sessionId = Number(args.sessionId)
             const active = activeSessions.get(sessionId)
@@ -883,7 +1219,7 @@ export async function installMockTauri(page: Page): Promise<void> {
           case "list_active_sessions":
             return Array.from(activeSessions.keys())
           case "list_sessions":
-            return endedSessions
+            return [...endedSessions].reverse()
           case "load_session": {
             const session = endedSessions.find((s) => s.id === args.id)
             if (session === undefined) {
@@ -1013,6 +1349,21 @@ export async function installMockTauri(page: Page): Promise<void> {
                 durationMs: 95,
                 timeToFirstByteMs: 25,
                 averageMbps: 0.43,
+                error: null,
+              },
+              {
+                // Self-referencing link, like is.fi's canonical <link href> —
+                // intentionally shares the document URL to guard against
+                // duplicate-key rendering bugs.
+                url,
+                resourceType: "other",
+                statusCode: 200,
+                contentLength: 4096,
+                bytesReceived: 4096,
+                startOffsetMs: 403,
+                durationMs: 85,
+                timeToFirstByteMs: 30,
+                averageMbps: 0.39,
                 error: null,
               },
               {
@@ -1351,21 +1702,22 @@ export async function installMockTauri(page: Page): Promise<void> {
           }
           case "mikrotik_start": {
             const profileId = Number(args.profileId)
+            if (activeMikrotiks.has(profileId)) throw { kind: "AlreadyRunning", message: "this profile is already being monitored" }
             nextMikrotikSessionId += 1
             const status = mikrotikVersionStatus()
             const session: MockMikrotikSession = { session: { id: nextMikrotikSessionId, profileId, startedAt: mikrotikTimestamp(0), endedAt: null, status: "running", boardName: mikrotikRouterboard ? "RB5009" : null, routerosVersion: "7.16", architectureName: "arm64", updateStatusJson: null, firmwareStatusJson: null, snapshotCount: 0 }, snapshots: [] }
-            activeMikrotik = { session, onEventChannel: args.onEvent as { onmessage?: (message: unknown) => void }, onStatusChannel: args.onStatus as { onmessage?: (message: unknown) => void }, timerIds: [] }
-            const current = activeMikrotik
+            const current: ActiveMikrotik = { session, onEventChannel: args.onEvent as { onmessage?: (message: unknown) => void }, onStatusChannel: args.onStatus as { onmessage?: (message: unknown) => void }, timerIds: [] }
+            activeMikrotiks.set(profileId, current)
             sendChannel(current.onStatusChannel, { event: "started", sessionId: session.session.id, profileId })
             scheduleMikrotikStep(current, 10, () => {
-              if (activeMikrotik?.session.session.id !== session.session.id) return
+              if (activeMikrotiks.get(profileId)?.session.session.id !== session.session.id) return
               sendChannel(current.onStatusChannel, { event: "version-firmware", sessionId: session.session.id, updateStatus: status.updateStatus, firmwareStatus: status.firmwareStatus })
               session.session.updateStatusJson = JSON.stringify(status.updateStatus)
               session.session.firmwareStatusJson = JSON.stringify(status.firmwareStatus)
             })
             for (let index = 1; index <= 3; index += 1) {
               scheduleMikrotikStep(current, 15 * index, () => {
-                if (activeMikrotik?.session.session.id !== session.session.id) return
+                if (activeMikrotiks.get(profileId)?.session.session.id !== session.session.id) return
                 const snapshot = mikrotikSnapshot(session.session.id, index)
                 session.snapshots.push(snapshot)
                 session.session.snapshotCount = session.snapshots.length
@@ -1375,19 +1727,98 @@ export async function installMockTauri(page: Page): Promise<void> {
             return { sessionId: session.session.id, profileId }
           }
           case "mikrotik_stop": {
-            if (activeMikrotik === null) throw { kind: "NotRunning", message: "no MikroTik session is running" }
-            const stopped = activeMikrotik
+            const sessionId = Number(args.sessionId)
+            const entry = Array.from(activeMikrotiks.entries()).find(([, active]) => active.session.session.id === sessionId)
+            if (entry === undefined) throw { kind: "NoActiveSession", message: "no MikroTik session is running with that id" }
+            const [profileId, stopped] = entry
             for (const timerId of stopped.timerIds) window.clearTimeout(timerId)
             stopped.session.session.endedAt = mikrotikTimestamp(9)
             stopped.session.session.status = "stopped"
             stopped.session.session.snapshotCount = stopped.session.snapshots.length
             endedMikrotikSessions.push(stopped.session)
-            activeMikrotik = null
+            activeMikrotiks.delete(profileId)
             sendChannel(stopped.onStatusChannel, { event: "stopped", sessionId: stopped.session.session.id, snapshotCount: stopped.session.snapshots.length })
             return { sessionId: stopped.session.session.id, snapshotCount: stopped.session.snapshots.length, endedAt: stopped.session.session.endedAt, status: "stopped" }
           }
+          case "mikrotik_list_active":
+            return Array.from(activeMikrotiks.values()).map((active) => ({ sessionId: active.session.session.id, profileId: active.session.session.profileId }))
           case "mikrotik_list_sessions":
             return [...endedMikrotikSessions].reverse().map((entry) => entry.session)
+          case "mikrotik_log_start": {
+            const profileId = Number(args.profileId)
+            const onEventChannel = args.onEvent as { onmessage?: (message: unknown) => void }
+            const onStatusChannel = args.onStatus as { onmessage?: (message: unknown) => void }
+            sendChannel(onStatusChannel, { event: "started", profileId })
+            activeMikrotikLogs = { profileId, onEventChannel, onStatusChannel, intervalId: 0, nextId: 100 }
+            const pushEntry = () => {
+              const current = activeMikrotikLogs
+              if (current === null || current.profileId !== profileId) return
+              current.nextId += 1
+              const topics =
+                current.nextId % 5 === 0
+                  ? ["system", "error"]
+                  : current.nextId % 7 === 0
+                    ? ["dhcp", "warning"]
+                    : ["system", "info"]
+              const severity = topics.includes("error") ? "error" : topics.includes("warning") ? "warning" : "info"
+              sendChannel(current.onEventChannel, {
+                event: "entries",
+                entries: [
+                  {
+                    id: `*${current.nextId}`,
+                    time: "12:52:24",
+                    topics,
+                    message: `mock log entry ${current.nextId}`,
+                    severity,
+                  },
+                ],
+              })
+            }
+            // Backlog, then one entry per tick at the requested cadence
+            // (floored so e2e tests stay fast even at 30 s settings).
+            pushEntry()
+            activeMikrotikLogs.intervalId = window.setInterval(pushEntry, Math.max(Number(args.pollSeconds) * 1000, 100))
+            return { profileId }
+          }
+          case "mikrotik_log_stop": {
+            const profileId = Number(args.profileId)
+            if (activeMikrotikLogs === null || activeMikrotikLogs.profileId !== profileId) throw { kind: "NoActiveSession", message: "no MikroTik log stream is running for that profile" }
+            window.clearInterval(activeMikrotikLogs.intervalId)
+            sendChannel(activeMikrotikLogs.onStatusChannel, { event: "stopped" })
+            activeMikrotikLogs = null
+            return null
+          }
+          case "mikrotik_terminal_open": {
+            const profileId = Number(args.profileId)
+            if (!mikrotikProfiles.some((item) => item.id === profileId)) throw { kind: "ProfileNotFound", message: `no mikrotik profile with id ${profileId}` }
+            nextMikrotikTerminalId += 1
+            const terminalId = nextMikrotikTerminalId
+            const onDataChannel = args.onData as { onmessage?: (message: unknown) => void }
+            activeMikrotikTerminals.set(terminalId, { profileId, onDataChannel })
+            // A fake shell banner; writes are echoed back below. Chunks are
+            // base64 in both directions, like the real backend.
+            window.setTimeout(() => {
+              if (!activeMikrotikTerminals.has(terminalId)) return
+              sendChannel(onDataChannel, btoa("MikroTik RouterOS mock terminal\r\n[admin@MikroTik] > "))
+            }, 20)
+            return { terminalId, profileId }
+          }
+          case "mikrotik_terminal_write": {
+            const terminalId = Number(args.terminalId)
+            const terminal = activeMikrotikTerminals.get(terminalId)
+            if (terminal === undefined) throw { kind: "NoActiveSession", message: "no mikrotik terminal is running with that id" }
+            const data = String(args.data)
+            window.setTimeout(() => {
+              if (activeMikrotikTerminals.has(terminalId)) sendChannel(terminal.onDataChannel, data)
+            }, 5)
+            return null
+          }
+          case "mikrotik_terminal_resize":
+            return null
+          case "mikrotik_terminal_close": {
+            if (!activeMikrotikTerminals.delete(Number(args.terminalId))) throw { kind: "NoActiveSession", message: "no mikrotik terminal is running with that id" }
+            return null
+          }
           case "mikrotik_load_session": {
             const entry = endedMikrotikSessions.find((session) => session.session.id === args.id)
             if (entry === undefined) throw { kind: "NotFound", message: "MikroTik session not found" }
@@ -1436,6 +1867,40 @@ export async function installMockTauri(page: Page): Promise<void> {
             }
             mikrotikBackups = mikrotikBackups.filter((backup) => backup.id !== id)
             return { deleted: true, warnings: [] }
+          }
+          case "mikrotik_get_backup_destination":
+            return mikrotikBackupDestination
+          case "mikrotik_set_backup_destination":
+            mikrotikBackupDestination = String(args.path)
+            return null
+          case "mikrotik_diff_backups": {
+            const olderId = Number(args.olderId)
+            const newerId = Number(args.newerId)
+            const older = mikrotikBackups.find((backup) => backup.id === olderId)
+            const newer = mikrotikBackups.find((backup) => backup.id === newerId)
+            if (!older || !newer) {
+              throw { kind: "BackupRecordNotFound", message: "no MikroTik backup record" }
+            }
+            if (!older.hasRscExport || !newer.hasRscExport) {
+              throw { kind: "MissingExport", message: "backup has no .rsc export to diff" }
+            }
+            return {
+              olderId,
+              olderName: older.name,
+              olderCreatedAt: older.createdAt,
+              newerId,
+              newerName: newer.name,
+              newerCreatedAt: newer.createdAt,
+              lines: [
+                { kind: "same", text: "/interface bridge" },
+                { kind: "same", text: "/ip firewall filter" },
+                { kind: "remove", text: "add chain=forward action=drop" },
+                { kind: "add", text: "add chain=forward action=accept" },
+                { kind: "add", text: "/interface wireguard peers add comment=laptop" },
+              ],
+              added: 2,
+              removed: 1,
+            }
           }
           default:
             throw new Error(`unknown command ${cmd}`)

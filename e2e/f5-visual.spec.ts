@@ -26,7 +26,7 @@ async function openTab(page: Page, name: MikrotikTab): Promise<void> {
 }
 
 async function startAndWaitForLivePanels(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Start" }).click()
+  await page.getByRole("button", { name: "Connect", exact: true }).click()
   await openTab(page, "System")
   const systemPanel = page.getByRole("tabpanel", { name: "System" })
   await expect(systemPanel.locator('[data-testid="mikrotik-status-cpu"]')).toContainText("21%")
@@ -78,7 +78,7 @@ test("F5 visual QA: unsupported sensors and empty states", async ({ page }) => {
     window.__TAURI_MOCK_SET_MIKROTIK_ROUTERBOARD__(false)
     window.__TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__("na")
   })
-  await page.getByRole("button", { name: "Start" }).click()
+  await page.getByRole("button", { name: "Connect", exact: true }).click()
   await openTab(page, "System")
   await expect(page.locator('[data-testid="mikrotik-status-temperature"]')).toContainText("Not supported on this device")
   await expect(page.locator('[data-testid="mikrotik-status-fan"]')).toContainText("Not supported on this device")
@@ -142,7 +142,7 @@ test("F5 visual QA: responsive tabs stay inside the page", async ({ page }) => {
 test("F5 visual QA: loaded historical session", async ({ page }) => {
   await openMikrotik(page)
   await startAndWaitForLivePanels(page)
-  await page.getByRole("button", { name: "Stop" }).click()
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click()
   await openTab(page, "System")
   await expect(page.locator('[data-testid="mikrotik-session-item"]')).toHaveCount(1)
   await page.locator('[data-testid="mikrotik-open-session"]').click()

@@ -26,6 +26,7 @@ const limitedInterface: MikrotikInterfaceDto = {
   txDrop: null,
   rate: null,
   fullDuplex: null,
+  comment: null,
   rxBitsPerSecond: null,
   txBitsPerSecond: null,
 }
@@ -108,9 +109,17 @@ describe("MikrotikInterfaceTable", () => {
       rate: "10Gbps",
       fullDuplex: true,
     }
+    const bonding: MikrotikInterfaceDto = {
+      ...limitedInterface,
+      name: "bonding1",
+      // RouterOS reports bonding interfaces with type "bond".
+      type: "bond",
+      rate: "2Gbps",
+      fullDuplex: true,
+    }
     render(
       <MikrotikInterfaceTable
-        interfaces={[monitoredInterface, limitedInterface, nonEthernet]}
+        interfaces={[monitoredInterface, limitedInterface, nonEthernet, bonding]}
         onSelectInterface={() => undefined}
       />,
     )
@@ -118,6 +127,7 @@ describe("MikrotikInterfaceTable", () => {
     const monitoredRow = screen.getByTestId("interface-row-ether1")
     const limitedRow = screen.getByTestId("interface-row-ether-limited")
     const nonEthernetRow = screen.getByTestId("interface-row-vlan20")
+    const bondingRow = screen.getByTestId("interface-row-bonding1")
 
     expect(within(monitoredRow).getByTestId("link").textContent).toBe(
       "1Gbps · full duplex",
@@ -132,6 +142,9 @@ describe("MikrotikInterfaceTable", () => {
     expect(within(monitoredRow).getByTestId("tx-bytes").textContent).toBe("1.00 KB")
     expect(within(limitedRow).getByTestId("link").textContent).toBe("-")
     expect(within(nonEthernetRow).getByTestId("link").textContent).toBe("-")
+    expect(within(bondingRow).getByTestId("link").textContent).toBe(
+      "2Gbps · full duplex",
+    )
   })
 
   it("renders running, disabled, and down status badges", () => {
@@ -148,7 +161,7 @@ describe("MikrotikInterfaceTable", () => {
       />,
     )
 
-    expect(screen.getByText("Running").className).toMatch(/running/)
+    expect(screen.getByText("Up").className).toMatch(/running/)
     expect(screen.getByText("Disabled").className).toMatch(/disabled/)
     expect(screen.getByText("Down").className).toMatch(/down/)
   })

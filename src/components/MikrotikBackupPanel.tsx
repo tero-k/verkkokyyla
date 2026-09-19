@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog"
-import { useMemo, useState } from "react"
-import { mikrotikBackup } from "../lib/ipc"
+import { useEffect, useMemo, useState } from "react"
+import { mikrotikBackup, mikrotikGetBackupDestination, mikrotikSetBackupDestination } from "../lib/ipc"
 import { ConfirmDialog } from "./ConfirmDialog"
 import styles from "./MikrotikBackupPanel.module.css"
 
@@ -37,7 +37,7 @@ function validName(name: string): boolean {
 export function MikrotikBackupPanel({ profileId, onCreated }: Props) {
   const [name, setName] = useState(defaultBackupName)
   const [password, setPassword] = useState("")
-  const [includeRsc, setIncludeRsc] = useState(false)
+  const [includeRsc, setIncludeRsc] = useState(true)
   const [destination, setDestination] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -51,9 +51,32 @@ export function MikrotikBackupPanel({ profileId, onCreated }: Props) {
     return result.exportPath === null ? [result.backupPath] : [result.backupPath, result.exportPath]
   }, [result])
 
+  // Prefill the remembered destination directory (app-wide setting).
+  useEffect(() => {
+    let mounted = true
+    void mikrotikGetBackupDestination()
+      .then((saved) => {
+        if (mounted && saved !== null && saved !== "") setDestination(saved)
+      })
+      .catch(() => {
+        // No remembered destination yet (or unreadable): start empty.
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   async function chooseDirectory(): Promise<void> {
-    const selected = await open({ directory: true })
-    if (typeof selected === "string") setDestination(selected)
+    const selected = await open({ directory: true, defaultPath: destination || undefined })
+    if (typeof selected === "string") {
+      setDestination(selected)
+      // Remember the pick for next time; failure only loses the memory.
+      try {
+        await mikrotikSetBackupDestination(selected)
+      } catch {
+        // non-fatal: the backup can still proceed with the chosen path
+      }
+    }
   }
 
   async function run(overwrite: boolean): Promise<void> {
@@ -62,6 +85,12 @@ export function MikrotikBackupPanel({ profileId, onCreated }: Props) {
     try {
       const next = await mikrotikBackup(profileId, destination, name, password || undefined, includeRsc, overwrite)
       setResult(next); setPassword(""); onCreated?.()
+      // A successful backup confirms the destination works: remember it.
+      try {
+        await mikrotikSetBackupDestination(destination)
+      } catch {
+        // non-fatal
+      }
     } catch (caught) {
       const typed = messageFrom(caught)
       if (typed.kind === "OutputExists" && !overwrite) {

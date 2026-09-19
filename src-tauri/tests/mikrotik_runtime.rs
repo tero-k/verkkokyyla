@@ -184,10 +184,7 @@ mod mikrotik_runtime {
                 health: vec![ok(health_json())],
                 stats_detail: vec![ok(stats_detail_json("ether1"))],
                 ethernet_stats: vec![ok(ethernet_stats_json("ether1", "ether1"))],
-                monitor: HashMap::from([(
-                    "ether1".to_owned(),
-                    vec![ok(monitor_json("ether1"))],
-                )]),
+                monitor: HashMap::from([("ether1".to_owned(), vec![ok(monitor_json("ether1"))])]),
                 vlans: vec![ok(vlans_json())],
                 bridge_vlans: vec![ok(bridge_vlans_json())],
             }
@@ -339,8 +336,11 @@ mod mikrotik_runtime {
         });
         let manager_db = test_db(&dir.db_file()).await;
         let inspector = test_db(&dir.db_file()).await;
-        let manager =
-            MikrotikManager::new(manager_db, Arc::new(MemoryStore::new()), factory_for(api.clone()));
+        let manager = MikrotikManager::new(
+            manager_db,
+            Arc::new(MemoryStore::new()),
+            factory_for(api.clone()),
+        );
         let (event_tx, events) = mpsc::unbounded_channel();
         let (status_tx, statuses) = mpsc::unbounded_channel();
         Harness {
@@ -382,7 +382,9 @@ mod mikrotik_runtime {
             .expect("start session")
     }
 
-    async fn next_snapshot(events: &mut mpsc::UnboundedReceiver<MikrotikEvent>) -> MikrotikSnapshotPayload {
+    async fn next_snapshot(
+        events: &mut mpsc::UnboundedReceiver<MikrotikEvent>,
+    ) -> MikrotikSnapshotPayload {
         match events.recv().await.expect("snapshot event") {
             MikrotikEvent::Snapshot(payload) => payload,
         }
@@ -476,6 +478,7 @@ mod mikrotik_runtime {
                 tx_drop: Some(45),
                 rate: Some("1Gbps".to_owned()),
                 full_duplex: Some(true),
+                comment: Some("uplink".to_owned()),
                 rx_bits_per_second: Some(800.0),
                 tx_bits_per_second: Some(1_600.0),
             }],
@@ -487,16 +490,14 @@ mod mikrotik_runtime {
 
     #[test]
     fn mikrotik_runtime_wire_contract_exact_event_tags_and_camel_case() {
-        let value = serde_json::to_value(&MikrotikEvent::Snapshot(sample_payload())).unwrap();
+        let value = serde_json::to_value(MikrotikEvent::Snapshot(sample_payload())).unwrap();
         let obj = value.as_object().unwrap();
         assert_eq!(obj.get("event").and_then(Value::as_str), Some("snapshot"));
-        for key in [
-            "sessionId",
-            "sensorsSupported",
-            "bridgeVlans",
-            "warning",
-        ] {
-            assert!(obj.contains_key(key), "snapshot must carry camelCase `{key}`");
+        for key in ["sessionId", "sensorsSupported", "bridgeVlans", "warning"] {
+            assert!(
+                obj.contains_key(key),
+                "snapshot must carry camelCase `{key}`"
+            );
         }
         let iface = obj["interfaces"].as_array().unwrap()[0]
             .as_object()
@@ -595,7 +596,10 @@ mod mikrotik_runtime {
             .unwrap();
         let value = serde_json::to_value(&dto).unwrap();
         let obj = value.as_object().unwrap();
-        assert!(!obj.contains_key("secretKey"), "secret_key must never serialize");
+        assert!(
+            !obj.contains_key("secretKey"),
+            "secret_key must never serialize"
+        );
         assert!(!obj.contains_key("secret_key"));
         assert_eq!(obj["hasPassword"], false);
 
@@ -634,7 +638,7 @@ mod mikrotik_runtime {
         }
         assert_eq!(snapshots.len(), 3);
 
-        let stopped = h.manager.stop().await.expect("stop");
+        let stopped = h.manager.stop(start.session_id).await.expect("stop");
         assert_eq!(stopped.status, "cancelled");
         assert_eq!(stopped.snapshot_count, 3);
         let cancelled = h.statuses.recv().await.expect("cancelled status");
@@ -664,7 +668,11 @@ mod mikrotik_runtime {
         }
 
         // load_session command DTO round-trips the same data (stale_state probe).
-        let dto = h.manager.load_session(start.session_id).await.expect("load dto");
+        let dto = h
+            .manager
+            .load_session(start.session_id)
+            .await
+            .expect("load dto");
         assert_eq!(dto.snapshots.len(), 3);
         assert_eq!(dto.session.board_name.as_deref(), Some("RB5009"));
         assert_eq!(dto.snapshots[0].cpu_load, Some(50.0));
@@ -675,8 +683,12 @@ mod mikrotik_runtime {
         let dir = TempDir::new("resource-identity");
         let mut script = ApiScript::working();
         script.resource = vec![
-            ok(resource_json_with_identity(10.0, "RB5009", "7.16.1", "arm64")),
-            ok(resource_json_with_identity(20.0, "CCR2004", "7.17.2", "arm64")),
+            ok(resource_json_with_identity(
+                10.0, "RB5009", "7.16.1", "arm64",
+            )),
+            ok(resource_json_with_identity(
+                20.0, "CCR2004", "7.17.2", "arm64",
+            )),
         ];
         let api = script.build();
         let mut h = harness(&dir, api).await;
@@ -701,10 +713,14 @@ mod mikrotik_runtime {
         assert_eq!(second_resources.routeros_version.as_deref(), Some("7.17.2"));
         assert_eq!(second_resources.architecture_name.as_deref(), Some("arm64"));
 
-        let loaded = h.manager.load_session(start.session_id).await.expect("load");
+        let loaded = h
+            .manager
+            .load_session(start.session_id)
+            .await
+            .expect("load");
         assert_eq!(loaded.session.board_name.as_deref(), Some("RB5009"));
         assert!(loaded.snapshots[0].interfaces_json.is_some());
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
 
     // ---- Rate math from ACTUAL elapsed time ----------------------------------
@@ -725,7 +741,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
 
         let first = next_snapshot(&mut h.events).await;
@@ -743,7 +759,7 @@ mod mikrotik_runtime {
         assert_eq!(third.interfaces[0].rx_bits_per_second, Some(1_120.0));
         assert_eq!(third.interfaces[0].tx_bits_per_second, Some(2_240.0));
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
 
     #[tokio::test(start_paused = true)]
@@ -758,7 +774,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
         let _first = next_snapshot(&mut h.events).await;
 
@@ -767,7 +783,7 @@ mod mikrotik_runtime {
         assert_eq!(second.interfaces[0].rx_bits_per_second, None);
         assert_eq!(second.interfaces[0].tx_bits_per_second, None);
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
 
     #[tokio::test(start_paused = true)]
@@ -792,7 +808,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
         let _first = next_snapshot(&mut h.events).await;
 
@@ -819,7 +835,7 @@ mod mikrotik_runtime {
         assert_eq!(ether2.rx_bits_per_second, None);
         assert_eq!(ether2.tx_bits_per_second, None);
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
     // ---- VLAN cadence: start + every 12th tick only --------------------------
 
@@ -833,7 +849,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
 
         for tick in 1..=13 {
@@ -858,7 +874,7 @@ mod mikrotik_runtime {
             }
         }
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
 
     // ---- Health/stats-detail cadence ------------------------------------------
@@ -873,7 +889,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
 
         for tick in 1..=7 {
@@ -891,15 +907,17 @@ mod mikrotik_runtime {
                 _ => assert!(payload.sensors.is_some(), "last-known sensors retained"),
             }
             match tick {
-                6 => {
+                1 | 3 | 6 => {
                     // Stats-detail tick: monitor + driver counters merged.
                     assert_eq!(payload.interfaces[0].rate.as_deref(), Some("1Gbps"));
                     assert_eq!(payload.interfaces[0].full_duplex, Some(true));
                     assert_eq!(payload.interfaces[0].rx_error_events, Some(40));
                 }
                 _ => {
-                    // Monitor values exist only on stats-detail ticks.
-                    assert!(payload.interfaces[0].rate.is_none());
+                    // Between stats ticks the monitor rate/duplex persist
+                    // (the UI keeps showing them); driver counters are
+                    // fresh-base only.
+                    assert_eq!(payload.interfaces[0].rate.as_deref(), Some("1Gbps"));
                     assert!(payload.interfaces[0].rx_error_events.is_none());
                 }
             }
@@ -919,21 +937,21 @@ mod mikrotik_runtime {
         );
         assert_eq!(
             h.api.stats_detail_calls.load(Ordering::SeqCst),
-            1,
-            "stats-detail on tick 6 only: {api_counts}"
+            3,
+            "stats-detail on ticks 1/3/6: {api_counts}"
         );
         assert_eq!(
             h.api.ethernet_stats_calls.load(Ordering::SeqCst),
-            1,
-            "ethernet stats on tick 6: {api_counts}"
+            3,
+            "ethernet stats on stats ticks 1/3/6: {api_counts}"
         );
         assert_eq!(
             h.api.monitor_calls.load(Ordering::SeqCst),
-            1,
-            "one running ether target: {api_counts}"
+            3,
+            "one running ether target per stats tick: {api_counts}"
         );
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
     // ---- Health unsupported: 404 AND no-such-command bodies -------------------
 
@@ -948,7 +966,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
 
         for tick in 1..=3 {
@@ -984,7 +1002,7 @@ mod mikrotik_runtime {
         );
 
         // Nonterminal: the session is still running and stops cleanly.
-        let stopped = h.manager.stop().await.expect("stop");
+        let stopped = h.manager.stop(start.session_id).await.expect("stop");
         assert_eq!(stopped.status, "cancelled");
         assert_eq!(stopped.snapshot_count, 3);
     }
@@ -1047,7 +1065,10 @@ mod mikrotik_runtime {
             "last-known sensor payload retained"
         );
         let warning = tick4.warning.expect("warning note on enricher failure");
-        assert!(warning.contains("health"), "warning names the source: {warning}");
+        assert!(
+            warning.contains("health"),
+            "warning names the source: {warning}"
+        );
         assert!(tick4.sensors_supported);
 
         // No streak increment: session still running, snapshot row persisted.
@@ -1057,13 +1078,23 @@ mod mikrotik_runtime {
             .await
             .expect("rows");
         assert_eq!(rows.len(), 4);
-        assert_eq!(rows.last().unwrap().warning.as_deref(), Some(warning.as_str()));
+        assert_eq!(
+            rows.last().unwrap().warning.as_deref(),
+            Some(warning.as_str())
+        );
 
         // The persisted warning survives into loaded history.
-        let loaded = h.manager.load_session(start.session_id).await.expect("load");
-        assert_eq!(loaded.snapshots.last().unwrap().warning.as_deref(), Some(warning.as_str()));
+        let loaded = h
+            .manager
+            .load_session(start.session_id)
+            .await
+            .expect("load");
+        assert_eq!(
+            loaded.snapshots.last().unwrap().warning.as_deref(),
+            Some(warning.as_str())
+        );
 
-        let stopped = h.manager.stop().await.expect("stop");
+        let stopped = h.manager.stop(start.session_id).await.expect("stop");
         assert_eq!(stopped.status, "cancelled");
     }
 
@@ -1079,7 +1110,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
         let _tick1 = next_snapshot(&mut h.events).await;
 
@@ -1090,7 +1121,7 @@ mod mikrotik_runtime {
         assert!(warning.contains("health"));
         assert!(tick2.sensors_supported);
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
     // ---- Ethernet merge: every promised counter survives merge + history ------
 
@@ -1144,7 +1175,7 @@ mod mikrotik_runtime {
             }
         }
 
-        let stopped = h.manager.stop().await.expect("stop");
+        let stopped = h.manager.stop(start.session_id).await.expect("stop");
         assert_eq!(stopped.snapshot_count, 6);
 
         // History (stale_state probe): persisted interfaces_json on the
@@ -1178,13 +1209,20 @@ mod mikrotik_runtime {
         let pre = iface_from_json(&rows[4], "ether1");
         assert!(pre.get("rxErrorEvents").is_none() || pre["rxErrorEvents"].is_null());
 
-        let loaded = h.manager.load_session(start.session_id).await.expect("load");
+        let loaded = h
+            .manager
+            .load_session(start.session_id)
+            .await
+            .expect("load");
         let loaded_merged = loaded.snapshots[5]
             .interfaces_json
             .as_ref()
             .map(|json| serde_json::from_str::<Value>(json).unwrap())
             .expect("loaded interfaces_json");
-        assert_eq!(loaded_merged, serde_json::from_str::<Value>(rows[5].interfaces_json.as_ref().unwrap()).unwrap());
+        assert_eq!(
+            loaded_merged,
+            serde_json::from_str::<Value>(rows[5].interfaces_json.as_ref().unwrap()).unwrap()
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -1194,10 +1232,7 @@ mod mikrotik_runtime {
         // Interface renamed to "wan"; the driver stats entry reports a stale
         // name but the matching default-name.
         script.interfaces = vec![ok(Value::Array(vec![iface_json_full(
-            "wan",
-            "ether",
-            1_000,
-            2_000,
+            "wan", "ether", 1_000, 2_000,
         )]))];
         script.stats_detail = vec![ok(stats_detail_json("wan"))];
         script.ethernet_stats = vec![ok(ethernet_stats_json("wan2", "wan"))];
@@ -1209,7 +1244,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
 
         for tick in 1..=6 {
@@ -1228,7 +1263,7 @@ mod mikrotik_runtime {
             }
         }
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
     }
 
     // ---- Enricher slowness: core snapshots stay on schedule -------------------
@@ -1245,7 +1280,7 @@ mod mikrotik_runtime {
             .set_profile_password(profile_id, "s3cr3t")
             .await
             .unwrap();
-        let _start = start_session(&h, profile_id).await;
+        let start = start_session(&h, profile_id).await;
         h.statuses.recv().await.expect("started");
         let tick1 = next_snapshot(&mut h.events).await;
         assert!(tick1.sensors.is_none());
@@ -1269,7 +1304,7 @@ mod mikrotik_runtime {
         let tick3 = next_snapshot(&mut h.events).await;
         assert!(tick3.resources.is_some(), "core snapshot on schedule");
 
-        let stopped = h.manager.stop().await.expect("stop");
+        let stopped = h.manager.stop(start.session_id).await.expect("stop");
         assert!(stopped.snapshot_count >= 2);
     }
     // ---- CORE failure semantics (manual-QA scenario 2: 3 failures -> error) ---
@@ -1350,14 +1385,22 @@ mod mikrotik_runtime {
                 .await
                 .expect("load");
         }
-        assert_eq!(loaded.snapshots.len(), 1, "only the successful tick persisted");
+        assert_eq!(
+            loaded.snapshots.len(),
+            1,
+            "only the successful tick persisted"
+        );
         assert_eq!(loaded.session.status, "error", "session row status=error");
         assert!(loaded.session.ended_at.is_some());
 
         // clear_active on task exit: a new session can start on the same profile.
         let second = start_session(&h, profile_id).await;
         assert_ne!(second.session_id, start.session_id);
-        let stopped = h.manager.stop().await.expect("stop second");
+        let stopped = h
+            .manager
+            .stop(second.session_id)
+            .await
+            .expect("stop second");
         assert_eq!(stopped.status, "cancelled");
     }
 
@@ -1383,7 +1426,7 @@ mod mikrotik_runtime {
         let err = second.expect_err("second start must fail");
         assert_eq!(err_kind(&err), "already-running");
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(_first.session_id).await.expect("stop");
     }
 
     #[tokio::test(start_paused = true)]
@@ -1400,7 +1443,7 @@ mod mikrotik_runtime {
         h.statuses.recv().await.expect("started");
         let _tick1 = next_snapshot(&mut h.events).await;
 
-        let stopped = h.manager.stop().await.expect("stop");
+        let stopped = h.manager.stop(start.session_id).await.expect("stop");
         assert_eq!(stopped.session_id, start.session_id);
         assert_eq!(stopped.status, "cancelled");
         let cancelled = h.statuses.recv().await.expect("cancelled status");
@@ -1420,9 +1463,262 @@ mod mikrotik_runtime {
 
         // Restart works: clear_active ran on task exit.
         let second = start_session(&h, profile_id).await;
-        let stopped2 = h.manager.stop().await.expect("stop second");
+        let stopped2 = h
+            .manager
+            .stop(second.session_id)
+            .await
+            .expect("stop second");
         assert_eq!(stopped2.status, "cancelled");
         assert_ne!(second.session_id, start.session_id);
+    }
+
+    // ---- Multiple concurrent sessions ---------------------------------------
+
+    /// An `ApiScript` whose resource identity names the board, so two
+    /// sessions can be told apart by their snapshots.
+    fn working_with_board(board: &str) -> ApiScript {
+        ApiScript {
+            resource: vec![ok(resource_json_with_identity(
+                50.0, board, "7.16.1", "arm64",
+            ))],
+            interfaces: vec![ok(one_ether(1_000, 2_000))],
+            health: vec![ok(health_json())],
+            stats_detail: vec![ok(stats_detail_json("ether1"))],
+            ethernet_stats: vec![ok(ethernet_stats_json("ether1", "ether1"))],
+            monitor: HashMap::from([("ether1".to_owned(), vec![ok(monitor_json("ether1"))])]),
+            vlans: vec![ok(vlans_json())],
+            bridge_vlans: vec![ok(bridge_vlans_json())],
+        }
+    }
+
+    async fn create_profile_on(manager: &MikrotikManager, host: &str) -> i64 {
+        manager
+            .create_profile(&CreateMikrotikProfileRequest {
+                name: host.to_owned(),
+                host: host.to_owned(),
+                port: 443,
+                use_tls: true,
+                allow_invalid_certs: false,
+                username: "admin".to_owned(),
+            })
+            .await
+            .expect("create profile")
+            .id
+    }
+
+    fn two_board_factory() -> MikrotikApiFactory {
+        let api_a = working_with_board("BOARD-A").build();
+        let api_b = working_with_board("BOARD-B").build();
+        Arc::new(move |conn: MikrotikConnection| {
+            let api = if conn.host == "192.0.2.11" {
+                Arc::clone(&api_a)
+            } else {
+                Arc::clone(&api_b)
+            };
+            Box::pin(async move { Ok(api as Arc<dyn MikrotikApi>) })
+        })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mikrotik_runtime_two_profiles_monitor_concurrently() {
+        let dir = TempDir::new("multi-session");
+        tokio::spawn(async move {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
+        let manager_db = test_db(&dir.db_file()).await;
+        let inspector = test_db(&dir.db_file()).await;
+        let manager = MikrotikManager::new(
+            manager_db,
+            Arc::new(MemoryStore::new()),
+            two_board_factory(),
+        );
+        let profile_a = create_profile_on(&manager, "192.0.2.11").await;
+        let profile_b = create_profile_on(&manager, "192.0.2.12").await;
+        manager
+            .set_profile_password(profile_a, "s3cr3t")
+            .await
+            .unwrap();
+        manager
+            .set_profile_password(profile_b, "s3cr3t")
+            .await
+            .unwrap();
+
+        let (event_tx, mut events) = mpsc::unbounded_channel();
+        let (status_tx, mut statuses) = mpsc::unbounded_channel();
+        let on_event_a: Arc<dyn Fn(MikrotikEvent) + Send + Sync> = Arc::new(move |event| {
+            let _ = event_tx.send(event);
+        });
+        let on_event_b = on_event_a.clone();
+        let on_status: MikrotikStatusSink = Arc::new(move |status| {
+            let _ = status_tx.send(status);
+        });
+        let start_a = manager
+            .start(
+                profile_a,
+                move |event| on_event_a(event),
+                Arc::clone(&on_status),
+            )
+            .await
+            .expect("start a");
+        let start_b = manager
+            .start(profile_b, move |event| on_event_b(event), on_status)
+            .await
+            .expect("start b");
+        assert_ne!(start_a.session_id, start_b.session_id);
+
+        // Both sessions announce Started.
+        let mut started = Vec::new();
+        for _ in 0..2 {
+            started.push(statuses.recv().await.expect("started"));
+        }
+        assert!(started.iter().any(|s| matches!(
+            s,
+            MikrotikStatusEvent::Started { session_id, profile_id }
+                if *session_id == start_a.session_id && *profile_id == profile_a
+        )));
+        assert!(started.iter().any(|s| matches!(
+            s,
+            MikrotikStatusEvent::Started { session_id, profile_id }
+                if *session_id == start_b.session_id && *profile_id == profile_b
+        )));
+
+        // Both tick and persist their own snapshots.
+        let mut boards = Vec::new();
+        for _ in 0..2 {
+            match next_snapshot(&mut events).await {
+                p if p.session_id == start_a.session_id => boards.push(("a", p)),
+                p => boards.push(("b", p)),
+            }
+        }
+        for (which, payload) in &boards {
+            let board = payload
+                .resources
+                .as_ref()
+                .and_then(|r| r.board_name.clone())
+                .expect("board name");
+            assert_eq!(board, format!("BOARD-{}", which.to_uppercase()));
+        }
+        let loaded_a = inspector
+            .load_mikrotik_session(start_a.session_id)
+            .await
+            .expect("load a");
+        let loaded_b = inspector
+            .load_mikrotik_session(start_b.session_id)
+            .await
+            .expect("load b");
+        assert!(!loaded_a.snapshots.is_empty(), "a persisted");
+        assert!(!loaded_b.snapshots.is_empty(), "b persisted");
+
+        // list_active exposes both; stop-by-id isolates the other.
+        let mut active = manager.list_active().await;
+        active.sort_by_key(|d| d.session_id);
+        assert_eq!(
+            active,
+            vec![
+                ActiveSessionDto {
+                    session_id: start_a.session_id,
+                    profile_id: profile_a,
+                },
+                ActiveSessionDto {
+                    session_id: start_b.session_id,
+                    profile_id: profile_b,
+                },
+            ]
+        );
+
+        manager.stop(start_a.session_id).await.expect("stop a");
+        let active = manager.list_active().await;
+        assert_eq!(
+            active,
+            vec![ActiveSessionDto {
+                session_id: start_b.session_id,
+                profile_id: profile_b,
+            }]
+        );
+        // b keeps ticking after a is gone.
+        advance_secs(5).await;
+        let payload = next_snapshot(&mut events).await;
+        assert_eq!(payload.session_id, start_b.session_id);
+        manager.stop(start_b.session_id).await.expect("stop b");
+        assert!(manager.list_active().await.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mikrotik_runtime_second_start_same_profile_and_session_cap() {
+        let dir = TempDir::new("session-cap");
+        tokio::spawn(async move {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
+        let manager = MikrotikManager::new(
+            test_db(&dir.db_file()).await,
+            Arc::new(MemoryStore::new()),
+            factory_for(working_with_board("BOARD-X").build()),
+        );
+        let mut profile_ids = Vec::new();
+        for i in 0..8 {
+            let id = create_profile_on(&manager, &format!("192.0.2.{i}")).await;
+            manager.set_profile_password(id, "s3cr3t").await.unwrap();
+            profile_ids.push(id);
+        }
+
+        let mut session_ids = Vec::new();
+        for &profile_id in &profile_ids {
+            let start = manager
+                .start(profile_id, |_| {}, Arc::new(|_| {}))
+                .await
+                .expect("start within cap");
+            session_ids.push(start.session_id);
+        }
+
+        // Same profile: the specific error, not the generic cap.
+        let err = manager
+            .start(profile_ids[0], |_| {}, Arc::new(|_| {}))
+            .await
+            .expect_err("same profile twice");
+        assert!(
+            matches!(err, MikrotikManagerError::AlreadyRunningForProfile(id) if id == profile_ids[0]),
+            "{err:?}"
+        );
+
+        // A ninth distinct profile hits the cap.
+        let ninth = create_profile_on(&manager, "192.0.2.9").await;
+        manager.set_profile_password(ninth, "s3cr3t").await.unwrap();
+        let err = manager
+            .start(ninth, |_| {}, Arc::new(|_| {}))
+            .await
+            .expect_err("over the cap");
+        assert!(
+            matches!(err, MikrotikManagerError::TooManySessions),
+            "{err:?}"
+        );
+
+        // Disconnecting one frees a slot for the ninth.
+        manager.stop(session_ids[0]).await.expect("stop one");
+        manager
+            .start(ninth, |_| {}, Arc::new(|_| {}))
+            .await
+            .expect("cap freed");
+
+        // Deleting an ACTIVE profile is refused; after stop it succeeds.
+        let err = manager
+            .delete_profile(profile_ids[1])
+            .await
+            .expect_err("in use");
+        assert!(
+            matches!(err, MikrotikManagerError::ProfileInUse(id) if id == profile_ids[1]),
+            "{err:?}"
+        );
+        for &session_id in &session_ids[1..] {
+            let _ = manager.stop(session_id).await;
+        }
+        manager
+            .delete_profile(profile_ids[1])
+            .await
+            .expect("delete after stop");
     }
     // ---- test_connection + profile/secret lifecycle (MemoryStore) -------------
 
@@ -1582,7 +1878,7 @@ mod mikrotik_runtime {
             .expect("row")
             .expect("profile still there");
 
-        h.manager.stop().await.expect("stop");
+        h.manager.stop(start.session_id).await.expect("stop");
         let _cancelled = h.statuses.recv().await.expect("cancelled");
 
         // Inactive delete: DB row goes, then the store entry is removed.
@@ -1659,7 +1955,10 @@ mod mikrotik_runtime {
         );
         // The orphaned keyring entry is inert but retrievable (best-effort
         // delete failed AFTER the row was already gone).
-        assert_eq!(store.get(&secret_key).await.expect("orphan remains"), "s3cr3t");
+        assert_eq!(
+            store.get(&secret_key).await.expect("orphan remains"),
+            "s3cr3t"
+        );
     }
-// __PART10__
+    // __PART10__
 }

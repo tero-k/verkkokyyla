@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useMikrotik } from "./useMikrotik"
 import { liveSnapshot, loadedMikrotikSession, profiles, sessions, updateResult } from "./useMikrotik.testFixtures"
-import type { BackupResultDto, MikrotikLoadedSessionDto, MikrotikProfile, MikrotikSessionSummaryDto, MikrotikSnapshotEvent, MikrotikStatusEvent, MikrotikVersionFirmwareResultDto } from "../lib/types"
+import type { BackupResultDto, MikrotikActiveSessionDto, MikrotikLoadedSessionDto, MikrotikProfile, MikrotikSessionSummaryDto, MikrotikSnapshotEvent, MikrotikStatusEvent, MikrotikVersionFirmwareResultDto } from "../lib/types"
 
 type SnapshotHandler = (event: MikrotikSnapshotEvent) => void
 type StatusHandler = (event: MikrotikStatusEvent) => void
@@ -20,7 +20,8 @@ const ipc = vi.hoisted(() => ({
       onStatus: StatusHandler,
     ) => Promise<{ readonly sessionId: number; readonly profileId: number }>
   >(),
-  mikrotikStop: vi.fn<() => Promise<{ readonly sessionId: number; readonly snapshotCount: number; readonly endedAt: string; readonly status: string }>>(),
+  mikrotikStop: vi.fn<(sessionId: number) => Promise<{ readonly sessionId: number; readonly snapshotCount: number; readonly endedAt: string; readonly status: string }>>(),
+  mikrotikListActive: vi.fn<() => Promise<readonly MikrotikActiveSessionDto[]>>(),
   mikrotikListSessions: vi.fn<() => Promise<readonly MikrotikSessionSummaryDto[]>>(),
   mikrotikLoadSession: vi.fn<(id: number) => Promise<MikrotikLoadedSessionDto>>(),
   mikrotikDeleteSession: vi.fn<(id: number) => Promise<void>>(),
@@ -52,6 +53,7 @@ beforeEach(() => {
     return { sessionId: 31, profileId }
   })
   ipc.mikrotikStop.mockResolvedValue({ sessionId: 31, snapshotCount: 1, endedAt: "2026-09-06T12:01:00Z", status: "cancelled" })
+  ipc.mikrotikListActive.mockResolvedValue([])
   ipc.mikrotikDeleteSession.mockResolvedValue(); ipc.mikrotikCheckUpdates.mockResolvedValue(updateResult)
   ipc.mikrotikFetchChangelog.mockResolvedValue({ version: "7.17", changelog: "fixed" }); ipc.mikrotikBackup.mockResolvedValue({ backupPath: "C:/tmp/lab.backup", exportPath: null, cleanupWarnings: [] })
   window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 0)
@@ -75,7 +77,7 @@ describe("useMikrotik", () => {
     expect(result.current.vlans).toHaveLength(1); expect(result.current.sensors).toHaveLength(1)
   })
 
-  it("stops an active session on unmount", async () => {
+  it("keeps sessions alive on unmount (devices survive navigation)", async () => {
     const { result, unmount } = renderHook(() => useMikrotik())
 
     await waitFor(() => expect(result.current.profiles).toHaveLength(1))
@@ -83,7 +85,15 @@ describe("useMikrotik", () => {
     await act(async () => result.current.start())
     unmount()
 
-    expect(ipc.mikrotikStop).toHaveBeenCalledTimes(1)
+    expect(ipc.mikrotikStop).not.toHaveBeenCalled()
+  })
+
+  it("reattaches an active session discovered after reload as detached", async () => {
+    ipc.mikrotikListActive.mockResolvedValue([{ sessionId: 31, profileId: 7 }])
+    const { result } = renderHook(() => useMikrotik())
+
+    await waitFor(() => expect(result.current.activeDevices).toHaveLength(1))
+    expect(result.current.activeDevices[0]).toMatchObject({ profileId: 7, sessionId: 31, running: true, attached: false })
   })
 
   it("exposes action callbacks and keeps backup passwords transient", async () => {
@@ -113,7 +123,7 @@ describe("useMikrotik", () => {
     await act(async () => result.current.start())
     await act(async () => result.current.stop())
 
-    expect(ipc.mikrotikStop).toHaveBeenCalledTimes(1); expect(result.current.running).toBe(false)
+    expect(ipc.mikrotikStop).toHaveBeenCalledWith(31); expect(result.current.running).toBe(false)
   })
 
   it("refreshes sessions after deleting a session", async () => {
@@ -150,8 +160,7 @@ describe("useMikrotik", () => {
     expect(result.current.firmwareStatus).toEqual(updateResult.firmwareStatus)
   })
 
-  it("loads historical session state including retained VLANs and session metadata", async () => {
-    const loaded: MikrotikLoadedSessionDto = loadedMikrotikSession()
+  it("loads historical session state including retained VLANs and session metadata", async () => {    const loaded: MikrotikLoadedSessionDto = loadedMikrotikSession()
     ipc.mikrotikLoadSession.mockResolvedValue(loaded)
     const { result } = renderHook(() => useMikrotik())
 
@@ -168,5 +177,62 @@ describe("useMikrotik", () => {
     expect(result.current.sensors).toEqual([{ name: "voltage", value: 24.2, unit: "V", kind: "voltage" }])
     expect(result.current.updateStatus).toEqual(updateResult.updateStatus)
     expect(result.current.firmwareStatus).toEqual(updateResult.firmwareStatus)
+  })
+
+  it("does not invoke start twice while one is in flight", async () => {
+    let resolveStart:
+      | ((dto: { readonly sessionId: number; readonly profileId: number }) => void)
+      | null = null
+    ipc.mikrotikStart.mockImplementation((_profileId, onEvent, onStatus) => {
+      snapshotHandler = onEvent
+      statusHandler = onStatus
+      return new Promise((resolve) => {
+        resolveStart = resolve
+      })
+    })
+    const { result } = renderHook(() => useMikrotik())
+
+    await waitFor(() => expect(result.current.profiles).toHaveLength(1))
+    await act(async () => result.current.selectProfile(profiles[0]))
+    await act(async () => {
+      void result.current.start()
+    })
+    await act(async () => {
+      void result.current.start()
+    })
+
+    expect(ipc.mikrotikStart).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveStart?.({ sessionId: 31, profileId: profiles[0].id })
+    })
+  })
+
+  it("ignores stale status events from a previous session after restart", async () => {
+    let nextSessionId = 31
+    ipc.mikrotikStart.mockImplementation(async (profileId, onEvent, onStatus) => {
+      snapshotHandler = onEvent
+      statusHandler = onStatus
+      const sessionId = nextSessionId
+      nextSessionId = 32
+      return { sessionId, profileId }
+    })
+    const { result } = renderHook(() => useMikrotik())
+
+    await waitFor(() => expect(result.current.profiles).toHaveLength(1))
+    await act(async () => result.current.selectProfile(profiles[0]))
+    await act(async () => result.current.start())
+    // First session fails; a restart begins (the mock now yields session 32).
+    act(() => statusHandler?.({ event: "error", sessionId: 31, message: "core failed" }))
+    expect(result.current.running).toBe(false)
+    await act(async () => result.current.start())
+
+    expect(result.current.running).toBe(true)
+    expect(result.current.error).toBe("")
+
+    // A delayed terminal event from the OLD session must not kill the new one.
+    act(() => statusHandler?.({ event: "stopped", sessionId: 31, snapshotCount: 3 }))
+
+    expect(result.current.running).toBe(true)
+    expect(result.current.error).toBe("")
   })
 })

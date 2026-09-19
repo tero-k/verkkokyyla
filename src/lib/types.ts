@@ -202,6 +202,92 @@ export type LoadedTraceDto = {
   readonly hops: readonly TraceHopDto[]
 }
 
+export const MTU_METHODS = ["icmp", "tcp"] as const
+export type MtuMethod = (typeof MTU_METHODS)[number]
+
+export type ProbeOutcomeDto =
+  | { readonly outcome: "ok"; readonly rttMs: number }
+  | { readonly outcome: "too-big"; readonly hintMtu: number | null }
+  | { readonly outcome: "timeout" }
+  | { readonly outcome: "error"; readonly message: string }
+
+export type MtuProbeEvent =
+  | {
+      readonly event: "attempt"
+      readonly seq: number
+      readonly payloadSize: number
+      readonly mtuSize: number
+    }
+  | {
+      readonly event: "outcome"
+      readonly seq: number
+      readonly outcome: ProbeOutcomeDto
+    }
+
+export type MtuLowerBoundReasonDto =
+  | { readonly reason: "timeout-above"; readonly triedMtu: number }
+  | { readonly reason: "ceiling-reached" }
+
+export type ResultKindDto =
+  | { readonly kind: "exact"; readonly mtu: number }
+  | {
+      readonly kind: "lower-bound"
+      readonly mtu: number
+      readonly reason: MtuLowerBoundReasonDto
+    }
+  | { readonly kind: "unreachable" }
+  | { readonly kind: "failed"; readonly message: string }
+
+export type MtuStatusEvent =
+  | {
+      readonly event: "completed"
+      readonly runId: number
+      readonly result: ResultKindDto
+      readonly probesSent: number
+    }
+  | {
+      readonly event: "cancelled"
+      readonly runId: number
+      readonly probesSent: number
+    }
+  | { readonly event: "error"; readonly message: string }
+
+export type StartMtuDto = {
+  readonly runId: number
+  readonly method: string
+  readonly resolvedIp: string
+  readonly answers: readonly string[]
+}
+
+export type StoppedMtuDto = {
+  readonly runId: number
+  readonly probesSent: number
+}
+
+export type MtuRunSummaryDto = {
+  readonly id: number
+  readonly targetInput: string
+  readonly resolvedIp: string
+  readonly method: string
+  readonly result: ResultKindDto
+  readonly probesSent: number
+  readonly startedAt: string
+  readonly endedAt: string | null
+}
+
+export type MtuProbeDto = {
+  readonly seq: number
+  readonly payloadSize: number
+  readonly mtuSize: number
+  readonly outcome: ProbeOutcomeDto
+  readonly at: string
+}
+
+export type LoadedMtuRunDto = {
+  readonly run: MtuRunSummaryDto
+  readonly probes: readonly MtuProbeDto[]
+}
+
 export type DownloadProgressEvent = {
   readonly event: "progress"
   readonly bytesReceived: number
@@ -340,6 +426,7 @@ export type MikrotikInterfaceDto = {
   readonly txDrop: number | null
   readonly rate: string | null
   readonly fullDuplex: boolean | null
+  readonly comment: string | null
   readonly rxBitsPerSecond: number | null
   readonly txBitsPerSecond: number | null
 }
@@ -404,6 +491,31 @@ export type MikrotikStatusEvent =
       readonly firmwareStatus: MikrotikFirmwareStatus
     }
 
+export type MikrotikLogSeverity = "critical" | "error" | "warning" | "info" | "debug"
+
+export type MikrotikLogEntry = {
+  readonly id: string
+  readonly time: string | null
+  readonly topics: readonly string[]
+  readonly message: string
+  readonly severity: MikrotikLogSeverity
+}
+
+export type MikrotikLogEvent = {
+  readonly event: "entries"
+  readonly entries: readonly MikrotikLogEntry[]
+}
+
+export type MikrotikLogStatusEvent =
+  | { readonly event: "started"; readonly profileId: number }
+  | { readonly event: "stopped" }
+  | { readonly event: "warning"; readonly message: string }
+  | { readonly event: "error"; readonly message: string }
+
+export type MikrotikLogStartDto = {
+  readonly profileId: number
+}
+
 export type MikrotikProfile = {
   readonly id: number
   readonly name: string
@@ -436,6 +548,21 @@ export type DeleteMikrotikProfileResultDto = {
 }
 
 export type MikrotikStartDto = {
+  readonly sessionId: number
+  readonly profileId: number
+}
+
+/** A freshly opened interactive SSH terminal, as returned by
+    `mikrotik_terminal_open`. Output chunks flow over the command's data
+    channel as base64 (the IPC layer is JSON; SSH bytes are not). */
+export type MikrotikTerminalOpenDto = {
+  readonly terminalId: number
+  readonly profileId: number
+}
+
+/** One live monitoring session, as listed by `mikrotik_list_active`. Lets
+    the UI rehydrate its device switcher after a reload. */
+export type MikrotikActiveSessionDto = {
   readonly sessionId: number
   readonly profileId: number
 }
@@ -521,6 +648,25 @@ export type MikrotikBackupRecordDto = {
 export type DeleteMikrotikBackupResultDto = {
   readonly deleted: boolean
   readonly warnings: readonly string[]
+}
+
+export type BackupDiffLineKind = "same" | "add" | "remove"
+
+export type BackupDiffLineDto = {
+  readonly kind: BackupDiffLineKind
+  readonly text: string
+}
+
+export type BackupDiffDto = {
+  readonly olderId: number
+  readonly olderName: string
+  readonly olderCreatedAt: string
+  readonly newerId: number
+  readonly newerName: string
+  readonly newerCreatedAt: string
+  readonly lines: readonly BackupDiffLineDto[]
+  readonly added: number
+  readonly removed: number
 }
 
 export type StartScanDto = {

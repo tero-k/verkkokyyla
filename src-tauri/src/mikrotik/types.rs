@@ -17,8 +17,8 @@ use crate::db::{Database, DbError};
 use crate::mikrotik::client::MikrotikConnection;
 use crate::mikrotik::error::MikrotikError;
 use crate::mikrotik::parse::{
-    BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, ResourceDto, SensorDto,
-    RouterboardDto, UpdateStatusDto, VlanDto,
+    BondingDto, BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, LogEntryDto,
+    ResourceDto, RouterboardDto, SensorDto, UpdateStatusDto, VlanDto,
 };
 
 pub use crate::mikrotik::secrets::SecretError;
@@ -26,8 +26,7 @@ pub use crate::mikrotik::secrets::SecretError;
 /// Factory that builds the per-session REST API handle. Production wraps
 /// [`crate::mikrotik::client::MikrotikClient`]; tests inject a scripted fake
 /// (pattern: `tests/trace.rs` factory injection).
-pub type MikrotikApiFactory =
-    Arc<dyn Fn(MikrotikConnection) -> MikrotikApiFuture + Send + Sync>;
+pub type MikrotikApiFactory = Arc<dyn Fn(MikrotikConnection) -> MikrotikApiFuture + Send + Sync>;
 pub type MikrotikApiFuture = BoxFuture<'static, Result<Arc<dyn MikrotikApi>, MikrotikError>>;
 
 /// The REST surface the polling runtime consumes. Todo 2's client implements
@@ -45,6 +44,16 @@ pub trait MikrotikApi: Send + Sync {
     ) -> Result<Vec<EthernetMonitorDto>, MikrotikError>;
     async fn get_vlans(&self) -> Result<Vec<VlanDto>, MikrotikError>;
     async fn get_bridge_vlans(&self) -> Result<Vec<BridgeVlanDto>, MikrotikError>;
+
+    /// `GET /rest/interface/bonding` — bonding masters and their slave
+    /// ports. Defaults to "unsupported" so scripted fakes need not implement
+    /// it; the runtime treats that as "no bonding to aggregate" (silent).
+    async fn get_bonding(&self) -> Result<Vec<BondingDto>, MikrotikError> {
+        Err(MikrotikError::Api {
+            status: 404,
+            message: "bonding endpoint not implemented".to_owned(),
+        })
+    }
     async fn get_update_status(&self) -> Result<UpdateStatusDto, MikrotikError> {
         Err(MikrotikError::Api {
             status: 404,
@@ -61,6 +70,16 @@ pub trait MikrotikApi: Send + Sync {
         Err(MikrotikError::Api {
             status: 404,
             message: "routerboard endpoint not implemented".to_owned(),
+        })
+    }
+
+    /// `POST /rest/log/print` — in-memory log entries. REST has no streaming
+    /// mode (official docs rule out continuous commands), so the log stream
+    /// runtime polls this and dedupes by record id.
+    async fn get_log(&self) -> Result<Vec<LogEntryDto>, MikrotikError> {
+        Err(MikrotikError::Api {
+            status: 404,
+            message: "log endpoint not implemented".to_owned(),
         })
     }
 }
@@ -117,6 +136,8 @@ pub struct MikrotikInterfaceDto {
     pub tx_drop: Option<u64>,
     pub rate: Option<String>,
     pub full_duplex: Option<bool>,
+    /// Operator comment from `/interface/print` (null when unset).
+    pub comment: Option<String>,
     pub rx_bits_per_second: Option<f64>,
     pub tx_bits_per_second: Option<f64>,
 }
@@ -151,6 +172,43 @@ pub struct MikrotikSnapshotPayload {
 )]
 pub enum MikrotikEvent {
     Snapshot(MikrotikSnapshotPayload),
+}
+
+/// Channel events streamed to the live log view. The stream emits entries in
+/// router order (oldest first); the UI caps and filters its buffer.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(
+    tag = "event",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum MikrotikLogEvent {
+    Entries { entries: Vec<LogEntryDto> },
+}
+
+/// Lifecycle / failure events for the log stream. Unlike
+/// `MikrotikStatusEvent` there is no DB session behind a log stream (live
+/// only, nothing persisted), so these carry no session id.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(
+    tag = "event",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum MikrotikLogStatusEvent {
+    Started { profile_id: i64 },
+    Stopped,
+    Warning { message: String },
+    Error { message: String },
+}
+
+pub type MikrotikLogEventSink = Arc<dyn Fn(MikrotikLogEvent) + Send + Sync>;
+pub type MikrotikLogStatusSink = Arc<dyn Fn(MikrotikLogStatusEvent) + Send + Sync>;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MikrotikLogStartDto {
+    pub profile_id: i64,
 }
 
 /// Lifecycle / failure events on the status channel. Enricher failures only
@@ -246,6 +304,15 @@ pub struct MikrotikStartDto {
     pub profile_id: i64,
 }
 
+/// One entry of the active-session list: lets the frontend rehydrate its
+/// device switcher after a reload without any channel replay.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveSessionDto {
+    pub session_id: i64,
+    pub profile_id: i64,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MikrotikStoppedDto {
@@ -308,8 +375,13 @@ pub struct LoadedMikrotikSessionDto {
 /// `{kind, message}` exactly like `TraceError`.
 #[derive(Debug)]
 pub enum MikrotikManagerError {
-    AlreadyRunning,
+    /// That profile already backs a running session — the UI can point at
+    /// the offending device. Serializes with kind `already-running` so the
+    /// frontend error contract stays unchanged from the single-slot days.
+    AlreadyRunningForProfile(i64),
     NoActiveSession,
+    /// The 8-session concurrency cap is full.
+    TooManySessions,
     ProfileNotFound(i64),
     SessionNotFound(i64),
     ProfileInUse(i64),
@@ -322,8 +394,9 @@ pub enum MikrotikManagerError {
 impl MikrotikManagerError {
     fn kind(&self) -> &'static str {
         match self {
-            Self::AlreadyRunning => "already-running",
+            Self::AlreadyRunningForProfile(_) => "already-running",
             Self::NoActiveSession => "no-active-session",
+            Self::TooManySessions => "too-many-sessions",
             Self::ProfileNotFound(_) => "profile-not-found",
             Self::SessionNotFound(_) => "session-not-found",
             Self::ProfileInUse(_) => "profile-in-use",
@@ -338,8 +411,13 @@ impl MikrotikManagerError {
 impl fmt::Display for MikrotikManagerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AlreadyRunning => f.write_str("a mikrotik session is already running"),
-            Self::NoActiveSession => f.write_str("no mikrotik session is running"),
+            Self::AlreadyRunningForProfile(id) => {
+                write!(f, "profile {id} is already being monitored")
+            }
+            Self::NoActiveSession => f.write_str("no mikrotik session is running with that id"),
+            Self::TooManySessions => {
+                f.write_str("too many concurrent mikrotik sessions — disconnect one first")
+            }
             Self::ProfileNotFound(id) => write!(f, "no mikrotik profile with id {id}"),
             Self::SessionNotFound(id) => write!(f, "no mikrotik session with id {id}"),
             Self::ProfileInUse(id) => {

@@ -5,11 +5,10 @@ mod mikrotik_version {
 
     use tokio::sync::{mpsc, Notify};
     use verkkokyyla_lib::db::{
-        Database, MikrotikSessionVersionStatus, NewMikrotikProfile, NewMikrotikSession,
-        now_rfc3339,
+        now_rfc3339, Database, MikrotikSessionVersionStatus, NewMikrotikProfile, NewMikrotikSession,
     };
-    use verkkokyyla_lib::mikrotik::client::{MikrotikClient, MikrotikConnection};
     use verkkokyyla_lib::mikrotik::changelog::*;
+    use verkkokyyla_lib::mikrotik::client::{MikrotikClient, MikrotikConnection};
     use verkkokyyla_lib::mikrotik::error::MikrotikError;
     use verkkokyyla_lib::mikrotik::manager::MikrotikManager;
     use verkkokyyla_lib::mikrotik::parse::{
@@ -61,7 +60,10 @@ mod mikrotik_version {
     }
 
     impl VersionApi {
-        fn new(updates: Vec<Step<UpdateStatusDto>>, routerboard: Step<RouterboardDto>) -> Arc<Self> {
+        fn new(
+            updates: Vec<Step<UpdateStatusDto>>,
+            routerboard: Step<RouterboardDto>,
+        ) -> Arc<Self> {
             Arc::new(Self {
                 updates: Mutex::new(updates.into()),
                 routerboard: Mutex::new(VecDeque::from([routerboard])),
@@ -120,7 +122,10 @@ mod mikrotik_version {
             Ok(Vec::new())
         }
 
-        async fn get_ethernet_monitor(&self, _name: &str) -> Result<Vec<EthernetMonitorDto>, MikrotikError> {
+        async fn get_ethernet_monitor(
+            &self,
+            _name: &str,
+        ) -> Result<Vec<EthernetMonitorDto>, MikrotikError> {
             Ok(Vec::new())
         }
 
@@ -207,9 +212,17 @@ mod mikrotik_version {
         dto.id
     }
 
-    async fn status_rx() -> (MikrotikStatusSink, mpsc::UnboundedReceiver<MikrotikStatusEvent>) {
+    async fn status_rx() -> (
+        MikrotikStatusSink,
+        mpsc::UnboundedReceiver<MikrotikStatusEvent>,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel();
-        (Arc::new(move |event| { let _ = tx.send(event); }), rx)
+        (
+            Arc::new(move |event| {
+                let _ = tx.send(event);
+            }),
+            rx,
+        )
     }
 
     async fn drain_statuses(
@@ -223,7 +236,8 @@ mod mikrotik_version {
     }
 
     #[tokio::test]
-    async fn mikrotik_version_manual_check_without_active_session_returns_status_and_persists_nothing() {
+    async fn mikrotik_version_manual_check_without_active_session_returns_status_and_persists_nothing(
+    ) {
         let dir = TempDir::new("manual-no-active");
         let api = VersionApi::new(
             vec![status("System is already up to date", None)],
@@ -241,7 +255,8 @@ mod mikrotik_version {
     }
 
     #[tokio::test]
-    async fn mikrotik_version_manual_check_update_error_with_firmware_na_returns_unknown_without_persisting() {
+    async fn mikrotik_version_manual_check_update_error_with_firmware_na_returns_unknown_without_persisting(
+    ) {
         let dir = TempDir::new("manual-update-error-firmware-na");
         let api = VersionApi::new(
             vec![Step::Err(MikrotikError::Api {
@@ -290,10 +305,30 @@ mod mikrotik_version {
     #[tokio::test]
     async fn mikrotik_version_update_state_classifies_terminal_status_matrix() {
         let cases = vec![
-            ("New version is available", Some("7.19"), UpdateState::UpdateAvailable, "update-available"),
-            ("System is already up to date", Some("7.18.2"), UpdateState::UpToDate, "up-to-date"),
-            ("ERROR: no route to host", Some("7.19"), UpdateState::Unknown, "unknown"),
-            ("New version is available", None, UpdateState::Unknown, "unknown"),
+            (
+                "New version is available",
+                Some("7.19"),
+                UpdateState::UpdateAvailable,
+                "update-available",
+            ),
+            (
+                "System is already up to date",
+                Some("7.18.2"),
+                UpdateState::UpToDate,
+                "up-to-date",
+            ),
+            (
+                "ERROR: no route to host",
+                Some("7.19"),
+                UpdateState::Unknown,
+                "unknown",
+            ),
+            (
+                "New version is available",
+                None,
+                UpdateState::Unknown,
+                "unknown",
+            ),
         ];
         for (idx, (status_text, latest, expected, wire)) in cases.into_iter().enumerate() {
             let dir = TempDir::new(&format!("update-state-{idx}"));
@@ -313,10 +348,26 @@ mod mikrotik_version {
     #[tokio::test]
     async fn mikrotik_version_firmware_state_classifies_routerboard_firmware_matrix() {
         let cases = vec![
-            (routerboard_firmware(true, Some("7.18.2"), Some("7.18.2")), FirmwareState::UpToDate, "up-to-date"),
-            (routerboard_firmware(true, Some("7.18.2"), Some("7.19")), FirmwareState::Available, "available"),
-            (routerboard_firmware(true, Some("7.18.2"), None), FirmwareState::Unknown, "unknown"),
-            (routerboard_firmware(false, Some("7.18.2"), Some("7.19")), FirmwareState::NotApplicable, "not-applicable"),
+            (
+                routerboard_firmware(true, Some("7.18.2"), Some("7.18.2")),
+                FirmwareState::UpToDate,
+                "up-to-date",
+            ),
+            (
+                routerboard_firmware(true, Some("7.18.2"), Some("7.19")),
+                FirmwareState::Available,
+                "available",
+            ),
+            (
+                routerboard_firmware(true, Some("7.18.2"), None),
+                FirmwareState::Unknown,
+                "unknown",
+            ),
+            (
+                routerboard_firmware(false, Some("7.18.2"), Some("7.19")),
+                FirmwareState::NotApplicable,
+                "not-applicable",
+            ),
         ];
         for (idx, (routerboard_step, expected, wire)) in cases.into_iter().enumerate() {
             let dir = TempDir::new(&format!("firmware-state-{idx}"));
@@ -339,12 +390,36 @@ mod mikrotik_version {
     async fn mikrotik_version_routerboard_not_applicable_variants_are_distinct_from_unknown() {
         let cases = vec![
             (routerboard(false), FirmwareState::NotApplicable),
-            (Step::Err(MikrotikError::Api { status: 404, message: String::new() }), FirmwareState::NotApplicable),
-            (Step::Err(MikrotikError::Api { status: 400, message: "No Such Command Or Directory (remove)".to_owned() }), FirmwareState::NotApplicable),
-            (Step::Err(MikrotikError::Api { status: 500, message: "No Such Command".to_owned() }), FirmwareState::Unknown),
+            (
+                Step::Err(MikrotikError::Api {
+                    status: 404,
+                    message: String::new(),
+                }),
+                FirmwareState::NotApplicable,
+            ),
+            (
+                Step::Err(MikrotikError::Api {
+                    status: 400,
+                    message: "No Such Command Or Directory (remove)".to_owned(),
+                }),
+                FirmwareState::NotApplicable,
+            ),
+            (
+                Step::Err(MikrotikError::Api {
+                    status: 500,
+                    message: "No Such Command".to_owned(),
+                }),
+                FirmwareState::Unknown,
+            ),
             (Step::Err(MikrotikError::Forbidden), FirmwareState::Unknown),
-            (Step::Err(MikrotikError::Timeout("deadline".to_owned())), FirmwareState::Unknown),
-            (Step::Err(MikrotikError::Parse("bad json".to_owned())), FirmwareState::Unknown),
+            (
+                Step::Err(MikrotikError::Timeout("deadline".to_owned())),
+                FirmwareState::Unknown,
+            ),
+            (
+                Step::Err(MikrotikError::Parse("bad json".to_owned())),
+                FirmwareState::Unknown,
+            ),
         ];
         for (idx, (routerboard_step, expected)) in cases.into_iter().enumerate() {
             let dir = TempDir::new(&format!("routerboard-{idx}"));
@@ -382,7 +457,11 @@ mod mikrotik_version {
         let delivered = statuses.recv().await.expect("version firmware");
 
         match delivered {
-            MikrotikStatusEvent::VersionFirmware { session_id, update_status, firmware_status } => {
+            MikrotikStatusEvent::VersionFirmware {
+                session_id,
+                update_status,
+                firmware_status,
+            } => {
                 assert_eq!(session_id, start.session_id);
                 assert_eq!(update_status.latest_version.as_deref(), Some("7.19"));
                 assert_eq!(firmware_status.state, FirmwareState::Available);
@@ -390,19 +469,34 @@ mod mikrotik_version {
             other => panic!("unexpected status {other:?}"),
         }
         let loaded = manager.load_session(start.session_id).await.expect("load");
-        assert!(loaded.session.update_status_json.expect("update json").contains("7.19"));
-        assert!(loaded.session.firmware_status_json.expect("firmware json").contains("available"));
-        let _ = manager.stop().await;
+        assert!(loaded
+            .session
+            .update_status_json
+            .expect("update json")
+            .contains("7.19"));
+        assert!(loaded
+            .session
+            .firmware_status_json
+            .expect("firmware json")
+            .contains("available"));
+        let _ = manager.stop(start.session_id).await;
     }
 
     #[tokio::test(start_paused = true)]
     async fn mikrotik_version_stale_probe_does_not_write_restarted_profile() {
-        tokio::spawn(async { loop { tokio::task::yield_now().await; } });
+        tokio::spawn(async {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
         let dir = TempDir::new("stale-probe");
         let gate = Arc::new(Notify::new());
         let api = VersionApi::new(
             vec![
-                Step::Wait(Arc::clone(&gate), status_dto("New version is available", Some("7.19"))),
+                Step::Wait(
+                    Arc::clone(&gate),
+                    status_dto("New version is available", Some("7.19")),
+                ),
                 Step::Hang,
             ],
             routerboard(true),
@@ -410,40 +504,65 @@ mod mikrotik_version {
         let manager = manager_for(&dir, api).await;
         let profile_id = profile(&manager, "edge").await;
         let (on_status_a, mut statuses_a) = status_rx().await;
-        let start_a = manager.start(profile_id, |_| {}, on_status_a).await.expect("start a");
-        assert!(matches!(statuses_a.recv().await, Some(MikrotikStatusEvent::Started { .. })));
+        let start_a = manager
+            .start(profile_id, |_| {}, on_status_a)
+            .await
+            .expect("start a");
+        assert!(matches!(
+            statuses_a.recv().await,
+            Some(MikrotikStatusEvent::Started { .. })
+        ));
 
-        manager.stop().await.expect("stop a");
+        manager.stop(start_a.session_id).await.expect("stop a");
         let (on_status_b, mut statuses_b) = status_rx().await;
-        let start_b = manager.start(profile_id, |_| {}, on_status_b).await.expect("start b");
+        let start_b = manager
+            .start(profile_id, |_| {}, on_status_b)
+            .await
+            .expect("start b");
         assert_ne!(start_a.session_id, start_b.session_id);
 
         gate.notify_waiters();
         tokio::task::yield_now().await;
         tokio::time::advance(std::time::Duration::from_secs(1)).await;
-        let loaded_b = manager.load_session(start_b.session_id).await.expect("load b");
-        let loaded_a = manager.load_session(start_a.session_id).await.expect("load a");
+        let loaded_b = manager
+            .load_session(start_b.session_id)
+            .await
+            .expect("load b");
+        let loaded_a = manager
+            .load_session(start_a.session_id)
+            .await
+            .expect("load a");
 
         assert_eq!(loaded_b.session.update_status_json, None);
         assert_eq!(loaded_a.session.update_status_json, None);
-        assert!(matches!(statuses_b.recv().await, Some(MikrotikStatusEvent::Started { .. })));
+        assert!(matches!(
+            statuses_b.recv().await,
+            Some(MikrotikStatusEvent::Started { .. })
+        ));
         assert!(statuses_b.try_recv().is_err());
         let stale_statuses = drain_statuses(&mut statuses_a).await;
         assert!(stale_statuses
             .iter()
             .all(|event| !matches!(event, MikrotikStatusEvent::VersionFirmware { .. })));
-        let _ = manager.stop().await;
+        let _ = manager.stop(start_b.session_id).await;
     }
 
     #[tokio::test(start_paused = true)]
     async fn mikrotik_version_manual_check_stale_same_profile_does_not_write_restarted_session() {
-        tokio::spawn(async { loop { tokio::task::yield_now().await; } });
+        tokio::spawn(async {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
         let dir = TempDir::new("manual-stale-same-profile");
         let gate = Arc::new(Notify::new());
         let api = VersionApi::new(
             vec![
                 status("System is already up to date", None),
-                Step::Wait(Arc::clone(&gate), status_dto("New version is available", Some("7.21"))),
+                Step::Wait(
+                    Arc::clone(&gate),
+                    status_dto("New version is available", Some("7.21")),
+                ),
                 Step::Hang,
             ],
             routerboard(true),
@@ -451,28 +570,43 @@ mod mikrotik_version {
         let manager = manager_for(&dir, api).await;
         let profile_id = profile(&manager, "edge").await;
         let (on_status_a, mut statuses_a) = status_rx().await;
-        let start_a = manager.start(profile_id, |_| {}, on_status_a).await.expect("start a");
-        assert!(matches!(statuses_a.recv().await, Some(MikrotikStatusEvent::Started { .. })));
+        let start_a = manager
+            .start(profile_id, |_| {}, on_status_a)
+            .await
+            .expect("start a");
+        assert!(matches!(
+            statuses_a.recv().await,
+            Some(MikrotikStatusEvent::Started { .. })
+        ));
         tokio::task::yield_now().await;
         let check = {
             let manager = manager.clone();
             tokio::spawn(async move { manager.check_updates(profile_id).await })
         };
 
-        manager.stop().await.expect("stop a");
+        manager.stop(start_a.session_id).await.expect("stop a");
         let (on_status_b, mut statuses_b) = status_rx().await;
-        let start_b = manager.start(profile_id, |_| {}, on_status_b).await.expect("start b");
+        let start_b = manager
+            .start(profile_id, |_| {}, on_status_b)
+            .await
+            .expect("start b");
         gate.notify_waiters();
         tokio::task::yield_now().await;
         let result = check.await.expect("join").expect("check");
-        let loaded_b = manager.load_session(start_b.session_id).await.expect("load b");
+        let loaded_b = manager
+            .load_session(start_b.session_id)
+            .await
+            .expect("load b");
 
         assert_eq!(result.update_status.latest_version.as_deref(), Some("7.21"));
         assert_eq!(loaded_b.session.update_status_json, None);
-        assert!(matches!(statuses_b.recv().await, Some(MikrotikStatusEvent::Started { .. })));
+        assert!(matches!(
+            statuses_b.recv().await,
+            Some(MikrotikStatusEvent::Started { .. })
+        ));
         assert!(statuses_b.try_recv().is_err());
         assert_ne!(start_a.session_id, start_b.session_id);
-        let _ = manager.stop().await;
+        let _ = manager.stop(start_b.session_id).await;
     }
 
     #[tokio::test]
@@ -486,20 +620,36 @@ mod mikrotik_version {
         let profile_a = profile(&manager, "edge-a").await;
         let profile_b = profile(&manager, "edge-b").await;
         let (on_status, mut statuses) = status_rx().await;
-        let start_a = manager.start(profile_a, |_| {}, on_status).await.expect("start a");
-        assert!(matches!(statuses.recv().await, Some(MikrotikStatusEvent::Started { .. })));
+        let start_a = manager
+            .start(profile_a, |_| {}, on_status)
+            .await
+            .expect("start a");
+        assert!(matches!(
+            statuses.recv().await,
+            Some(MikrotikStatusEvent::Started { .. })
+        ));
 
         let result_b = manager.check_updates(profile_b).await.expect("check b");
-        let loaded_a = manager.load_session(start_a.session_id).await.expect("load a");
+        let loaded_a = manager
+            .load_session(start_a.session_id)
+            .await
+            .expect("load a");
 
         assert_eq!(loaded_a.session.update_status_json, None);
-        assert_eq!(result_b.update_status.latest_version.as_deref(), Some("7.20"));
-        let _ = manager.stop().await;
+        assert_eq!(
+            result_b.update_status.latest_version.as_deref(),
+            Some("7.20")
+        );
+        let _ = manager.stop(start_a.session_id).await;
     }
 
     #[tokio::test(start_paused = true)]
     async fn mikrotik_version_slow_probe_in_flight_does_not_delay_core_snapshots() {
-        tokio::spawn(async { loop { tokio::task::yield_now().await; } });
+        tokio::spawn(async {
+            loop {
+                tokio::task::yield_now().await;
+            }
+        });
         let dir = TempDir::new("slow-probe-cadence");
         let api = VersionApi::new(vec![Step::Hang], routerboard(true));
         let manager = manager_for(&dir, api).await;
@@ -507,29 +657,54 @@ mod mikrotik_version {
         let (event_tx, mut events) = mpsc::unbounded_channel();
         let (on_status, mut statuses) = status_rx().await;
         let start = manager
-            .start(profile_id, move |event| { let _ = event_tx.send(event); }, on_status)
+            .start(
+                profile_id,
+                move |event| {
+                    let _ = event_tx.send(event);
+                },
+                on_status,
+            )
             .await
             .expect("start");
-        assert!(matches!(statuses.recv().await, Some(MikrotikStatusEvent::Started { .. })));
+        assert!(matches!(
+            statuses.recv().await,
+            Some(MikrotikStatusEvent::Started { .. })
+        ));
 
         let first = events.recv().await.expect("first snapshot");
         tokio::time::advance(std::time::Duration::from_secs(5)).await;
         tokio::task::yield_now().await;
         let second = events.recv().await.expect("second snapshot");
 
-        assert!(matches!(first, MikrotikEvent::Snapshot(payload) if payload.session_id == start.session_id));
-        assert!(matches!(second, MikrotikEvent::Snapshot(payload) if payload.session_id == start.session_id));
+        assert!(
+            matches!(first, MikrotikEvent::Snapshot(payload) if payload.session_id == start.session_id)
+        );
+        assert!(
+            matches!(second, MikrotikEvent::Snapshot(payload) if payload.session_id == start.session_id)
+        );
         assert!(statuses.try_recv().is_err());
-        let _ = manager.stop().await;
+        let _ = manager.stop(start.session_id).await;
     }
 
     #[tokio::test]
     async fn mikrotik_version_routerboard_no_such_command_matrix_is_not_applicable() {
         let cases = vec![
-            MikrotikError::Api { status: 400, message: "no such command or directory (remove)".to_owned() },
-            MikrotikError::Api { status: 406, message: "no such command or directory".to_owned() },
-            MikrotikError::Api { status: 400, message: r#"{"message":"no such command or directory"}"#.to_owned() },
-            MikrotikError::Api { status: 406, message: "No Such Command Or Directory".to_owned() },
+            MikrotikError::Api {
+                status: 400,
+                message: "no such command or directory (remove)".to_owned(),
+            },
+            MikrotikError::Api {
+                status: 406,
+                message: "no such command or directory".to_owned(),
+            },
+            MikrotikError::Api {
+                status: 400,
+                message: r#"{"message":"no such command or directory"}"#.to_owned(),
+            },
+            MikrotikError::Api {
+                status: 406,
+                message: "No Such Command Or Directory".to_owned(),
+            },
         ];
         for (idx, err) in cases.into_iter().enumerate() {
             let dir = TempDir::new(&format!("no-such-matrix-{idx}"));
@@ -602,27 +777,45 @@ mod mikrotik_version {
                     routeros_version: Some("7.18.2".to_owned()),
                     architecture_name: Some("x86_64".to_owned()),
                     update_status_json: Some(serde_json::to_string(&update).expect("update json")),
-                    firmware_status_json: Some(serde_json::to_string(&firmware).expect("firmware json")),
+                    firmware_status_json: Some(
+                        serde_json::to_string(&firmware).expect("firmware json"),
+                    ),
                 },
             )
             .await
             .expect("version status");
-            ids.push((id, status_text.to_owned(), latest.map(str::to_owned), label.to_owned()));
+            ids.push((
+                id,
+                status_text.to_owned(),
+                latest.map(str::to_owned),
+                label.to_owned(),
+            ));
         }
         let manager = manager_for(
             &dir,
-            VersionApi::new(vec![status("System is already up to date", None)], routerboard(false)),
+            VersionApi::new(
+                vec![status("System is already up to date", None)],
+                routerboard(false),
+            ),
         )
         .await;
 
         for (id, status_text, latest, label) in ids {
             let loaded = manager.load_session(id).await.expect("load");
             let update: serde_json::Value = serde_json::from_str(
-                loaded.session.update_status_json.as_deref().expect("update json"),
+                loaded
+                    .session
+                    .update_status_json
+                    .as_deref()
+                    .expect("update json"),
             )
             .expect("update value");
             let firmware: serde_json::Value = serde_json::from_str(
-                loaded.session.firmware_status_json.as_deref().expect("firmware json"),
+                loaded
+                    .session
+                    .firmware_status_json
+                    .as_deref()
+                    .expect("firmware json"),
             )
             .expect("firmware value");
 
@@ -704,7 +897,9 @@ mod mikrotik_version {
     async fn mikrotik_version_slow_check_post_over_default_timeout_succeeds() {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("POST"))
-            .and(wiremock::matchers::path("/rest/system/package/update/check-for-updates"))
+            .and(wiremock::matchers::path(
+                "/rest/system/package/update/check-for-updates",
+            ))
             .respond_with(
                 wiremock::ResponseTemplate::new(200)
                     .set_delay(std::time::Duration::from_secs(11))

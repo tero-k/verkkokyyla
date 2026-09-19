@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { MikrotikSessionSummaryDto } from "../lib/types"
 import { MikrotikSessionPanel } from "./MikrotikSessionPanel"
 
-const sessions: readonly MikrotikSessionSummaryDto[] = [
-  {
-    id: 22,
+function makeSession(id: number): MikrotikSessionSummaryDto {
+  return {
+    id,
     profileId: 7,
     startedAt: "2026-09-06T12:00:00Z",
     endedAt: "2026-09-06T12:05:00Z",
@@ -17,8 +17,10 @@ const sessions: readonly MikrotikSessionSummaryDto[] = [
     updateStatusJson: null,
     firmwareStatusJson: null,
     snapshotCount: 12,
-  },
-]
+  }
+}
+
+const sessions: readonly MikrotikSessionSummaryDto[] = [makeSession(22)]
 
 afterEach(cleanup)
 
@@ -72,5 +74,99 @@ describe("MikrotikSessionPanel", () => {
     )
 
     expect(screen.getByText("No saved MikroTik sessions yet.").className).toMatch(/empty/)
+  })
+
+  it("shows only the five newest sessions until the older ones are revealed", () => {
+    const many = Array.from({ length: 7 }, (_, index) => makeSession(index + 1))
+
+    render(
+      <MikrotikSessionPanel
+        sessions={many}
+        disabled={false}
+        onOpen={() => undefined}
+        onDelete={() => undefined}
+      />,
+    )
+
+    expect(screen.getAllByTestId("mikrotik-session-item")).toHaveLength(5)
+    expect(screen.getByTestId("history-reveal").textContent).toContain("Show 2 older")
+  })
+
+  it("reveals older sessions on demand and collapses again", () => {
+    const many = Array.from({ length: 7 }, (_, index) => makeSession(index + 1))
+
+    render(
+      <MikrotikSessionPanel
+        sessions={many}
+        disabled={false}
+        onOpen={() => undefined}
+        onDelete={() => undefined}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId("history-reveal"))
+    expect(screen.getAllByTestId("mikrotik-session-item")).toHaveLength(7)
+
+    fireEvent.click(screen.getByTestId("history-reveal"))
+    expect(screen.getAllByTestId("mikrotik-session-item")).toHaveLength(5)
+  })
+
+  it("bulk-deletes the selected sessions through onDeleteMany", async () => {
+    const many = Array.from({ length: 3 }, (_, index) => makeSession(index + 1))
+    const onDeleteMany = vi.fn<(ids: readonly number[]) => void>()
+
+    render(
+      <MikrotikSessionPanel
+        sessions={many}
+        disabled={false}
+        onOpen={() => undefined}
+        onDelete={() => undefined}
+        onDeleteMany={onDeleteMany}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId("history-select-toggle"))
+
+    const checkboxes = screen.getAllByTestId("mikrotik-delete-select")
+    expect(checkboxes).toHaveLength(3)
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[2])
+
+    expect(screen.getByTestId("history-selection-bar").textContent).toContain("2 selected")
+
+    fireEvent.click(screen.getByTestId("history-delete-selected"))
+    expect(onDeleteMany).toHaveBeenCalledWith([1, 3])
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("history-selection-bar")).toBeNull()
+    })
+  })
+
+  it("exits select mode on cancel and hides the toggle without onDeleteMany", () => {
+    const withDeleteMany = render(
+      <MikrotikSessionPanel
+        sessions={sessions}
+        disabled={false}
+        onOpen={() => undefined}
+        onDelete={() => undefined}
+        onDeleteMany={() => undefined}
+      />,
+    )
+
+    fireEvent.click(withDeleteMany.getByTestId("history-select-toggle"))
+    expect(withDeleteMany.getByTestId("history-selection-bar")).toBeTruthy()
+    fireEvent.click(withDeleteMany.getByTestId("history-selection-cancel"))
+    expect(withDeleteMany.queryByTestId("history-selection-bar")).toBeNull()
+    withDeleteMany.unmount()
+
+    render(
+      <MikrotikSessionPanel
+        sessions={sessions}
+        disabled={false}
+        onOpen={() => undefined}
+        onDelete={() => undefined}
+      />,
+    )
+    expect(screen.queryByTestId("history-select-toggle")).toBeNull()
   })
 })

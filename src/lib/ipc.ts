@@ -3,7 +3,7 @@ import type {
   BenchmarkProfile,
   BenchmarkRunDto,
   BackupResultDto,
-  CreateMikrotikProfileRequest,
+  BackupDiffDto,  CreateMikrotikProfileRequest,
   DeleteMikrotikBackupResultDto,
   DeleteMikrotikProfileResultDto,
   DnsDiagnosticsDto,
@@ -15,6 +15,7 @@ import type {
   HttpSettings,
   InterfaceDto,
   LoadedDnsRunDto,
+  LoadedMtuRunDto,
   LoadedScanDto,
   LoadedDownloadSpeedSessionDto,
   DownloadSpeedSessionSummaryDto,
@@ -25,14 +26,23 @@ import type {
   MikrotikChangelogDto,
   MikrotikBackupRecordDto,
   MikrotikLoadedSessionDto,
+  MikrotikLogEvent,
+  MikrotikActiveSessionDto,
+  MikrotikLogStartDto,
+  MikrotikLogStatusEvent,
   MikrotikProfile,
   MikrotikSnapshotEvent,
   MikrotikSessionSummaryDto,
   MikrotikStartDto,
   MikrotikStatusEvent,
   MikrotikStoppedDto,
+  MikrotikTerminalOpenDto,
   MikrotikTestConnectionDto,
   MikrotikVersionFirmwareResultDto,
+  MtuMethod,
+  MtuProbeEvent,
+  MtuRunSummaryDto,
+  MtuStatusEvent,
   PageProgressEvent,
   PageSpeedResultDto,
   ProbeEvent,
@@ -44,10 +54,12 @@ import type {
   SessionSummaryDto,
   SnapshotDto,
   StartInfoDto,
+  StartMtuDto,
   StartScanDto,
   StartTraceDto,
   StatusEvent,
   StoppedScanDto,
+  StoppedMtuDto,
   StoppedSessionDto,
   StoppedTraceDto,
   TraceEvent,
@@ -132,6 +144,42 @@ export function loadTrace(id: number): Promise<LoadedTraceDto> {
 
 export function deleteTrace(id: number): Promise<void> {
   return invoke<void>("delete_trace", { id })
+}
+
+export function startMtuProbe(
+  target: string,
+  method: MtuMethod,
+  ceilingMtu: number,
+  port: number,
+  onEvent: (event: MtuProbeEvent) => void,
+  onStatus: (event: MtuStatusEvent) => void,
+): Promise<StartMtuDto> {
+  const onEventChannel = new Channel<MtuProbeEvent>(onEvent)
+  const onStatusChannel = new Channel<MtuStatusEvent>(onStatus)
+  return invoke<StartMtuDto>("start_mtu_probe", {
+    target,
+    method,
+    ceilingMtu,
+    port,
+    onEvent: onEventChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function stopMtuProbe(): Promise<StoppedMtuDto> {
+  return invoke<StoppedMtuDto>("stop_mtu_probe")
+}
+
+export function listMtuRuns(): Promise<MtuRunSummaryDto[]> {
+  return invoke<MtuRunSummaryDto[]>("list_mtu_runs")
+}
+
+export function loadMtuRun(id: number): Promise<LoadedMtuRunDto> {
+  return invoke<LoadedMtuRunDto>("load_mtu_run", { id })
+}
+
+export function deleteMtuRun(id: number): Promise<void> {
+  return invoke<void>("delete_mtu_run", { id })
 }
 
 export function runDownloadSpeedTest(
@@ -250,8 +298,63 @@ export function mikrotikStart(
   })
 }
 
-export function mikrotikStop(): Promise<MikrotikStoppedDto> {
-  return invoke<MikrotikStoppedDto>("mikrotik_stop")
+export function mikrotikStop(sessionId: number): Promise<MikrotikStoppedDto> {
+  return invoke<MikrotikStoppedDto>("mikrotik_stop", { sessionId })
+}
+
+export function mikrotikListActive(): Promise<MikrotikActiveSessionDto[]> {
+  return invoke<MikrotikActiveSessionDto[]>("mikrotik_list_active")
+}
+
+export function mikrotikTerminalOpen(
+  profileId: number,
+  cols: number,
+  rows: number,
+  onData: (chunk: string) => void,
+): Promise<MikrotikTerminalOpenDto> {
+  const onDataChannel = new Channel<string>(onData)
+  return invoke<MikrotikTerminalOpenDto>("mikrotik_terminal_open", {
+    profileId,
+    cols,
+    rows,
+    onData: onDataChannel,
+  })
+}
+
+export function mikrotikTerminalWrite(terminalId: number, data: string): Promise<void> {
+  return invoke<void>("mikrotik_terminal_write", { terminalId, data })
+}
+
+export function mikrotikTerminalResize(
+  terminalId: number,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return invoke<void>("mikrotik_terminal_resize", { terminalId, cols, rows })
+}
+
+export function mikrotikTerminalClose(terminalId: number): Promise<void> {
+  return invoke<void>("mikrotik_terminal_close", { terminalId })
+}
+
+export function mikrotikLogStart(
+  profileId: number,
+  pollSeconds: number,
+  onEvent: (event: MikrotikLogEvent) => void,
+  onStatus: (event: MikrotikLogStatusEvent) => void,
+): Promise<MikrotikLogStartDto> {
+  const onEventChannel = new Channel<MikrotikLogEvent>(onEvent)
+  const onStatusChannel = new Channel<MikrotikLogStatusEvent>(onStatus)
+  return invoke<MikrotikLogStartDto>("mikrotik_log_start", {
+    profileId,
+    pollSeconds,
+    onEvent: onEventChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function mikrotikLogStop(profileId: number): Promise<void> {
+  return invoke<void>("mikrotik_log_stop", { profileId })
 }
 
 export function mikrotikListSessions(): Promise<MikrotikSessionSummaryDto[]> {
@@ -298,6 +401,18 @@ export function mikrotikListBackups(): Promise<MikrotikBackupRecordDto[]> {
 
 export function mikrotikDeleteBackup(id: number): Promise<DeleteMikrotikBackupResultDto> {
   return invoke<DeleteMikrotikBackupResultDto>("mikrotik_delete_backup", { id })
+}
+
+export function mikrotikGetBackupDestination(): Promise<string | null> {
+  return invoke<string | null>("mikrotik_get_backup_destination")
+}
+
+export function mikrotikSetBackupDestination(path: string): Promise<void> {
+  return invoke<void>("mikrotik_set_backup_destination", { path })
+}
+
+export function mikrotikDiffBackups(olderId: number, newerId: number): Promise<BackupDiffDto> {
+  return invoke<BackupDiffDto>("mikrotik_diff_backups", { olderId, newerId })
 }
 
 // DNS Tester IPC wrappers

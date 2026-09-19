@@ -147,6 +147,63 @@ pub struct TraceHopRow {
     pub at: String,
 }
 
+/// Parameters for starting a new MTU discovery run.
+#[derive(Debug, Clone)]
+pub struct NewMtuRun {
+    pub target_input: String,
+    pub resolved_ip: String,
+    pub method: String,
+    pub floor_mtu: i64,
+    pub ceiling_mtu: i64,
+    /// RFC 3339 run start timestamp.
+    pub started_at: String,
+}
+
+/// MTU discovery run summary row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MtuRunSummary {
+    pub id: i64,
+    pub target_input: String,
+    pub resolved_ip: String,
+    pub method: String,
+    pub floor_mtu: i64,
+    pub ceiling_mtu: i64,
+    pub result_kind: String,
+    pub result_mtu: Option<i64>,
+    pub detail: Option<String>,
+    pub probes_sent: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
+
+/// Parameters for one persisted MTU probe.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewMtuProbe {
+    pub seq: i64,
+    pub payload_size: i64,
+    pub mtu_size: i64,
+    pub outcome: String,
+    pub rtt_ms: Option<f64>,
+    pub hint_mtu: Option<i64>,
+    pub message: Option<String>,
+    /// RFC 3339 timestamp of the probe.
+    pub at: String,
+}
+
+/// MTU discovery probe row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MtuProbeRow {
+    pub run_id: i64,
+    pub seq: i64,
+    pub payload_size: i64,
+    pub mtu_size: i64,
+    pub outcome: String,
+    pub rtt_ms: Option<f64>,
+    pub hint_mtu: Option<i64>,
+    pub message: Option<String>,
+    pub at: String,
+}
+
 /// Parameters for starting a persisted LAN scan.
 #[derive(Debug, Clone)]
 pub struct NewScan {
@@ -432,6 +489,71 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(result.last_insert_rowid())
+    }
+
+    /// Inserts an MTU discovery run row and returns its id.
+    pub async fn create_mtu_run(&self, run: &NewMtuRun) -> Result<i64, DbError> {
+        let result = sqlx::query(
+            "INSERT INTO mtu_runs \
+             (target_input, resolved_ip, method, floor_mtu, ceiling_mtu, started_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&run.target_input)
+        .bind(&run.resolved_ip)
+        .bind(&run.method)
+        .bind(run.floor_mtu)
+        .bind(run.ceiling_mtu)
+        .bind(&run.started_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Finalizes an MTU discovery run.
+    pub async fn finish_mtu_run(
+        &self,
+        id: i64,
+        result_kind: &str,
+        result_mtu: Option<i64>,
+        detail: Option<&str>,
+        probes_sent: i64,
+        ended_at: &str,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE mtu_runs \
+             SET result_kind = ?, result_mtu = ?, detail = ?, probes_sent = ?, ended_at = ? \
+             WHERE id = ?",
+        )
+        .bind(result_kind)
+        .bind(result_mtu)
+        .bind(detail)
+        .bind(probes_sent)
+        .bind(ended_at)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Inserts one MTU probe row.
+    pub async fn add_mtu_probe(&self, run_id: i64, probe: &NewMtuProbe) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO mtu_probes \
+             (run_id, seq, payload_size, mtu_size, outcome, rtt_ms, hint_mtu, message, at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(run_id)
+        .bind(probe.seq)
+        .bind(probe.payload_size)
+        .bind(probe.mtu_size)
+        .bind(&probe.outcome)
+        .bind(probe.rtt_ms)
+        .bind(probe.hint_mtu)
+        .bind(&probe.message)
+        .bind(&probe.at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Inserts a scan row and returns its id.
@@ -1062,7 +1184,10 @@ impl Database {
     }
 
     /// Loads one Mikrotik backup library record by id.
-    pub async fn load_mikrotik_backup(&self, id: i64) -> Result<Option<MikrotikBackupRecord>, DbError> {
+    pub async fn load_mikrotik_backup(
+        &self,
+        id: i64,
+    ) -> Result<Option<MikrotikBackupRecord>, DbError> {
         let row = sqlx::query(
             "SELECT id, profile_id, profile_name, name, backup_path, export_path, created_at, size_bytes, has_rsc_export \
              FROM mikrotik_backups WHERE id = ?",
@@ -1083,6 +1208,28 @@ impl Database {
             .bind(id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    /// Reads an app-wide setting (NULL when the key was never written).
+    pub async fn get_setting(&self, key: &str) -> Result<Option<String>, DbError> {
+        let row = sqlx::query("SELECT value FROM app_settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|row| row.get::<String, _>("value")))
+    }
+
+    /// Writes (upserts) an app-wide setting.
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), DbError> {
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1280,6 +1427,43 @@ impl Database {
             .collect()
     }
 
+    /// Lists all MTU discovery runs newest first.
+    pub async fn list_mtu_runs(&self) -> Result<Vec<MtuRunSummary>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, target_input, resolved_ip, method, floor_mtu, ceiling_mtu, \
+                    result_kind, result_mtu, detail, probes_sent, started_at, ended_at \
+             FROM mtu_runs ORDER BY id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| mtu_run_summary_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads all probe rows for an MTU discovery run ordered by sequence number.
+    pub async fn load_mtu_probes(&self, run_id: i64) -> Result<Vec<MtuProbeRow>, DbError> {
+        let rows = sqlx::query(
+            "SELECT run_id, seq, payload_size, mtu_size, outcome, rtt_ms, hint_mtu, message, at \
+             FROM mtu_probes WHERE run_id = ? ORDER BY seq",
+        )
+        .bind(run_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| mtu_probe_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Deletes an MTU discovery run; its probes are removed via ON DELETE CASCADE.
+    pub async fn delete_mtu_run(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM mtu_runs WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Loads all hop rows for a trace ordered by hop number.
     pub async fn load_trace_hops(&self, trace_id: i64) -> Result<Vec<TraceHopRow>, DbError> {
         let rows = sqlx::query(
@@ -1339,6 +1523,37 @@ fn dns_run_summary_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<DnsRunSumma
         ended_at: row.try_get("ended_at")?,
         status: row.try_get("status")?,
         target_count: row.try_get("target_count")?,
+    })
+}
+
+fn mtu_run_summary_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<MtuRunSummary, sqlx::Error> {
+    Ok(MtuRunSummary {
+        id: row.try_get("id")?,
+        target_input: row.try_get("target_input")?,
+        resolved_ip: row.try_get("resolved_ip")?,
+        method: row.try_get("method")?,
+        floor_mtu: row.try_get("floor_mtu")?,
+        ceiling_mtu: row.try_get("ceiling_mtu")?,
+        result_kind: row.try_get("result_kind")?,
+        result_mtu: row.try_get("result_mtu")?,
+        detail: row.try_get("detail")?,
+        probes_sent: row.try_get("probes_sent")?,
+        started_at: row.try_get("started_at")?,
+        ended_at: row.try_get("ended_at")?,
+    })
+}
+
+fn mtu_probe_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<MtuProbeRow, sqlx::Error> {
+    Ok(MtuProbeRow {
+        run_id: row.try_get("run_id")?,
+        seq: row.try_get("seq")?,
+        payload_size: row.try_get("payload_size")?,
+        mtu_size: row.try_get("mtu_size")?,
+        outcome: row.try_get("outcome")?,
+        rtt_ms: row.try_get("rtt_ms")?,
+        hint_mtu: row.try_get("hint_mtu")?,
+        message: row.try_get("message")?,
+        at: row.try_get("at")?,
     })
 }
 
@@ -1673,10 +1888,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v11() {
+    async fn fresh_db_migrates_to_v13() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 11);
+        assert_eq!(migration_count(&db).await, 13);
         let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&db.pool)
             .await
@@ -1685,7 +1900,7 @@ mod tests {
             .iter()
             .map(|row| row.try_get::<i64, _>("version").expect("version"))
             .collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
 
         let tables =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -1707,6 +1922,9 @@ mod tests {
         assert!(tables.contains(&"mikrotik_sessions".to_string()));
         assert!(tables.contains(&"mikrotik_snapshots".to_string()));
         assert!(tables.contains(&"mikrotik_backups".to_string()));
+        assert!(tables.contains(&"app_settings".to_string()));
+        assert!(tables.contains(&"mtu_runs".to_string()));
+        assert!(tables.contains(&"mtu_probes".to_string()));
 
         let indexes =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
@@ -1723,6 +1941,47 @@ mod tests {
         assert!(indexes.contains(&"idx_mikrotik_snapshots_session_at".to_string()));
         assert!(indexes.contains(&"idx_mikrotik_backups_created_at".to_string()));
         assert!(indexes.contains(&"idx_mikrotik_backups_profile".to_string()));
+        assert!(indexes.contains(&"idx_mtu_probes_run".to_string()));
+    }
+
+    #[tokio::test]
+    async fn app_settings_roundtrip() {
+        let dir = TestDir::new("settings");
+        let db = Database::connect(&dir.db_file()).await.expect("connect");
+
+        let missing = db
+            .get_setting("mikrotik.backup_destination")
+            .await
+            .expect("get missing");
+        assert_eq!(missing, None);
+
+        db.set_setting("mikrotik.backup_destination", "D:\\backups")
+            .await
+            .expect("set");
+        let stored = db
+            .get_setting("mikrotik.backup_destination")
+            .await
+            .expect("get");
+        assert_eq!(stored.as_deref(), Some("D:\\backups"));
+
+        // Upsert overwrites in place.
+        db.set_setting("mikrotik.backup_destination", "E:\\elsewhere")
+            .await
+            .expect("overwrite");
+        let updated = db
+            .get_setting("mikrotik.backup_destination")
+            .await
+            .expect("get updated");
+        assert_eq!(updated.as_deref(), Some("E:\\elsewhere"));
+
+        // Settings survive a reopen (real persistence, not in-memory).
+        drop(db);
+        let db = Database::connect(&dir.db_file()).await.expect("reconnect");
+        let persisted = db
+            .get_setting("mikrotik.backup_destination")
+            .await
+            .expect("get persisted");
+        assert_eq!(persisted.as_deref(), Some("E:\\elsewhere"));
     }
 
     #[tokio::test]
@@ -1730,17 +1989,17 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 11);
+        assert_eq!(migration_count(&db).await, 13);
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 11);
+        assert_eq!(migration_count(&db).await, 13);
     }
 
     #[tokio::test]
     async fn mikrotik_db_fresh_migrates() {
         let dir = TestDir::new("mikrotik-fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 11);
+        assert_eq!(migration_count(&db).await, 13);
 
         let tables = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table'")
             .fetch_all(&db.pool)

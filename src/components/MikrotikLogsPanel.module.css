@@ -1,0 +1,252 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-inline-size: 0;
+  min-block-size: 0;
+  block-size: 100%;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.section h2 {
+  margin: 0 0 12px;
+  font: 600 10px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pollField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.3 var(--font-ui);
+}
+
+.pollSelect {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: 400 11.5px/1.3 var(--font-mono);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.topicSelect,
+.search {
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: 400 11.5px/1.3 var(--font-ui);
+}
+
+.search {
+  min-inline-size: 200px;
+}
+
+.search::placeholder {
+  color: var(--text-faint);
+}
+
+.banner {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--status-error-panel-bg);
+  color: var(--status-error-panel-text);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.scroller {
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scroller::-webkit-scrollbar {
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+}
+
+.scroller::-webkit-scrollbar-thumb {
+  border-radius: 1em;
+  background: var(--surface-3);
+}
+
+.table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  color: var(--text-secondary);
+  font: 400 11.5px/1.45 var(--font-mono);
+}
+
+.table th,
+.table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  position: sticky;
+  inset-block-start: 0;
+  background: var(--surface-1);
+  font: 600 9.5px/1.3 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.timeCol {
+  inline-size: 76px;
+}
+
+.severityCol {
+  inline-size: 92px;
+}
+
+.topicsCol {
+  inline-size: 170px;
+}
+
+.time {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.severity {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.severity > span {
+  margin-inline-end: 6px;
+  vertical-align: 1px;
+}
+
+.topics {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.message {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: inherit;
+}
+
+.severityError {
+  background: var(--status-error-subtle-bg);
+}
+
+.severityError .severity,
+.severityError .message {
+  color: var(--status-error-subtle-text);
+}
+
+.severityWarning {
+  background: var(--status-warning-bg);
+}
+
+.severityWarning .severity,
+.severityWarning .message {
+  color: var(--status-warning-text);
+}
+
+.empty {
+  margin: 0;
+  padding: 18px 12px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--text-faint);
+  font: 400 10.5px/1.3 var(--font-mono);
+}
+
+.followButton {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font: 500 10.5px/1.3 var(--font-ui);
+  cursor: pointer;
+}
+
+.followButton:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+@media (max-width: 1100px) {
+  .table th,
+  .table td {
+    padding-inline: 8px;
+  }
+
+  .topicsCol {
+    inline-size: 120px;
+  }
+
+  .search {
+    min-inline-size: 140px;
+  }
+}
