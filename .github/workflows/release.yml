@@ -14,8 +14,8 @@ jobs:
         platform: [windows-latest, macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: lts/*
           cache: npm
@@ -38,3 +38,20 @@ jobs:
           releaseBody: "See [CHANGELOG.md](https://github.com/tero-k/verkkokyyla/blob/main/CHANGELOG.md) for what's new."
           releaseDraft: true
           prerelease: false
+      # Tauri has no "portable exe" bundle target; the raw binary is
+      # self-contained apart from the WebView2 runtime (preinstalled on
+      # up-to-date Windows 10/11). Zip it and attach it to the same draft.
+      - name: Package standalone Windows exe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          Compress-Archive -Path "src-tauri/target/release/verkkokyyla.exe" -DestinationPath "verkkokyyla_${version}_x64-standalone.zip"
+      - name: Attach standalone exe to the release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          gh release upload "${{ github.ref_name }}" "verkkokyyla_${version}_x64-standalone.zip" --clobber

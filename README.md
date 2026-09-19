@@ -23,8 +23,10 @@ database. An in-app **Help** view (sidebar or `Ctrl 8`) explains each tool.
 
 Grab the latest installer from
 [GitHub Releases](https://github.com/tero-k/verkkokyyla/releases): Windows
-(NSIS/MSI), macOS (dmg), and Linux (deb/AppImage). Or build from source — see
-[Development](#development).
+(NSIS/MSI installer, or the standalone exe zip — it needs the WebView2
+runtime, preinstalled on up-to-date Windows 10/11), macOS (dmg, or the raw
+`.app` tarball), and Linux (deb/rpm, or the portable AppImage). Or build from
+source — see [Development](#development).
 
 ## Screenshots
 
