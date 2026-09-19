@@ -29,21 +29,21 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-      # TEMP DEBUG: diagnose p12 import failure (remove after signing works)
-      - name: Debug certificate import
+      # macOS Security's PKCS#12 import rejects modern PBES2/AES-256 p12
+      # files ("MAC verification failed") while OpenSSL reads them fine.
+      # Re-encode to the classic Triple-DES/SHA-1 format `security import`
+      # accepts, and override APPLE_CERTIFICATE for the tauri-action step.
+      - name: Re-encode certificate for macOS security import
         if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
-          echo "secret length: $(printf '%s' "$APPLE_CERTIFICATE" | wc -c)"
-          echo "without whitespace: $(printf '%s' "$APPLE_CERTIFICATE" | tr -d '[:space:]' | wc -c)"
-          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12 || echo "DECODE FAILED"
-          ls -l /tmp/cert.p12
-          shasum -a 256 /tmp/cert.p12
-          openssl version
-          openssl pkcs12 -info -in /tmp/cert.p12 -noout -passin "pass:$APPLE_CERTIFICATE_PASSWORD" && echo "P12 PASSWORD OK" || echo "P12 PASSWORD REJECTED"
-      # END TEMP DEBUG
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert-modern.p12
+          openssl pkcs12 -in /tmp/cert-modern.p12 -out /tmp/cert-legacy.p12 -export \
+            -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -passout "pass:$APPLE_CERTIFICATE_PASSWORD" \
+            -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
+          echo "APPLE_CERTIFICATE=$(base64 -i /tmp/cert-legacy.p12)" >> "$GITHUB_ENV"
       # Pull this version's section out of CHANGELOG.md for the release body.
       - name: Extract release notes from CHANGELOG
         id: notes
