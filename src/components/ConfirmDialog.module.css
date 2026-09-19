@@ -15,39 +15,48 @@
   gap: 1rem;
   max-width: 420px;
   width: 100%;
-  padding: 1.25rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 6px;
-  background: var(--bg);
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
   color: var(--text);
 }
 
 .message {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
 }
 
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .actions button {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.9rem;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font: 500 12.5px/1 var(--font-ui);
   cursor: pointer;
+  transition: background-color 150ms ease-in-out, color 150ms ease-in-out;
 }
 
 .actions button:hover {
-  background: var(--surface-3);
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .confirm {
-  border-color: var(--danger, #c0443c) !important;
-  color: var(--danger, #c0443c);
+  border-color: var(--danger) !important;
+  color: var(--danger);
+}
+
+.confirm:hover {
+  background: var(--status-error-subtle-bg) !important;
+  color: var(--danger) !important;
 }
