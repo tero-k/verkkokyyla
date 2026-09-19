@@ -198,6 +198,12 @@ mod tests {
         IpAddr::V4(Ipv4Addr::LOCALHOST)
     }
 
+    /// Unique temp dir per test — tests run in parallel within one process,
+    /// so a pid-only directory would be shared and racy.
+    fn test_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("osping-test-{}-{name}", std::process::id()))
+    }
+
     /// Write an executable fake `ping` shell script emitting `body`.
     fn fake_ping(dir: &std::path::Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -213,7 +219,7 @@ mod tests {
     // Then the RTT is parsed as 12.3 ms.
     #[tokio::test]
     async fn osping_parses_pinned_english_fixture() {
-        let dir = std::env::temp_dir().join(format!("osping-test-{}", std::process::id()));
+        let dir = test_dir("pinned");
         std::fs::create_dir_all(&dir).expect("tempdir");
         let program = fake_ping(
             &dir,
@@ -237,7 +243,7 @@ mod tests {
     // retained in an EngineWarning — never parsed heuristically.
     #[tokio::test]
     async fn osping_unparseable_time_value_records_loss_and_warning() {
-        let dir = std::env::temp_dir().join(format!("osping-test-{}", std::process::id()));
+        let dir = test_dir("unparseable");
         std::fs::create_dir_all(&dir).expect("tempdir");
         let program = fake_ping(&dir, "echo '64 bytes from x: time=abc ms'");
         let mut pinger = OsPinger::with_program(program, target(), 32, false);
@@ -256,7 +262,7 @@ mod tests {
     // Then the probe is loss + warning; the localized value is NOT parsed.
     #[tokio::test]
     async fn osping_localized_output_is_never_parsed() {
-        let dir = std::env::temp_dir().join(format!("osping-test-{}", std::process::id()));
+        let dir = test_dir("localized");
         std::fs::create_dir_all(&dir).expect("tempdir");
         let program = fake_ping(&dir, "echo '64 Bytes von x: Zeit=12,3 ms'");
         let mut pinger = OsPinger::with_program(program, target(), 32, false);
@@ -271,7 +277,7 @@ mod tests {
     // Then the outcome is a plain Timeout with no warning.
     #[tokio::test]
     async fn osping_loss_fixture_yields_timeout_without_warning() {
-        let dir = std::env::temp_dir().join(format!("osping-test-{}", std::process::id()));
+        let dir = test_dir("loss");
         std::fs::create_dir_all(&dir).expect("tempdir");
         let program = fake_ping(
             &dir,
