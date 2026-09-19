@@ -28,6 +28,11 @@ runtime, preinstalled on up-to-date Windows 10/11), macOS (dmg, or the raw
 `.app` tarball), and Linux (deb/rpm, or the portable AppImage). Or build from
 source — see [Development](#development).
 
+> **macOS note:** the builds are not yet signed with an Apple Developer ID,
+> so Gatekeeper quarantines the downloaded app and reports it as "damaged".
+> After copying it to /Applications, run `xattr -cr /Applications/verkkokyyla.app`
+> once to lift the quarantine.
+
 ## Screenshots
 
 | | |
