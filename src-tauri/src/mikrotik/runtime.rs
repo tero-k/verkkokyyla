@@ -265,10 +265,8 @@ fn parse_link_rate_mbps(rate: &str) -> Option<f64> {
     let lower = rate.trim().to_ascii_lowercase();
     let (digits, mult) = if let Some(m) = lower.strip_suffix("gbps") {
         (m, 1000.0)
-    } else if let Some(m) = lower.strip_suffix("mbps") {
-        (m, 1.0)
     } else {
-        return None;
+        (lower.strip_suffix("mbps")?, 1.0)
     };
     digits.trim().parse::<f64>().ok().map(|v| v * mult)
 }

@@ -85,9 +85,10 @@ fn normalize_mac(input: &str) -> Option<String> {
             if part.len() == 1 {
                 vec![format!("0{part}")]
             } else if part.len() == 12 {
-                part.as_bytes()
-                    .chunks_exact(2)
-                    .filter_map(|chunk| std::str::from_utf8(chunk).ok().map(str::to_owned))
+                // ASCII hex only (filtered above), so byte slicing is safe.
+                (0..part.len())
+                    .step_by(2)
+                    .map(|i| part[i..i + 2].to_owned())
                     .collect()
             } else {
                 vec![part.to_owned()]

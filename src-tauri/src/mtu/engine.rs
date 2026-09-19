@@ -30,7 +30,10 @@ pub struct EngineWarning {
     pub message: String,
 }
 
+// Windows ICMP error codes — only the winicmp DF probe path reads them.
+#[cfg(windows)]
 const IP_PACKET_TOO_BIG: i32 = 11009;
+#[cfg(windows)]
 const IP_REQ_TIMED_OUT: i32 = 11010;
 #[cfg(unix)]
 const WATCHDOG_EXTRA_MS: u64 = 1000;

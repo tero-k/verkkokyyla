@@ -1,3 +1,4 @@
+#[cfg(windows)]
 use std::net::{IpAddr, Ipv4Addr};
 #[cfg(windows)]
 use std::path::PathBuf;
@@ -8,6 +9,7 @@ use std::time::Duration;
 use super::trace_os::TraceLimits;
 use super::trace_os::{absolute_fallbacks, TraceEngineError, TraceOs};
 
+#[cfg(windows)]
 fn target() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
 }

@@ -122,13 +122,10 @@ fn hex_chars(input: &str) -> String {
 }
 
 fn parse_hex_pairs(hex: &str) -> Option<Vec<u8>> {
-    hex.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            std::str::from_utf8(pair)
-                .ok()
-                .and_then(|s| u8::from_str_radix(s, 16).ok())
-        })
+    // Callers guarantee ASCII hex of even length, so byte slicing is safe.
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
         .collect()
 }
 
