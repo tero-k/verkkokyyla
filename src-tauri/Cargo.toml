@@ -4,6 +4,8 @@ version = "0.1.1"
 description = "verkkokyyla - desktop network debugging tool"
 edition = "2021"
 rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/tero-k/verkkokyyla"
 default-run = "verkkokyyla"
 
 [lib]

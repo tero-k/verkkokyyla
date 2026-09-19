@@ -21,3 +21,6 @@ playwright-report/
 .DS_Store
 
 .playwright-mcp/
+
+# design assets (kept out of the public repo)
+ui-design/

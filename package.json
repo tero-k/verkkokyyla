@@ -1,7 +1,13 @@
 {
   "name": "verkkokyyla",
-  "private": true,
   "version": "0.1.1",
+  "description": "Desktop network toolbox — ping, traceroute, download benchmark, LAN scan, MTU discovery, DNS diagnostics, and MikroTik router management (Tauri 2)",
+  "license": "MIT",
+  "author": "tero-k",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tero-k/verkkokyyla.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,17 +18,21 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@fontsource/archivo": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
+    "@tauri-apps/cli": "^2.0.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.0",
-    "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

@@ -24,6 +24,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "tero-k",
+    "copyright": "Copyright © 2026 tero-k",
+    "category": "DeveloperTool",
+    "shortDescription": "Desktop network toolbox with MikroTik management",
+    "longDescription": "Verkkokyylä is a desktop network toolbox: ping, traceroute, download benchmark, LAN scanner, MTU discovery, DNS diagnostics, and MikroTik router monitoring, logs, terminals, and backups.",
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "resources": ["resources/manuf", "resources/manuf.SHA256"]
   }
