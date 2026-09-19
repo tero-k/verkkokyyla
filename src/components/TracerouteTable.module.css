@@ -1,32 +1,204 @@
 .wrapper {
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  max-height: 420px;
-  overflow: auto;
-  background: var(--surface-1);
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--surface-3) var(--surface-1);
 }
 
 .table {
   width: 100%;
+  min-width: 900px;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  table-layout: fixed;
+  color: var(--text);
 }
 
-.table th,
-.table td {
-  padding: 0.4rem 0.55rem;
+.table th {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.1em;
   text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.table thead {
-  background: var(--surface-0);
+.table td {
+  height: 50px;
+  box-sizing: border-box;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.hopColumn {
+  width: 58px;
+}
+
+.hostColumn {
+  width: 29%;
+}
+
+.networkColumn {
+  width: 22%;
+}
+
+.probesColumn {
+  width: 120px;
+}
+
+.timingColumn {
+  width: 210px;
+  text-align: right !important;
+}
+
+.lossColumn {
+  width: 80px;
+  text-align: right !important;
+}
+
+.hopCell {
+  white-space: nowrap;
+}
+
+.hopRail {
+  display: inline-block;
+  width: 2px;
+  height: 30px;
+  margin-right: 9px;
+  background: var(--border);
+  vertical-align: middle;
+}
+
+.hopNumber {
+  color: var(--text-faint);
+  font: 500 11.5px/1 var(--font-mono);
+  vertical-align: middle;
+}
+
+.hostCell {
+  min-width: 0;
+}
+
+.hostName,
+.hostAddress {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hostName {
+  color: var(--text);
+  font: 500 12.5px/1.35 var(--font-ui);
+}
+
+.hostAddress {
+  color: var(--text-faint);
+  font: 400 10.5px/1.35 var(--font-mono);
+}
+
+.destination {
+  color: var(--accent);
+}
+
+.noResponse {
+  color: var(--text-faint);
+}
+
+.networkCell {
+  overflow: hidden;
   color: var(--text-muted);
+  font: 400 11px/1.4 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.table tbody tr:nth-child(even) {
-  background: var(--bg);
+.probesCell {
+  padding-right: 8px !important;
 }
 
-.table tbody tr:hover {
-  background: var(--surface-2);
+.probes {
+  display: flex;
+  gap: 3px;
+  height: 22px;
+}
+
+.probe {
+  width: 15px;
+  height: 22px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.probeCool {
+  opacity: 0.24;
+}
+
+.probeMild {
+  opacity: 0.4;
+}
+
+.probeWarm {
+  opacity: 0.58;
+}
+
+.probeHot {
+  opacity: 0.76;
+}
+
+.probePeak {
+  opacity: 0.94;
+}
+
+.probeMiss {
+  background: var(--danger);
+  opacity: 0.9;
+}
+
+.timingCell,
+.lossCell {
+  text-align: right;
+  white-space: nowrap;
+  font: 400 11.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.timingCell {
+  color: var(--text-secondary);
+}
+
+.unit {
+  margin-left: 5px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.lossCell {
+  font-weight: 500;
+}
+
+.lossClear {
+  color: var(--text-faint);
+}
+
+.lossPartial {
+  color: var(--warning);
+}
+
+.lossFull {
+  color: var(--danger);
+}
+
+.emptyRow td {
+  height: 164px;
+  color: var(--text-faint);
+  font: 400 11.5px/1.5 var(--font-ui);
+  text-align: center;
 }

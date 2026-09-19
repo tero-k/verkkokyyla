@@ -1,120 +1,164 @@
 .wrapper {
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  padding: 0.75rem;
-  background: var(--surface-1);
-}
-
-.wrapper h2 {
-  margin: 0 0 0.75rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.empty {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  background: var(--bg);
-}
-
-.summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
   min-width: 0;
 }
 
-.target {
-  font-weight: 600;
-  color: var(--text);
-  font-size: 0.9rem;
-  overflow-wrap: anywhere;
+.panel {
+  padding: 14px;
 }
 
-.meta {
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
-}
-
-.actions {
+.panelHeader {
   display: flex;
-  gap: 0.4rem;
-  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
 }
 
-.actions button {
-  padding: 0.35rem 0.55rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.8rem;
-  cursor: pointer;
+.panelHeader > :global(.vk-section) {
+  flex: 1;
 }
 
-.actions button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-
-.actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.empty {
+  margin: 14px 0 0;
+  padding: 24px 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-faint);
+  font: 400 11.5px/1.5 var(--font-ui);
+  text-align: center;
 }
 
 .compareHeader {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.compareHeader button {
-  padding: 0.35rem 0.55rem;
-  border: 1px solid var(--surface-3);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.compareHeader button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-
-.compareHeader button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--status-info-bg);
 }
 
 .compareHint {
-  color: var(--text-muted);
-  font-size: 0.8rem;
+  flex: 1;
+  color: var(--status-info-text);
+  font: 500 11px/1.4 var(--font-mono);
 }
 
-.summary input[type="checkbox"] {
-  margin-right: 0.4rem;
+.compareActions {
+  display: flex;
+  gap: 6px;
+}
+
+.list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border-subtle);
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.select {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.targetRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.target {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font: 500 12.5px/1.3 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  overflow: hidden;
+  color: var(--text-faint);
+  font: 400 10.5px/1.35 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  color: var(--text-muted);
+  font: 500 10px/1.3 var(--font-mono);
+  text-transform: uppercase;
+}
+
+.reached {
+  color: var(--status-success-text);
+}
+
+.partial {
+  color: var(--status-warning-text);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin-left: auto;
+}
+
+@media (max-width: 620px) {
+  .panelHeader,
+  .compareHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compareActions :global(.vk-btn) {
+    flex: 1;
+  }
+
+  .item {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .actions {
+    width: 100%;
+    padding-left: 25px;
+  }
+
+  .actions :global(.vk-btn) {
+    flex: 1;
+  }
 }
