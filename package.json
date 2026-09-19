@@ -1,6 +1,6 @@
 {
   "name": "verkkokyyla",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Desktop network toolbox — ping, traceroute, download benchmark, LAN scan, MTU discovery, DNS diagnostics, and MikroTik router management (Tauri 2)",
   "license": "MIT",
   "author": "tero-k",
