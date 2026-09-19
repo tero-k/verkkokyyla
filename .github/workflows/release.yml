@@ -40,6 +40,9 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert-modern.p12
+          ls -l /tmp/cert-modern.p12
+          shasum -a 256 /tmp/cert-modern.p12
+          openssl pkcs12 -info -in /tmp/cert-modern.p12 -noout -passin "pass:$APPLE_CERTIFICATE_PASSWORD" || echo "INFO DUMP FAILED"
           openssl pkcs12 -in /tmp/cert-modern.p12 -out /tmp/cert-legacy.p12 -export \
             -passin "pass:$APPLE_CERTIFICATE_PASSWORD" -passout "pass:$APPLE_CERTIFICATE_PASSWORD" \
             -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
