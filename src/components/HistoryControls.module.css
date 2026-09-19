@@ -1,0 +1,39 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--status-info-bg);
+}
+
+.hint {
+  flex: 1;
+  color: var(--status-info-text);
+  font: 500 11px/1.4 var(--font-mono);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 620px) {
+  .bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions :global(.vk-btn) {
+    flex: 1;
+  }
+}
