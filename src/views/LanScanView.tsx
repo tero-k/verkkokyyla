@@ -1,19 +1,28 @@
 import { useState } from "react"
+import type { ScanHostDto } from "../lib/types"
 import { useLanScan } from "../hooks/useLanScan"
 import { usePortScanConsent } from "../hooks/usePortScanConsent"
 import { useConfirmDialog } from "../hooks/useConfirmDialog"
 import { LanScanTable } from "../components/LanScanTable"
 import { ScanSessionPanel } from "../components/ScanSessionPanel"
+import {
+  Button,
+  Card,
+  Chip,
+  Live,
+  StatusBar,
+  ViewHeader,
+} from "../components/ui/ui"
 
 import styles from "./LanScanView.module.css"
 
-function formatInterfaceOption(iface: {
+function interfaceTitle(iface: {
   readonly name: string
   readonly ipv4: string
   readonly prefixLen: number
 }): string {
   const prefix = iface.prefixLen ?? 24
-  return `${iface.name} — ${iface.ipv4}/${prefix}`
+  return `${iface.name} · ${iface.ipv4}/${prefix}`
 }
 
 function estimateHostCount(cidr: string): number {
@@ -25,6 +34,36 @@ function estimateHostCount(cidr: string): number {
     }
   }
   return 254
+}
+
+function downloadScanCsv(rows: readonly ScanHostDto[], cidr: string): void {
+  const records = [
+    ["IP", "MAC", "Vendor", "Hostname", "Open ports", "RTT", "Last seen"],
+    ...rows.map((row) => [
+      row.ip,
+      row.mac ?? "",
+      row.vendor ?? "",
+      row.hostname ?? "",
+      row.openPorts.map((port) => `${port.port} ${port.service}`).join(" "),
+      "",
+      row.at,
+    ]),
+  ]
+  const csv = records
+    .map((record) =>
+      record
+        .map((value) => `"${value.replaceAll('"', '""')}"`)
+        .join(","),
+    )
+    .join("\n")
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = `verkkokyyla-scan-${cidr.replace("/", "-")}.csv`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
 
 export default function LanScanView() {
@@ -60,6 +99,11 @@ export default function LanScanView() {
       await deleteScan(id)
     }
   }
+  const handleDeleteScans = async (ids: readonly number[]) => {
+    if (ids.length === 0) return
+    if (!(await confirm(`Delete ${ids.length} scans?`))) return
+    await Promise.all(ids.map((id) => deleteScan(id)))
+  }
 
   const canStart =
     selectedInterface !== null && cidr.trim().length > 0 && !isRunning
@@ -89,96 +133,117 @@ export default function LanScanView() {
 
   return (
     <section className={styles.view} data-testid="lan-scan-view">
-      <header className={styles.header}>
-        <h1>Network scanner</h1>
-      </header>
-
-      <div className={styles.controls}>
-        <div className={styles.field}>
-          <label htmlFor="lan-interface">Interface</label>
-          <select
-            id="lan-interface"
-            value={selectedInterface?.name ?? ""}
-            onChange={(event) => {
-              const iface = interfaces.find((item) => item.name === event.target.value)
-              if (iface !== undefined) {
-                selectInterface(iface)
-              }
-            }}
-            disabled={isRunning}
-            data-testid="lan-interface"
-          >
-            {interfaces.length === 0 && (
-              <option value="">No interfaces found</option>
-            )}
-            {interfaces.map((iface) => (
-              <option key={iface.name} value={iface.name}>
-                {formatInterfaceOption(iface)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className={styles.field}>
-          <label htmlFor="lan-cidr">CIDR</label>
-          <input
-            id="lan-cidr"
-            type="text"
-            value={cidr}
-            onChange={(event) => setCidr(event.target.value)}
-            placeholder="192.168.1.0/24"
-            disabled={isRunning}
-            data-testid="lan-cidr"
+      <h1 className={styles.srOnly}>Network scanner</h1>
+      <ViewHeader>
+        <div className={styles.subnetControl}>
+          <Chip
+            label={<label htmlFor="lan-cidr">Subnet</label>}
+            value={
+              <input
+                id="lan-cidr"
+                className={styles.cidrInput}
+                type="text"
+                value={cidr}
+                onChange={(event) => setCidr(event.target.value)}
+                placeholder="192.168.1.0/24"
+                disabled={isRunning}
+                data-testid="lan-cidr"
+              />
+            }
           />
         </div>
 
-        <div className={`${styles.field} ${styles.checkbox}`}>
-          <label htmlFor="lan-tcp-fallback">
-            <input
-              id="lan-tcp-fallback"
-              type="checkbox"
-              checked={tcpFallback}
-              onChange={(event) => setTcpFallback(event.target.checked)}
+        <Chip
+          label={<label htmlFor="lan-interface">Iface</label>}
+          value={
+            <select
+              id="lan-interface"
+              className={styles.interfaceSelect}
+              aria-label="Network interface"
+              value={selectedInterface?.name ?? ""}
+              onChange={(event) => {
+                const iface = interfaces.find(
+                  (item) => item.name === event.target.value,
+                )
+                if (iface !== undefined) selectInterface(iface)
+              }}
               disabled={isRunning}
-              data-testid="lan-tcp-fallback"
-            />
-            TCP fallback
-          </label>
+              data-testid="lan-interface"
+            >
+              {interfaces.length === 0 && (
+                <option value="">No interfaces found</option>
+              )}
+              {interfaces.map((iface) => (
+                <option key={iface.name} value={iface.name} title={interfaceTitle(iface)}>
+                  {iface.name}
+                </option>
+              ))}
+            </select>
+          }
+        />
+
+        <div className={styles.optionControl}>
+          <input
+            id="lan-ports-enabled"
+            className={styles.optionInput}
+            type="checkbox"
+            checked={portsEnabled}
+            onChange={handlePortsChange}
+            disabled={isRunning}
+            data-testid="lan-ports-enabled"
+          />
+          <Chip
+            label={<label htmlFor="lan-ports-enabled">ports</label>}
+            value={portsEnabled ? "top 25" : "off"}
+          />
         </div>
 
-        <div className={`${styles.field} ${styles.checkbox}`}>
-          <label htmlFor="lan-ports-enabled">
-            <input
-              id="lan-ports-enabled"
-              type="checkbox"
-              checked={portsEnabled}
-              onChange={handlePortsChange}
-              disabled={isRunning}
-              data-testid="lan-ports-enabled"
-            />
-            Scan common ports
-          </label>
+        <div className={styles.optionControl}>
+          <input
+            id="lan-tcp-fallback"
+            className={styles.optionInput}
+            type="checkbox"
+            checked={tcpFallback}
+            onChange={(event) => setTcpFallback(event.target.checked)}
+            disabled={isRunning}
+            data-testid="lan-tcp-fallback"
+          />
+          <Chip
+            label={<label htmlFor="lan-tcp-fallback">mode</label>}
+            value={tcpFallback ? "ARP + TCP" : "ARP only"}
+          />
         </div>
 
-        <div className={styles.actions}>
-          <button
+        <div className={`vk-view-actions ${styles.actions}`}>
+          <Button
+            variant="primary"
+            className={isRunning ? styles.hiddenAction : ""}
             type="button"
             onClick={() => void start()}
             disabled={!canStart}
             data-testid="lan-start"
           >
-            Start
-          </button>
-          <button
+            Start scan
+          </Button>
+          <Button
+            type="button"
+            onClick={() => downloadScanCsv(displayHosts, cidr)}
+            disabled={displayHosts.length === 0}
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outline-accent"
+            className={!isRunning ? styles.hiddenAction : ""}
             type="button"
             onClick={() => void stop()}
             disabled={!isRunning}
             data-testid="lan-stop"
           >
-            Stop
-          </button>
+            Stop scan
+          </Button>
         </div>
-      </div>
+      </ViewHeader>
 
       {portsEnabled && (
         <div
@@ -190,49 +255,65 @@ export default function LanScanView() {
         </div>
       )}
 
-      {(status.length > 0 || error.length > 0) && (
-        <div className={styles.banner}>
-          {status.length > 0 && (
-            <div className={styles.status} data-testid="lan-status">
-              {status}
-            </div>
-          )}
-          {error.length > 0 && (
-            <div className={styles.error} data-testid="lan-error">
-              {error}
-            </div>
-          )}
+      {error.length > 0 && (
+        <div className={`${styles.banner} ${styles.error}`} data-testid="lan-error">
+          {error}
         </div>
       )}
 
       {progress !== null && progress.total > 0 && (
         <div className={styles.progress} data-testid="lan-progress">
-          <progress max={progress.total} value={progress.done}>
+          <progress
+            max={progress.total}
+            value={progress.done}
+            aria-label={`${progress.done} of ${progress.total} hosts probed`}
+          >
             Scanned {progress.done} of {progress.total} hosts
           </progress>
-          <span>
+          <span className={styles.progressCount}>
+            {progress.done} / {progress.total} probed
+          </span>
+          <span className={styles.upCount}>{displayHosts.length} up</span>
+          <span className={styles.srOnly}>
             Scanned {progress.done} of {progress.total} hosts
           </span>
         </div>
       )}
 
-      <div className={styles.content}>
-        <div className={styles.livePane}>
-          {displayHosts.length === 0 ? (
-            <p className={styles.empty}>No hosts discovered yet.</p>
-          ) : (
-            <LanScanTable rows={displayHosts} />
+      <div className={styles.workspace}>
+        <Card className={styles.devicePanel}>
+          <LanScanTable rows={displayHosts} />
+          {isRunning && (
+            <div className={styles.probingRow}>
+              <Live>probing …</Live>
+            </div>
           )}
-        </div>
-        <div className={styles.historyPane}>
-          <ScanSessionPanel
-            scans={pastScans}
-            disabled={isRunning}
-            onOpen={openScan}
-            onDelete={handleDeleteScan}
-          />
-        </div>
+        </Card>
+        <ScanSessionPanel
+          scans={pastScans}
+          disabled={isRunning}
+          onOpen={openScan}
+          onDelete={handleDeleteScan}
+          onDeleteMany={handleDeleteScans}
+        />
       </div>
+
+      <StatusBar>
+        {isRunning && <Live>scanning</Live>}
+        {!isRunning && status.length === 0 && (
+          <span className={styles.readyStatus}>ready</span>
+        )}
+        {status.length > 0 && (
+          <span className={styles.scanStatus} data-testid="lan-status">
+            {status}
+          </span>
+        )}
+        <span>{displayHosts.length} up</span>
+        <span>{pastScans.length} saved scans</span>
+        <span className="vk-statusbar-right">
+          {viewMode === "past" ? "saved scan" : selectedInterface?.name ?? "no interface"}
+        </span>
+      </StatusBar>
 
       {showConsentDialog && (
         <div
@@ -270,12 +351,17 @@ export default function LanScanView() {
               </p>
             </div>
             <div className={styles.modalActions}>
-              <button type="button" onClick={handleCancelConsent}>
+              <Button type="button" small onClick={handleCancelConsent}>
                 Cancel
-              </button>
-              <button type="button" onClick={handleConfirmConsent}>
+              </Button>
+              <Button
+                type="button"
+                small
+                variant="primary"
+                onClick={handleConfirmConsent}
+              >
                 Confirm
-              </button>
+              </Button>
             </div>
           </div>
         </div>

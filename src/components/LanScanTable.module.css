@@ -1,32 +1,181 @@
 .wrapper {
-  border: 1px solid var(--surface-2);
-  border-radius: 4px;
-  max-height: 420px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   background: var(--surface-1);
 }
 
 .table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
+  min-width: 900px;
+  table-layout: fixed;
+  border-spacing: 0;
+  border-collapse: separate;
+  color: var(--text-secondary);
+  font: 400 11.5px/1.35 var(--font-ui);
 }
 
 .table th,
 .table td {
-  padding: 0.4rem 0.55rem;
+  box-sizing: border-box;
+  padding: 9px 8px;
   text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .table thead {
-  background: var(--surface-0);
-  color: var(--text-muted);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-1);
+}
+
+.table th {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  color: var(--text-faint);
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 16px;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 16px;
+}
+
+.table tbody tr {
+  background: var(--surface-1);
 }
 
 .table tbody tr:nth-child(even) {
-  background: var(--bg);
+  background: var(--surface-0);
+}
+
+.table tbody tr.newDeviceRow {
+  background: var(--status-success-soft-bg);
 }
 
 .table tbody tr:hover {
   background: var(--surface-2);
+}
+
+.ipColumn {
+  width: 116px;
+}
+
+.macColumn,
+.vendorColumn {
+  width: 150px;
+}
+
+.hostnameColumn {
+  width: 190px;
+}
+
+.portsColumn {
+  width: auto;
+}
+
+.rttColumn {
+  width: 80px;
+}
+
+.seenColumn {
+  width: 86px;
+}
+
+.sortedColumn {
+  color: var(--accent) !important;
+}
+
+.ip,
+.mac,
+.hostname,
+.rtt,
+.lastSeen {
+  font-family: var(--font-mono);
+}
+
+.ip {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.mac,
+.lastSeen {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vendor {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hostname {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.numeric {
+  text-align: right !important;
+}
+
+.rtt {
+  color: var(--text-secondary);
+}
+
+.portsCell {
+  padding-top: 7px !important;
+  padding-bottom: 7px !important;
+}
+
+.ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.portChip {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--well);
+  color: var(--text-secondary);
+  font: 500 10px/1.3 var(--font-mono);
+  white-space: nowrap;
+}
+
+.sensitivePort {
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+.emptyValue {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.emptyRow td {
+  height: 180px;
+  color: var(--text-faint);
+  font: 400 11.5px/1.4 var(--font-mono);
+  text-align: center;
 }
