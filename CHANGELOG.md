@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-09-20
+
+### Fixed
+
+- **Network scanner CSV export did nothing**: the export used a browser-style
+  blob download, which Tauri's webview silently ignores. The export now asks
+  for a destination with the native save dialog and writes the file through
+  the backend, includes a UTF-8 BOM so spreadsheet apps read it correctly,
+  and reports write failures in the view.
+
 ## [0.1.4] - 2026-09-20
 
 ### Added
