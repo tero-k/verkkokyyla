@@ -31,6 +31,12 @@ export type HttpSettings = {
   readonly userAgent: string
 }
 
+export type UpdateInfo = {
+  readonly version: string
+  readonly url: string
+  readonly current: string
+}
+
 export const FAMILIES = ["auto", "v4", "v6"] as const
 export type Family = (typeof FAMILIES)[number]
 

@@ -65,6 +65,7 @@ import type {
   TraceEvent,
   TraceStatusEvent,
   TraceSummaryDto,
+  UpdateInfo,
   UpdateMikrotikProfileRequest,
   WebBenchmarkConfig,
   WebBenchmarkResult,
@@ -536,4 +537,12 @@ export function loadDownloadSpeedSession(id: number): Promise<LoadedDownloadSpee
 
 export function deleteDownloadSpeedSession(id: number): Promise<void> {
   return invoke<void>("delete_download_speed_session", { id })
+}
+
+export function checkForUpdate(): Promise<UpdateInfo | null> {
+  return invoke<UpdateInfo | null>("check_for_update")
+}
+
+export function appVersion(): Promise<string> {
+  return invoke<string>("app_version")
 }
