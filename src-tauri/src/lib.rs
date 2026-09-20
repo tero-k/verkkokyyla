@@ -14,6 +14,7 @@ mod scan_commands;
 pub mod session;
 pub mod stats;
 pub mod trace;
+pub mod update;
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -603,6 +604,7 @@ async fn delete_download_speed_session(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let db_path = db::db_path(&data_dir);
@@ -726,7 +728,9 @@ pub fn run() {
             mikrotik::backup::mikrotik_delete_backup,
             mikrotik::backup::mikrotik_get_backup_destination,
             mikrotik::backup::mikrotik_set_backup_destination,
-            mikrotik::backup::mikrotik_diff_backups
+            mikrotik::backup::mikrotik_diff_backups,
+            update::check_for_update,
+            update::app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
