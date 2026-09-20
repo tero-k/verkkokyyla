@@ -67,7 +67,6 @@ pub async fn delete_scan(manager: tauri::State<'_, ScanManager>, id: i64) -> Res
 
 #[tauri::command]
 pub fn export_scan_csv(path: String, contents: String) -> Result<(), ScanError> {
-    std::fs::write(&path, contents).map_err(|err| {
-        ScanError::Io(format!("could not write CSV export to {path}: {err}"))
-    })
+    std::fs::write(&path, contents)
+        .map_err(|err| ScanError::Io(format!("could not write CSV export to {path}: {err}")))
 }
