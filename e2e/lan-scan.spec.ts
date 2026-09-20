@@ -56,6 +56,42 @@ test("history can reopen and delete a saved scan", async ({ page }) => {
   await expect(page.locator('[data-testid="lan-scan-row"]')).toHaveCount(0)
 })
 
+test("export CSV writes the scan results to the chosen file", async ({ page }) => {
+  await installMockTauri(page)
+  await page.goto("/#/lan-scan")
+
+  await page.click('[data-testid="lan-start"]')
+  await expect(page.locator('[data-testid="lan-scan-row"]')).toHaveCount(2)
+  await expect(page.locator('[data-testid="lan-status"]')).toContainText(/completed/i)
+
+  await page.click('[data-testid="lan-export-csv"]')
+
+  await expect
+    .poll(() => page.evaluate(() => window.__TAURI_MOCK_LAST_EXPORTED_CSV__()))
+    .not.toBeNull()
+  const exported = await page.evaluate(() => window.__TAURI_MOCK_LAST_EXPORTED_CSV__())
+  expect(exported?.path).toContain("verkkokyyla-scan-192.168.1.10-24.csv")
+  expect(exported?.contents).toContain(
+    '"IP","MAC","Vendor","Hostname","Open ports","RTT","Last seen"',
+  )
+  expect(exported?.contents).toContain('"192.168.1.1","AA:BB:CC:DD:EE:01","Router Corp"')
+  expect(exported?.contents).toContain('"192.168.1.42","AA:BB:CC:DD:EE:02","Example Devices"')
+})
+
+test("export CSV does nothing when the save dialog is cancelled", async ({ page }) => {
+  await installMockTauri(page)
+  await page.goto("/#/lan-scan")
+
+  await page.click('[data-testid="lan-start"]')
+  await expect(page.locator('[data-testid="lan-scan-row"]')).toHaveCount(2)
+
+  await page.evaluate(() => window.__TAURI_MOCK_SET_DIALOG_CONFIRM__(false))
+  await page.click('[data-testid="lan-export-csv"]')
+
+  await page.waitForTimeout(150)
+  expect(await page.evaluate(() => window.__TAURI_MOCK_LAST_EXPORTED_CSV__())).toBeNull()
+})
+
 test("shows port scan warning banner and consent dialog", async ({ page }) => {
   await installMockTauri(page)
   await page.goto("/#/lan-scan")

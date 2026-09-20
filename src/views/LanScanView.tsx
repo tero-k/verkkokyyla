@@ -1,8 +1,10 @@
 import { useState } from "react"
-import type { ScanHostDto } from "../lib/types"
+import { save } from "@tauri-apps/plugin-dialog"
 import { useLanScan } from "../hooks/useLanScan"
 import { usePortScanConsent } from "../hooks/usePortScanConsent"
 import { useConfirmDialog } from "../hooks/useConfirmDialog"
+import { exportScanCsv } from "../lib/ipc"
+import { buildScanCsv, scanCsvFileName } from "../lib/scanCsv"
 import { LanScanTable } from "../components/LanScanTable"
 import { ScanSessionPanel } from "../components/ScanSessionPanel"
 import {
@@ -36,34 +38,11 @@ function estimateHostCount(cidr: string): number {
   return 254
 }
 
-function downloadScanCsv(rows: readonly ScanHostDto[], cidr: string): void {
-  const records = [
-    ["IP", "MAC", "Vendor", "Hostname", "Open ports", "RTT", "Last seen"],
-    ...rows.map((row) => [
-      row.ip,
-      row.mac ?? "",
-      row.vendor ?? "",
-      row.hostname ?? "",
-      row.openPorts.map((port) => `${port.port} ${port.service}`).join(" "),
-      "",
-      row.at,
-    ]),
-  ]
-  const csv = records
-    .map((record) =>
-      record
-        .map((value) => `"${value.replaceAll('"', '""')}"`)
-        .join(","),
-    )
-    .join("\n")
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = `verkkokyyla-scan-${cidr.replace("/", "-")}.csv`
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
+function errorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String(error.message)
+  }
+  return String(error)
 }
 
 export default function LanScanView() {
@@ -93,6 +72,7 @@ export default function LanScanView() {
 
   const { hasConsented, recordConsent } = usePortScanConsent()
   const [showConsentDialog, setShowConsentDialog] = useState(false)
+  const [exportError, setExportError] = useState("")
   const { confirm, dialog: confirmDialog } = useConfirmDialog()
   const handleDeleteScan = async (id: number) => {
     if (await confirm("Delete this scan?")) {
@@ -118,6 +98,20 @@ export default function LanScanView() {
       setShowConsentDialog(true)
     } else {
       setPortsEnabled(checked)
+    }
+  }
+
+  const handleExportCsv = async () => {
+    setExportError("")
+    try {
+      const path = await save({
+        defaultPath: scanCsvFileName(cidr),
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      })
+      if (path === null) return
+      await exportScanCsv(path, buildScanCsv(displayHosts))
+    } catch (error) {
+      setExportError(errorMessage(error))
     }
   }
 
@@ -227,8 +221,9 @@ export default function LanScanView() {
           </Button>
           <Button
             type="button"
-            onClick={() => downloadScanCsv(displayHosts, cidr)}
+            onClick={() => void handleExportCsv()}
             disabled={displayHosts.length === 0}
+            data-testid="lan-export-csv"
           >
             Export CSV
           </Button>
@@ -258,6 +253,12 @@ export default function LanScanView() {
       {error.length > 0 && (
         <div className={`${styles.banner} ${styles.error}`} data-testid="lan-error">
           {error}
+        </div>
+      )}
+
+      {exportError.length > 0 && (
+        <div className={`${styles.banner} ${styles.error}`} data-testid="lan-export-error">
+          {exportError}
         </div>
       )}
 

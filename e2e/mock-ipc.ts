@@ -340,6 +340,7 @@ export async function installMockTauri(page: Page): Promise<void> {
       } | null = null
       let updateCheckInvokeCount = 0
       let lastOpenedUrl: string | null = null
+      let lastExportedCsv: { path: string; contents: string } | null = null
       const mikrotikCredentials = new Map<number, string>()
       let mikrotikProfiles: MockMikrotikProfile[] = [
         {
@@ -1665,6 +1666,15 @@ export async function installMockTauri(page: Page): Promise<void> {
           }
           case "plugin:dialog|open":
             return mikrotikDialogConfirm ? "C:/verkkokyyla-e2e/backups" : null
+          case "plugin:dialog|save": {
+            if (!mikrotikDialogConfirm) return null
+            const options = args.options as { defaultPath?: string } | undefined
+            return options?.defaultPath ?? "C:/verkkokyyla-e2e/export.csv"
+          }
+          case "export_scan_csv": {
+            lastExportedCsv = { path: String(args.path), contents: String(args.contents) }
+            return null
+          }
           case "check_for_update": {
             updateCheckInvokeCount += 1
             return updateCheckResult
@@ -1987,6 +1997,8 @@ export async function installMockTauri(page: Page): Promise<void> {
       window.__TAURI_MOCK_UPDATE_CHECK_COUNT__ = () => updateCheckInvokeCount
 
       window.__TAURI_MOCK_LAST_OPENED_URL__ = () => lastOpenedUrl
+
+      window.__TAURI_MOCK_LAST_EXPORTED_CSV__ = () => lastExportedCsv
     })()
   })
 }
@@ -2011,6 +2023,7 @@ declare global {
     } | null) => void
     __TAURI_MOCK_UPDATE_CHECK_COUNT__: () => number
     __TAURI_MOCK_LAST_OPENED_URL__: () => string | null
+    __TAURI_MOCK_LAST_EXPORTED_CSV__: () => { path: string; contents: string } | null
     __TAURI_MOCK_ENDED_SESSIONS__?: MockSession[]
     __TAURI_MOCK_ENDED_TRACES__?: MockTrace[]
     __TAURI_MOCK_LAST_HTTP_SETTINGS__?: Record<string, unknown> | null

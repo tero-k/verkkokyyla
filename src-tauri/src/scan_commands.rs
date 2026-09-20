@@ -64,3 +64,10 @@ pub async fn load_scan(
 pub async fn delete_scan(manager: tauri::State<'_, ScanManager>, id: i64) -> Result<(), ScanError> {
     manager.delete_scan(id).await
 }
+
+#[tauri::command]
+pub fn export_scan_csv(path: String, contents: String) -> Result<(), ScanError> {
+    std::fs::write(&path, contents).map_err(|err| {
+        ScanError::Io(format!("could not write CSV export to {path}: {err}"))
+    })
+}

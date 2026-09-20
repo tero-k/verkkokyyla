@@ -107,6 +107,7 @@ pub enum ScanError {
     Arp(arp::ArpError),
     Interface(interfaces::InterfaceError),
     Db(DbError),
+    Io(String),
 }
 
 impl ScanError {
@@ -119,6 +120,7 @@ impl ScanError {
             Self::Arp(_) => "arp",
             Self::Interface(_) => "interface",
             Self::Db(_) => "db",
+            Self::Io(_) => "io",
         }
     }
 }
@@ -133,6 +135,7 @@ impl fmt::Display for ScanError {
             Self::Arp(err) => write!(f, "{err}"),
             Self::Interface(err) => write!(f, "{err}"),
             Self::Db(err) => write!(f, "{err}"),
+            Self::Io(err) => write!(f, "{err}"),
         }
     }
 }

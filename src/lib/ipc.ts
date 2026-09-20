@@ -255,6 +255,10 @@ export function deleteScan(id: number): Promise<void> {
   return invoke<void>("delete_scan", { id })
 }
 
+export function exportScanCsv(path: string, contents: string): Promise<void> {
+  return invoke<void>("export_scan_csv", { path, contents })
+}
+
 // MikroTik IPC wrappers
 
 export function mikrotikListProfiles(): Promise<MikrotikProfile[]> {
