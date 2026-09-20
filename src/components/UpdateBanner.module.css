@@ -1,0 +1,48 @@
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
+  border-bottom: 1px solid var(--border);
+  font: 500 12.5px/1.4 var(--font-ui);
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+}
+
+.viewButton {
+  flex: none;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font: 600 11.5px/1.4 var(--font-ui);
+  cursor: pointer;
+}
+
+.viewButton:hover {
+  background: var(--accent-deep);
+}
+
+.dismissButton {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--status-info-text);
+  font: 500 12px/1.4 var(--font-ui);
+  cursor: pointer;
+}
+
+.dismissButton:hover {
+  border-color: var(--border-strong);
+}

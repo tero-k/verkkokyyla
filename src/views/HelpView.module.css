@@ -68,3 +68,15 @@
   color: var(--text);
   font: 500 10px/1.2 var(--font-mono);
 }
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toggleRow input {
+  accent-color: var(--accent);
+}

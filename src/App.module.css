@@ -149,6 +149,13 @@
   background: var(--sidebar-active-bg);
 }
 
+.version {
+  padding: 0 16px 10px;
+  font: 500 10px/1 var(--font-mono);
+  color: var(--sidebar-item-kbd);
+  text-align: center;
+}
+
 /* Narrow windows: collapse the sidebar to an icon rail. */
 @media (max-width: 720px) {
   .sidebar {
@@ -157,7 +164,8 @@
   .brandName,
   .navGroupLabel,
   .navName,
-  .navKbd {
+  .navKbd,
+  .version {
     display: none;
   }
   .brand {

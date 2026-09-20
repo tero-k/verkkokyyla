@@ -2,6 +2,12 @@ import { ViewHeader } from "../components/ui/ui"
 
 import styles from "./HelpView.module.css"
 
+type HelpViewProps = {
+  updateCheckEnabled: boolean
+  onUpdateCheckEnabledChange: (enabled: boolean) => void
+  appVersion: string
+}
+
 const SHORTCUTS: readonly (readonly [string, string])[] = [
   ["Ctrl 1", "Ping"],
   ["Ctrl 2", "Traceroute"],
@@ -13,7 +19,11 @@ const SHORTCUTS: readonly (readonly [string, string])[] = [
   ["Ctrl 8", "Help"],
 ]
 
-export default function HelpView() {
+export default function HelpView({
+  updateCheckEnabled,
+  onUpdateCheckEnabledChange,
+  appVersion,
+}: HelpViewProps) {
   return (
     <section className={styles.view} data-testid="help-view">
       <ViewHeader
@@ -37,6 +47,28 @@ export default function HelpView() {
             ))}
           </ul>
           <p>The theme switcher at the bottom of the sidebar toggles Light, Dark, and OS.</p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Updates</h2>
+          <p>
+            <label className={styles.toggleRow}>
+              <input
+                type="checkbox"
+                checked={updateCheckEnabled}
+                onChange={(e) => onUpdateCheckEnabledChange(e.target.checked)}
+                data-testid="update-check-toggle"
+              />
+              Check for updates on startup
+            </label>
+          </p>
+          <p>
+            When a newer stable release exists, a notice appears at the top of
+            the window with a link to the release page — the app never
+            downloads or installs updates on its own. Prereleases are never
+            announced.
+            {appVersion ? ` Running version v${appVersion}.` : ""}
+          </p>
         </section>
 
         <section className={styles.section}>

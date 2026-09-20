@@ -7,8 +7,11 @@ import MikrotikView from "./views/MikrotikView"
 import MtuView from "./views/MtuView"
 import PingWorkspace from "./views/PingWorkspace"
 import TracerouteView from "./views/TracerouteView"
+import UpdateBanner from "./components/UpdateBanner"
 import { NAV_GROUPS, NAV_ITEMS, resolveRoute } from "./routing"
 import { useTheme, type ThemeMode } from "./theme"
+import { useUpdateCheck } from "./hooks/useUpdateCheck"
+import { appVersion } from "./lib/ipc"
 import "./App.css"
 import styles from "./App.module.css"
 
@@ -22,9 +25,26 @@ export default function App() {
   // switch for MikroTik's long-running sessions.
   const [mikrotikVisited, setMikrotikVisited] = useState(route === "mikrotik")
 
+  const { enabled, setEnabled, visibleUpdate, dismiss } = useUpdateCheck()
+  const [version, setVersion] = useState("")
+
   useEffect(() => {
     if (route === "mikrotik") setMikrotikVisited(true)
   }, [route])
+
+  useEffect(() => {
+    let cancelled = false
+    appVersion()
+      .then((v) => {
+        if (!cancelled) setVersion(v)
+      })
+      .catch(() => {
+        // Version display is cosmetic; stay silent on failure.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const onHashChange = () => setHash(window.location.hash)
@@ -99,15 +119,29 @@ export default function App() {
             </button>
           ))}
         </div>
+        {version ? (
+          <div className={styles.version} data-testid="app-version">
+            v{version}
+          </div>
+        ) : null}
       </aside>
       <main className={styles.content}>
+        {visibleUpdate && (
+          <UpdateBanner update={visibleUpdate} onDismiss={dismiss} />
+        )}
         {route === "ping" && <PingWorkspace />}
         {route === "download-speed" && <DownloadSpeedView />}
         {route === "traceroute" && <TracerouteView />}
         {route === "mtu" && <MtuView />}
         {route === "lan-scan" && <LanScanView />}
         {route === "dns-tester" && <DnsTesterView />}
-        {route === "help" && <HelpView />}
+        {route === "help" && (
+          <HelpView
+            updateCheckEnabled={enabled}
+            onUpdateCheckEnabledChange={setEnabled}
+            appVersion={version}
+          />
+        )}
         {/* MikroTik mounts on first visit, then stays mounted across routes:
             monitoring sessions, log streams, and SSH terminals keep
             collecting while the user works in Measure or Discover.
