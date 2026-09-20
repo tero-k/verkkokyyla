@@ -331,6 +331,15 @@ export async function installMockTauri(page: Page): Promise<void> {
       let mikrotikBackups: MockMikrotikBackup[] = []
       let nextMikrotikBackupId = 1
       let mikrotikBackupDestination: string | null = null
+      /** Update-notifier mock state: what the backend would have returned for
+          the latest GitHub release, and how many times it was asked. */
+      let updateCheckResult: {
+        version: string
+        url: string
+        current: string
+      } | null = null
+      let updateCheckInvokeCount = 0
+      let lastOpenedUrl: string | null = null
       const mikrotikCredentials = new Map<number, string>()
       let mikrotikProfiles: MockMikrotikProfile[] = [
         {
@@ -1656,6 +1665,16 @@ export async function installMockTauri(page: Page): Promise<void> {
           }
           case "plugin:dialog|open":
             return mikrotikDialogConfirm ? "C:/verkkokyyla-e2e/backups" : null
+          case "check_for_update": {
+            updateCheckInvokeCount += 1
+            return updateCheckResult
+          }
+          case "app_version":
+            return "0.1.3"
+          case "plugin:opener|open_url": {
+            lastOpenedUrl = String(args.url)
+            return null
+          }
           case "mikrotik_list_profiles":
             return mikrotikProfiles
           case "mikrotik_create_profile": {
@@ -1960,6 +1979,14 @@ export async function installMockTauri(page: Page): Promise<void> {
       window.__TAURI_MOCK_LAST_MIKROTIK_BACKUP__ = () => lastMikrotikBackup
 
       window.__TAURI_MOCK_MIKROTIK_BACKUP_COUNT__ = () => mikrotikBackupCount
+
+      window.__TAURI_MOCK_SET_UPDATE_CHECK_RESULT__ = (result) => {
+        updateCheckResult = result
+      }
+
+      window.__TAURI_MOCK_UPDATE_CHECK_COUNT__ = () => updateCheckInvokeCount
+
+      window.__TAURI_MOCK_LAST_OPENED_URL__ = () => lastOpenedUrl
     })()
   })
 }
@@ -1977,6 +2004,13 @@ declare global {
     __TAURI_MOCK_SET_MIKROTIK_BACKUP_SSH_ERROR__: (enabled: boolean) => void
     __TAURI_MOCK_LAST_MIKROTIK_BACKUP__: () => unknown
     __TAURI_MOCK_MIKROTIK_BACKUP_COUNT__: () => number
+    __TAURI_MOCK_SET_UPDATE_CHECK_RESULT__: (result: {
+      version: string
+      url: string
+      current: string
+    } | null) => void
+    __TAURI_MOCK_UPDATE_CHECK_COUNT__: () => number
+    __TAURI_MOCK_LAST_OPENED_URL__: () => string | null
     __TAURI_MOCK_ENDED_SESSIONS__?: MockSession[]
     __TAURI_MOCK_ENDED_TRACES__?: MockTrace[]
     __TAURI_MOCK_LAST_HTTP_SETTINGS__?: Record<string, unknown> | null
