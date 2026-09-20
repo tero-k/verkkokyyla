@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-09-20
+
+### Added
+
+- **Update notifications**: on startup the app checks GitHub Releases for a
+  newer stable version and shows a dismissible notice with a link to the
+  release page. It never downloads or installs anything, prereleases are
+  never announced, and the check can be turned off in the new Updates
+  section of Help (Ctrl 8), which also shows the running version.
+
 ## [0.1.3] - 2026-09-19
 
 ### Fixed
@@ -60,5 +70,7 @@ First public release.
 - In-app **Help** view, sidebar navigation with `Ctrl 1`–`Ctrl 8` shortcuts,
   and Light/Dark/OS themes.
 
+[0.1.4]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.4
+[0.1.3]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.3
 [0.1.2]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.2
 [0.1.1]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.1
