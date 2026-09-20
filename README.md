@@ -14,8 +14,8 @@ Everything a tool measures is kept in a local SQLite history you can reopen
 later. MikroTik passwords live in the operating system keyring, never in the
 database. An in-app **Help** view (sidebar or `Ctrl 8`) explains each tool.
 
-> The name is Finnish: *verkko* (network) + *kyylä* (a ferret; someone who
-> snoops around). A network ferret.
+> The name is Finnish: *verkko* (network) + *kyylä* (someone who snoops
+> around).
 
 ![Ping view with live latency table and graph](docs/screenshots/ping-dark.png)
 
