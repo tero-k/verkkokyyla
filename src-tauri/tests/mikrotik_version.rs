@@ -5,7 +5,8 @@ mod mikrotik_version {
 
     use tokio::sync::{mpsc, Notify};
     use verkkokyyla_lib::db::{
-        now_rfc3339, Database, MikrotikSessionVersionStatus, NewMikrotikProfile, NewMikrotikSession,
+        now_rfc3339, Database, MikrotikSessionIdentity, MikrotikSessionVersionStatus,
+        NewMikrotikProfile, NewMikrotikSession,
     };
     use verkkokyyla_lib::mikrotik::changelog::*;
     use verkkokyyla_lib::mikrotik::client::{MikrotikClient, MikrotikConnection};
@@ -779,12 +780,19 @@ mod mikrotik_version {
                 upgrade_firmware: None,
                 model: None,
             };
-            db.set_mikrotik_session_version_status(
+            db.set_mikrotik_session_identity(
                 id,
-                &MikrotikSessionVersionStatus {
+                &MikrotikSessionIdentity {
                     board_name: Some("CHR".to_owned()),
                     routeros_version: Some("7.18.2".to_owned()),
                     architecture_name: Some("x86_64".to_owned()),
+                },
+            )
+            .await
+            .expect("identity");
+            db.set_mikrotik_session_version_status(
+                id,
+                &MikrotikSessionVersionStatus {
                     update_status_json: Some(serde_json::to_string(&update).expect("update json")),
                     firmware_status_json: Some(
                         serde_json::to_string(&firmware).expect("firmware json"),

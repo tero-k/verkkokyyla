@@ -407,12 +407,19 @@ pub struct NewMikrotikSession {
     pub status: String,
 }
 
-/// Version and firmware metadata attached after the Mikrotik version flow completes.
+/// Board/version/architecture identity captured from the first resource
+/// sample of a Mikrotik monitoring session.
 #[derive(Debug, Clone)]
-pub struct MikrotikSessionVersionStatus {
+pub struct MikrotikSessionIdentity {
     pub board_name: Option<String>,
     pub routeros_version: Option<String>,
     pub architecture_name: Option<String>,
+}
+
+/// Update and firmware probe results attached after the Mikrotik version
+/// flow completes.
+#[derive(Debug, Clone)]
+pub struct MikrotikSessionVersionStatus {
     pub update_status_json: Option<String>,
     pub firmware_status_json: Option<String>,
 }
@@ -1318,7 +1325,31 @@ impl Database {
         Ok(())
     }
 
-    /// Stores Mikrotik version/update/firmware metadata on a session.
+    /// Stores board/version/architecture identity on a Mikrotik session.
+    /// Writes only the identity columns so it cannot clobber probe results
+    /// persisted concurrently by `set_mikrotik_session_version_status`.
+    pub async fn set_mikrotik_session_identity(
+        &self,
+        id: i64,
+        identity: &MikrotikSessionIdentity,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE mikrotik_sessions \
+             SET board_name = ?, routeros_version = ?, architecture_name = ? \
+             WHERE id = ?",
+        )
+        .bind(&identity.board_name)
+        .bind(&identity.routeros_version)
+        .bind(&identity.architecture_name)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Stores Mikrotik update/firmware probe results on a session. Writes
+    /// only the JSON columns so it cannot clobber identity persisted
+    /// concurrently by `set_mikrotik_session_identity`.
     pub async fn set_mikrotik_session_version_status(
         &self,
         id: i64,
@@ -1326,13 +1357,9 @@ impl Database {
     ) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE mikrotik_sessions \
-             SET board_name = ?, routeros_version = ?, architecture_name = ?, \
-                 update_status_json = ?, firmware_status_json = ? \
+             SET update_status_json = ?, firmware_status_json = ? \
              WHERE id = ?",
         )
-        .bind(&status.board_name)
-        .bind(&status.routeros_version)
-        .bind(&status.architecture_name)
         .bind(&status.update_status_json)
         .bind(&status.firmware_status_json)
         .bind(id)
@@ -2191,10 +2218,15 @@ mod tests {
             .create_mikrotik_session(&sample_mikrotik_session(profile.id))
             .await
             .expect("create session");
-        let version_status = MikrotikSessionVersionStatus {
+        let identity = MikrotikSessionIdentity {
             board_name: Some("CCR2004".to_string()),
             routeros_version: Some("7.16.1".to_string()),
             architecture_name: Some("arm64".to_string()),
+        };
+        db.set_mikrotik_session_identity(session_id, &identity)
+            .await
+            .expect("set identity");
+        let version_status = MikrotikSessionVersionStatus {
             update_status_json: Some(
                 r#"{"channel":"stable","status":"System is already up to date"}"#.to_string(),
             ),

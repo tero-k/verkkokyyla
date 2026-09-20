@@ -116,10 +116,6 @@ async fn persist_result(
     session_id: i64,
     result: &VersionFirmwareResultDto,
 ) -> Result<(), MikrotikError> {
-    let loaded = db
-        .load_mikrotik_session(session_id)
-        .await
-        .map_err(|err| MikrotikError::Connect(err.to_string()))?;
     let update_status_json = serde_json::to_string(&result.update_status)
         .map_err(|err| MikrotikError::Parse(format!("serialize update status: {err}")))?;
     let firmware_status_json = serde_json::to_string(&result.firmware_status)
@@ -127,9 +123,6 @@ async fn persist_result(
     db.set_mikrotik_session_version_status(
         session_id,
         &MikrotikSessionVersionStatus {
-            board_name: loaded.session.board_name,
-            routeros_version: loaded.session.routeros_version,
-            architecture_name: loaded.session.architecture_name,
             update_status_json: Some(update_status_json),
             firmware_status_json: Some(firmware_status_json),
         },

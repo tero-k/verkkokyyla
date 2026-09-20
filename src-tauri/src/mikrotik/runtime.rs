@@ -22,7 +22,7 @@ use super::types::{
     MikrotikSnapshotPayload, MikrotikStatusEvent, MikrotikStatusSink, MikrotikStoppedDto,
     RunVersionProbe, VersionProbeArgs,
 };
-use crate::db::{now_rfc3339, Database, MikrotikSessionVersionStatus, MikrotikSnapshotRow};
+use crate::db::{now_rfc3339, Database, MikrotikSessionIdentity, MikrotikSnapshotRow};
 use crate::mikrotik::error::MikrotikError;
 use crate::mikrotik::parse::{
     BondingDto, BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, ResourceDto,
@@ -567,15 +567,12 @@ pub async fn run_mikrotik_session(
         // onto the session row so history renders them.
         if !resource_identity_persisted {
             resource_identity_persisted = true;
-            let loaded = db.load_mikrotik_session(session_id).await?;
-            db.set_mikrotik_session_version_status(
+            db.set_mikrotik_session_identity(
                 session_id,
-                &MikrotikSessionVersionStatus {
+                &MikrotikSessionIdentity {
                     board_name: resource.board_name.clone(),
                     routeros_version: resource.version.clone(),
                     architecture_name: resource.architecture_name.clone(),
-                    update_status_json: loaded.session.update_status_json,
-                    firmware_status_json: loaded.session.firmware_status_json,
                 },
             )
             .await?;
