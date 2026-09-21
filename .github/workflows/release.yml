@@ -9,6 +9,7 @@ jobs:
     permissions:
       contents: write
     environment: release
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

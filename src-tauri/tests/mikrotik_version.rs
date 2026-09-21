@@ -584,11 +584,28 @@ mod mikrotik_version {
         // check deterministically lands on the gated step 2. Without this a
         // scheduling race can push the manual check onto the terminal Hang
         // step and deadlock the test.
-        while let Some(event) = statuses_a.recv().await {
-            if matches!(event, MikrotikStatusEvent::VersionFirmware { .. }) {
-                break;
+        // Bounded spin, not a timer: under `start_paused` the yield loop above
+        // keeps the runtime permanently busy, so virtual time never advances
+        // and a `tokio::time::timeout` would never fire. Poll the channel and
+        // give up after ample empty polls — a lost race then fails the test
+        // in milliseconds instead of hanging the whole binary in CI.
+        let mut barrier_ok = false;
+        for _ in 0..1_000_000 {
+            match statuses_a.try_recv() {
+                Ok(event) => {
+                    if matches!(event, MikrotikStatusEvent::VersionFirmware { .. }) {
+                        barrier_ok = true;
+                        break;
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+                Err(mpsc::error::TryRecvError::Empty) => tokio::task::yield_now().await,
             }
         }
+        assert!(
+            barrier_ok,
+            "barrier: session A never emitted VersionFirmware"
+        );
         let check = {
             let manager = manager.clone();
             tokio::spawn(async move { manager.check_updates(profile_id).await })
