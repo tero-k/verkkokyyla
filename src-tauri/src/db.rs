@@ -2474,7 +2474,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn batch_insert_1000_probes_under_500ms() {
+    async fn batch_insert_1000_probes_bounded() {
         let dir = TestDir::new("batch");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
         let session_id = db
@@ -2491,9 +2491,12 @@ mod tests {
         let elapsed = start.elapsed();
         eprintln!("batch insert of 1000 probes took {elapsed:?}");
         assert_eq!(db.load_probes(session_id).await.expect("load").len(), 1000);
+        // Wide bound: catches the real regression (unbatched inserts, tens of
+        // seconds) without flaking on loaded shared CI runners, which have
+        // been observed at >600ms for the batched path.
         assert!(
-            elapsed.as_millis() < 500,
-            "batch insert took {elapsed:?}, expected < 500 ms"
+            elapsed.as_millis() < 2000,
+            "batch insert took {elapsed:?}, expected < 2000 ms"
         );
     }
 
