@@ -6,7 +6,6 @@ pub mod logs;
 pub mod manager;
 pub mod parse;
 pub mod runtime;
-pub mod secrets;
 pub mod terminal;
 pub mod types;
 pub mod version;

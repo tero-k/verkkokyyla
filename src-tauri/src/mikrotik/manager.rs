@@ -11,7 +11,6 @@ use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 
 use super::runtime::{run_mikrotik_session, MikrotikRunContext};
-use super::secrets::SecretStore;
 use super::types::{
     ActiveSessionDto, CreateMikrotikProfileRequest, DeleteProfileResultDto,
     LoadedMikrotikSessionDto, MikrotikApiFactory, MikrotikManagerError, MikrotikProfileDto,
@@ -26,6 +25,7 @@ use crate::db::{
 };
 use crate::mikrotik::client::MikrotikConnection;
 use crate::mikrotik::error::MikrotikError;
+use crate::secrets::SecretStore;
 
 /// Upper bound on concurrent monitoring sessions. Each session polls the
 /// router every 5s, so unbounded growth would eventually hurt both this app

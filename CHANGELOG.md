@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **OPNsense monitoring**: the sidebar's MikroTik group is now Devices,
+  with OPNsense (Ctrl 8) alongside MikroTik. OPNsense profiles use a
+  dedicated read-only API key (HTTPS GET requests only, stored as one
+  OS-keyring entry) and offer firewall rule hit counters, a live
+  allowed/blocked firewall log stream, interface/VPN/Tailscale status,
+  PF state-table and resource health cards, and cached firmware/plugin
+  update availability (the firewall's own last check — the app never
+  triggers remote checks). Backups download the latest *saved*
+  configuration revision and are always stored locally as
+  passphrase-encrypted `*.xml.age` files (restore with
+  `age -d -o config.xml <file>.xml.age`, then import in the OPNsense GUI).
+  The SSH terminal uses a separate interactive user login with explicit
+  SHA-256 host-key verification; API credentials never authenticate SSH.
+  Help moved to Ctrl 9.
+
 ## [0.1.5] - 2026-09-20
 
 ### Fixed

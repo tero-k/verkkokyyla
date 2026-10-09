@@ -1133,3 +1133,318 @@ export type WebBenchmarkResult = {
   readonly concurrency: WebBenchmarkConcurrencySummary | null
   readonly concurrencyError: { readonly kind: string; readonly message: string } | null
 }
+
+// ---------------------------------------------------------------------------
+// OPNsense — read-only monitoring. All device traffic is HTTP GET; the API
+// key/secret never appears in any DTO (profiles serialize hasCredentials).
+// ---------------------------------------------------------------------------
+
+export type OpnsenseProfile = {
+  readonly id: number
+  readonly name: string
+  readonly host: string
+  readonly port: number
+  readonly allowInvalidCerts: boolean
+  readonly sshPort: number
+  readonly hasCredentials: boolean
+  readonly sshHostKeyVerified: boolean
+  readonly createdAt: string
+}
+
+export type CreateOpnsenseProfileRequest = {
+  readonly name: string
+  readonly host: string
+  readonly port: number
+  readonly allowInvalidCerts: boolean
+  readonly sshPort: number
+}
+
+export type UpdateOpnsenseProfileRequest = CreateOpnsenseProfileRequest & {
+  readonly id: number
+}
+
+export type OpnsenseDeleteResultDto = {
+  readonly deleted: boolean
+  readonly secretDeleted: boolean
+  readonly warning: string | null
+}
+
+/** `GET /api/core/system/status` probe: connected and authorized, without
+    echoing any device response payload. */
+export type OpnsenseTestConnectionDto = {
+  readonly connected: boolean
+  readonly authorized: boolean
+}
+
+export type OpnsenseStartDto = {
+  readonly profileId: number
+}
+
+/** One entry of the active-monitor list: lets a reloaded view distinguish
+    running-but-detached monitors. */
+export type OpnsenseActiveMonitorDto = {
+  readonly profileId: number
+}
+
+/** Typed manager/command error: serialized as `{kind, message}` plus
+    `fingerprint` for host-key prompts. */
+export type OpnsenseErrorPayload = {
+  readonly kind: string
+  readonly message: string
+  readonly fingerprint?: string
+}
+
+/** Tauri command errors deserialize as `{kind, message}` objects, not Error
+    instances — normalize whatever arrived into the typed payload. */
+export function opnsenseErrorPayload(err: unknown): OpnsenseErrorPayload {
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const kind: unknown = "kind" in err ? err.kind : undefined
+    const fingerprint: unknown = "fingerprint" in err ? err.fingerprint : undefined
+    const message: unknown = err.message
+    return {
+      kind: typeof kind === "string" ? kind : "error",
+      message: String(message),
+      ...(typeof fingerprint === "string" ? { fingerprint } : {}),
+    }
+  }
+  if (err instanceof Error) return { kind: "error", message: err.message }
+  return { kind: "error", message: String(err) }
+}
+
+export type OpnsenseSectionErrorDto = {
+  readonly kind: string
+  readonly message: string
+}
+
+/** One independently-fetched snapshot section: fresh `data`, or an error
+    with no data (the view keeps showing the last good data, marked stale). */
+export type OpnsenseSectionDto<T> = {
+  readonly ok: boolean
+  readonly error?: OpnsenseSectionErrorDto | null
+  readonly data?: T | null
+}
+
+/** Lifecycle / failure events on the monitor status channel. */
+export type OpnsenseStatusEvent =
+  | { readonly event: "started"; readonly profileId: number }
+  | { readonly event: "stopped"; readonly profileId: number }
+  | { readonly event: "warning"; readonly profileId: number; readonly message: string }
+  | { readonly event: "error"; readonly profileId: number; readonly message: string }
+
+export type OpnsenseRuleDto = {
+  readonly uuid: string
+  readonly action: string
+  readonly interface: string
+  readonly description: string
+  readonly source: string
+  readonly destination: string
+  readonly protocol: string
+  readonly enabled: boolean
+  /** "Hits (packets)" — null (rendered "—") when counters are missing. */
+  readonly packets: number | null
+  readonly evaluations: number | null
+  readonly bytes: number | null
+  readonly states: number | null
+}
+
+/** An active PF rule ID (or stats entry) matching no reported rule UUID.
+    Numeric PF IDs are NEVER joined to UUIDs. */
+export type OpnsenseUnmappedRuleDto = {
+  readonly id: string
+  readonly description?: string | null
+  readonly packets?: number | null
+  readonly bytes?: number | null
+  readonly states?: number | null
+}
+
+export type OpnsenseRulesSectionDto = {
+  readonly rules: readonly OpnsenseRuleDto[]
+  /** Total rows the device reported (may exceed rules.length when truncated). */
+  readonly total: number
+  /** True when the 10,000-rule cap cut the listing short. */
+  readonly truncated: boolean
+  /** Present when rule definitions loaded but the counters endpoint failed. */
+  readonly countersError?: OpnsenseSectionErrorDto | null
+  readonly unmappedRunning: readonly OpnsenseUnmappedRuleDto[]
+}
+
+export type OpnsenseInterfaceDto = {
+  readonly name: string
+  readonly description?: string | null
+  readonly enabled: boolean
+  /** Link state as reported ("up"/"down"), null when not reported. */
+  readonly link?: string | null
+  readonly ipv4?: string | null
+  readonly ipv6?: string | null
+  readonly rxBytes?: number | null
+  readonly txBytes?: number | null
+  readonly rxPackets?: number | null
+  readonly txPackets?: number | null
+}
+
+/** PF state table capacity — a firewall health signal. */
+export type OpnsensePfStatesDto = {
+  readonly current: number | null
+  readonly max: number | null
+}
+
+export type OpnsenseResourcesDto = {
+  readonly cpuUsagePercent?: number | null
+  readonly memUsedBytes?: number | null
+  readonly memTotalBytes?: number | null
+  readonly uptime?: string | null
+}
+
+export type OpnsenseSystemSectionDto = {
+  readonly interfaces: readonly OpnsenseInterfaceDto[]
+  readonly interfacesTruncated: boolean
+  readonly pfStates?: OpnsensePfStatesDto | null
+  readonly pfStatesError?: OpnsenseSectionErrorDto | null
+  readonly resources?: OpnsenseResourcesDto | null
+  readonly resourcesError?: OpnsenseSectionErrorDto | null
+}
+
+/** One VPN service family, independent of the others: a missing plugin or
+    a denied ACL must not break sibling cards. */
+export type OpnsenseVpnServiceDto<T> = {
+  /** "ok" | "unavailable" | "access-denied" | "error". */
+  readonly state: string
+  readonly message?: string | null
+  readonly data?: T | null
+}
+
+export type OpnsenseWireguardPeerDto = {
+  readonly name: string
+  /** Seconds since the latest handshake; absent when never handshaked. */
+  readonly handshakeAgeSecs?: number | null
+  /** "active" | "stale" | "never" | "unknown" — stale is DISTINCT from offline. */
+  readonly status: string
+}
+
+export type OpnsenseWireguardInterfaceDto = {
+  readonly name: string
+  readonly peers: readonly OpnsenseWireguardPeerDto[]
+}
+
+export type OpnsenseWireguardStatusDto = {
+  readonly interfaces: readonly OpnsenseWireguardInterfaceDto[]
+}
+
+export type OpnsenseOpenvpnSessionDto = {
+  readonly name: string
+  readonly description?: string | null
+  /** "client" | "server" | "unknown". */
+  readonly kind: string
+  readonly connected: boolean
+}
+
+export type OpnsenseIpsecSessionDto = {
+  readonly name: string
+  readonly description?: string | null
+  readonly connected: boolean
+}
+
+/** Tailscale status with sensitive raw plugin JSON intentionally dropped. */
+export type OpnsenseTailscaleStatusDto = {
+  readonly backendState?: string | null
+  readonly serviceRunning?: boolean | null
+  readonly hostname?: string | null
+  readonly ownIps: readonly string[]
+  readonly peers: readonly OpnsenseTailscalePeerDto[]
+}
+
+export type OpnsenseTailscalePeerDto = {
+  readonly name: string
+  readonly ips: readonly string[]
+  readonly online?: boolean | null
+  readonly lastSeen?: string | null
+}
+
+export type OpnsenseVpnSectionDto = {
+  readonly wireguard: OpnsenseVpnServiceDto<OpnsenseWireguardStatusDto>
+  readonly openvpn: OpnsenseVpnServiceDto<readonly OpnsenseOpenvpnSessionDto[]>
+  readonly ipsec: OpnsenseVpnServiceDto<readonly OpnsenseIpsecSessionDto[]>
+  readonly tailscale: OpnsenseVpnServiceDto<OpnsenseTailscaleStatusDto>
+}
+
+/** Full monitoring snapshot streamed on the snapshot channel. */
+export type OpnsenseSnapshotDto = {
+  readonly profileId: number
+  /** RFC 3339 UTC timestamp of this snapshot. */
+  readonly at: string
+  /** Only present on the 15 s rules refresh; omitted on 5 s system/VPN ticks. */
+  readonly rules?: OpnsenseSectionDto<OpnsenseRulesSectionDto>
+  readonly system: OpnsenseSectionDto<OpnsenseSystemSectionDto>
+  readonly vpn: OpnsenseSectionDto<OpnsenseVpnSectionDto>
+}
+
+/** Cached firmware status — the app never triggers a remote check. */
+export type OpnsenseFirmwareStatusDto = {
+  /** "cached-updates" | "cached-none" | "no-cache" | "unavailable" | "error". */
+  readonly state: string
+  readonly message?: string | null
+  /** Remote check timestamp, when the device provided one. */
+  readonly checkedAt?: string | null
+  readonly installedVersion?: string | null
+  readonly coreUpgrades: readonly OpnsenseUpgradeDto[]
+  readonly pluginUpgrades: readonly OpnsenseUpgradeDto[]
+  readonly rebootRequired: boolean
+}
+
+export type OpnsenseUpgradeDto = {
+  readonly name: string
+  readonly oldVersion?: string | null
+  readonly newVersion?: string | null
+}
+
+export type OpnsenseRevisionDto = {
+  readonly id: string
+  readonly timeIso?: string | null
+  readonly description?: string | null
+  readonly filesize?: number | null
+}
+
+export type OpnsenseBackupResultDto = {
+  /** Local path of the written `<name>.xml.age` file. */
+  readonly path: string
+  /** The saved firewall revision this backup came from — possibly older
+      than unsaved changes on the device. */
+  readonly sourceRevisionId: string
+  readonly sourceTimeIso?: string | null
+}
+
+/** One normalized firewall log line. `action` is "pass" (allowed), "block"
+    (blocked; reject maps here) or "other" (All tab only). Absent fields
+    stay undefined — never fabricated. */
+export type OpnsenseLogEvent = {
+  readonly profileId: number
+  /** Local receive time (RFC 3339 UTC). */
+  readonly receivedAt: string
+  readonly action: string
+  readonly timestamp?: string | null
+  readonly interfaceName?: string | null
+  readonly dir?: string | null
+  readonly proto?: string | null
+  readonly src?: string | null
+  readonly srcPort?: string | null
+  readonly dst?: string | null
+  readonly dstPort?: string | null
+  readonly label?: string | null
+}
+
+/** Lifecycle / failure events for the firewall log stream. */
+export type OpnsenseLogStatusEvent =
+  | { readonly event: "started"; readonly profileId: number }
+  | { readonly event: "stopped"; readonly profileId: number }
+  | { readonly event: "warning"; readonly profileId: number; readonly message: string }
+  | { readonly event: "error"; readonly profileId: number; readonly message: string }
+
+export type OpnsenseLogStartDto = {
+  readonly profileId: number
+}
+
+/** A freshly opened interactive SSH terminal. Output chunks flow over the
+    command's data channel as base64 (the IPC layer is JSON). */
+export type OpnsenseTerminalOpenDto = {
+  readonly terminalId: string
+}

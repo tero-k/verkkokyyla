@@ -16,8 +16,8 @@ mod mikrotik_runtime {
         parse_interfaces, parse_resource, parse_vlans, BridgeVlanDto, EthernetMonitorDto,
         EthernetStatsDto, InterfaceDto, ResourceDto, SensorDto, VlanDto,
     };
-    use verkkokyyla_lib::mikrotik::secrets::{MemoryStore, SecretError, SecretStore};
     use verkkokyyla_lib::mikrotik::types::*;
+    use verkkokyyla_lib::secrets::{MemoryStore, SecretError, SecretStore};
 
     struct TempDir(PathBuf);
 

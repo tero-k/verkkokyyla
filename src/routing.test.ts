@@ -1,84 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { NAV_GROUPS, NAV_ITEMS, resolveRoute } from "./routing";
+import { NAV_GROUPS, NAV_ITEMS, resolveRoute, type Route } from "./routing";
+
+function groupOf(route: Route) {
+  return NAV_GROUPS.find((group) => group.items.some((item) => item.route === route));
+}
+
+function shortcutOf(route: Route) {
+  for (const group of NAV_GROUPS) {
+    const item = group.items.find((entry) => entry.route === route);
+    if (item !== undefined) return item.shortcut;
+  }
+  return undefined;
+}
 
 describe("app shell", () => {
-  it("has the eight tool nav items in sidebar order", () => {
-    expect(NAV_ITEMS).toHaveLength(8);
-    expect(NAV_ITEMS).toEqual([
-      { route: "ping", label: "Ping", hash: "#/ping" },
-      { route: "traceroute", label: "Traceroute", hash: "#/traceroute" },
-      {
-        route: "download-speed",
-        label: "Web Benchmark",
-        hash: "#/download-speed",
-      },
-      {
-        route: "lan-scan",
-        label: "Network scanner",
-        hash: "#/lan-scan",
-      },
-      { route: "mtu", label: "MTU Discovery", hash: "#/mtu" },
-      {
-        route: "dns-tester",
-        label: "DNS Toolkit",
-        hash: "#/dns-tester",
-      },
-      {
-        route: "mikrotik",
-        label: "MikroTik",
-        hash: "#/mikrotik",
-      },
-      { route: "help", label: "Help", hash: "#/help" },
-    ]);
+  it("resolves each sidebar item's hash to its route", () => {
+    for (const item of NAV_ITEMS) {
+      expect(resolveRoute(item.hash)).toBe(item.route);
+    }
   });
 
-  it("assigns MTU Discovery to the Discover group at Ctrl 5", () => {
-    expect(NAV_GROUPS).toEqual([
-      {
-        label: "Measure",
-        items: [
-          { route: "ping", shortcut: "Ctrl 1" },
-          { route: "traceroute", shortcut: "Ctrl 2" },
-          { route: "download-speed", shortcut: "Ctrl 3" },
-        ],
-      },
-      {
-        label: "Discover",
-        items: [
-          { route: "lan-scan", shortcut: "Ctrl 4" },
-          { route: "mtu", shortcut: "Ctrl 5" },
-          { route: "dns-tester", shortcut: "Ctrl 6" },
-        ],
-      },
-      {
-        label: "MikroTik",
-        items: [{ route: "mikrotik", shortcut: "Ctrl 7" }],
-      },
-      {
-        label: "Guide",
-        items: [{ route: "help", shortcut: "Ctrl 8" }],
-      },
-    ]);
+  it("keeps nine tool nav items with OPNsense between MikroTik and Help", () => {
+    expect(NAV_ITEMS).toHaveLength(9);
+    const order = NAV_ITEMS.map((item) => item.route);
+    expect(order.indexOf("mikrotik")).toBeLessThan(order.indexOf("opnsense"));
+    expect(order.indexOf("opnsense")).toBeLessThan(order.indexOf("help"));
+  });
+
+  it("groups MikroTik then OPNsense under Devices", () => {
+    const devices = NAV_GROUPS.find((group) => group.label === "Devices");
+    expect(devices?.items).toHaveLength(2);
+    expect(devices?.items[0]?.route).toBe("mikrotik");
+    expect(devices?.items[1]?.route).toBe("opnsense");
+  });
+
+  it("keeps every tool in exactly one shortcut group", () => {
+    const routes = NAV_ITEMS.map((item) => item.route);
+    for (const route of routes) {
+      expect(groupOf(route), `group for ${route}`).toBeDefined();
+    }
+    const flat = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.route));
+    expect(new Set(flat).size).toBe(flat.length);
+  });
+
+  it("assigns Ctrl 7 to MikroTik, Ctrl 8 to OPNsense and Ctrl 9 to Help", () => {
+    expect(shortcutOf("mikrotik")).toBe("Ctrl 7");
+    expect(shortcutOf("opnsense")).toBe("Ctrl 8");
+    expect(shortcutOf("help")).toBe("Ctrl 9");
+  });
+
+  it("numbers shortcuts sequentially across groups", () => {
+    const flat = NAV_GROUPS.flatMap((group) => group.items);
+    flat.forEach((item, index) => {
+      expect(item.shortcut).toBe(`Ctrl ${index + 1}`);
+    });
   });
 
   it("resolves the Ping hash to the ping route", () => {
     expect(resolveRoute("#/ping")).toBe("ping");
   });
 
-  it("resolves the Web Benchmark hash to the download-speed route", () => {
-    expect(resolveRoute("#/download-speed")).toBe("download-speed");
-  });
-
-  it("resolves the Traceroute hash to the traceroute route", () => {
-    expect(resolveRoute("#/traceroute")).toBe("traceroute");
-  });
-
-  it("resolves the MTU Discovery hash to the mtu route", () => {
-    expect(resolveRoute("#/mtu")).toBe("mtu");
-  });
-
-  it("resolves the Network scanner hash to the lan-scan route", () => {
-    expect(resolveRoute("#/lan-scan")).toBe("lan-scan");
+  it("resolves the OPNsense hash to the opnsense route", () => {
+    expect(resolveRoute("#/opnsense")).toBe("opnsense");
   });
 
   it("resolves the MikroTik hash to the mikrotik route", () => {

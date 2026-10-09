@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-test("sidebar shows all tool nav items", async ({ page }) => {
+test("sidebar shows all tool nav items and Devices shortcuts", async ({ page }) => {
   await page.goto("/");
   const navItems = page.locator("nav[aria-label='Tools'] a");
-  await expect(navItems).toHaveCount(8);
+  await expect(navItems).toHaveCount(9);
   // Nav items include a "Ctrl N" kbd hint after the label.
   await expect(navItems.nth(0)).toHaveText(/Ping/);
   await expect(navItems.nth(1)).toHaveText(/Traceroute/);
@@ -11,8 +11,10 @@ test("sidebar shows all tool nav items", async ({ page }) => {
   await expect(navItems.nth(3)).toHaveText(/Network scanner/);
   await expect(navItems.nth(4)).toHaveText(/MTU Discovery/);
   await expect(navItems.nth(5)).toHaveText(/DNS Toolkit/);
-  await expect(navItems.nth(6)).toHaveText(/MikroTik/);
-  await expect(navItems.nth(7)).toHaveText(/Help/);
+  await expect(navItems.nth(6)).toHaveText(/MikroTik.*Ctrl 7/);
+  await expect(navItems.nth(7)).toHaveText(/OPNsense.*Ctrl 8/);
+  await expect(navItems.nth(8)).toHaveText(/Help.*Ctrl 9/);
+  await expect(page.locator("nav[aria-label='Tools']")).toContainText("Devices");
 });
 
 test("unknown hash renders the Ping view", async ({ page }) => {
