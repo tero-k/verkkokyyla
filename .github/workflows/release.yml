@@ -55,6 +55,27 @@ jobs:
           # not recognize them and would print the p12 in later env dumps.
           echo "::add-mask::$(base64 -i /tmp/cert-legacy.p12)"
           echo "APPLE_CERTIFICATE=$(base64 -i /tmp/cert-legacy.p12)" >> "$GITHUB_ENV"
+      # Fail fast (before the 10-minute build) with enough detail to fix
+      # signing issues: what the p12 contains and whether macOS accepts the
+      # original and re-encoded variants as codesigning identities.
+      - name: Diagnose macOS signing identity
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "== p12 contents =="
+          openssl pkcs12 -in /tmp/cert-modern.p12 -out /tmp/cert.pem -nodes -passin "pass:$APPLE_CERTIFICATE_PASSWORD"
+          echo "certificates: $(grep -c 'BEGIN CERTIFICATE' /tmp/cert.pem), private keys: $(grep -c 'PRIVATE KEY' /tmp/cert.pem)"
+          openssl crl2pkcs7 -nocrl -certfile /tmp/cert.pem | openssl pkcs7 -print_certs -noout
+          echo "== leaf validity =="
+          awk '/BEGIN CERTIFICATE/{c++} c==1' /tmp/cert.pem | openssl x509 -noout -subject -dates || true
+          for variant in modern legacy; do
+            echo "== find-identity ($variant p12) =="
+            security create-keychain -p diag-pass "/tmp/diag-$variant.keychain" || true
+            security import "/tmp/cert-$variant.p12" -k "/tmp/diag-$variant.keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign || true
+            security find-identity -v -p codesigning "/tmp/diag-$variant.keychain" || true
+            security delete-keychain "/tmp/diag-$variant.keychain" || true
+          done
       # Pull this version's section out of CHANGELOG.md for the release body.
       - name: Extract release notes from CHANGELOG
         id: notes
