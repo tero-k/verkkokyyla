@@ -894,16 +894,17 @@ mod tests {
         let manager = manager_for(&dir, api).await;
         let id = profile(&manager, "fw").await;
         let monitors = OpnsenseMonitorManager::new(manager);
-        // Pause only AFTER the pool is established: paused time would
-        // fast-forward sqlx's acquire timeout past the blocking connect.
-        tokio::time::pause();
-
         let (on_snapshot, mut snapshots) = snapshot_sink();
         let (on_status, mut statuses) = status_sink();
+        // Pause only AFTER start: under paused time the runtime fast-forwards
+        // sqlx's acquire timeout past the blocking connect when start and the
+        // first tick race for the pool's single open connection (PoolTimedOut
+        // flake on CI).
         monitors
             .start(id, on_snapshot, on_status)
             .await
             .expect("start");
+        tokio::time::pause();
 
         let first = snapshots.recv().await.expect("first snapshot");
         assert_eq!(first.profile_id, id);
@@ -978,7 +979,6 @@ mod tests {
         let manager = manager_for(&dir, api).await;
         let id = profile(&manager, "fw").await;
         let monitors = OpnsenseMonitorManager::new(manager);
-        tokio::time::pause();
 
         let (on_snapshot, _snapshots) = snapshot_sink();
         let (on_status, _statuses) = status_sink();
@@ -1007,14 +1007,17 @@ mod tests {
             Duration::from_secs(5),
             RULES_EVERY_TICKS,
         );
-        tokio::time::pause();
-
         let (on_snapshot, mut snapshots) = snapshot_sink();
         let (on_status, _statuses) = status_sink();
+        // Pause only AFTER start: under paused time the runtime fast-forwards
+        // sqlx's acquire timeout past the blocking connect when start and the
+        // first tick race for the pool's single open connection (PoolTimedOut
+        // flake on CI).
         monitors
             .start(id, on_snapshot, on_status)
             .await
             .expect("start");
+        tokio::time::pause();
 
         let mut seen = Vec::new();
         for _ in 0..4 {
