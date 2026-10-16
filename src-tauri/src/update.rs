@@ -131,27 +131,27 @@ mod tests {
     #[test]
     fn evaluate_release_reports_newer_version() {
         let info = evaluate_release(
-            "v0.2.0",
-            "https://github.com/tero-k/verkkokyyla/releases/tag/v0.2.0",
+            "v99.0.0",
+            "https://github.com/tero-k/verkkokyyla/releases/tag/v99.0.0",
             &current(),
         )
         .expect("newer release should be reported");
-        assert_eq!(info.version, "0.2.0");
+        assert_eq!(info.version, "99.0.0");
         assert_eq!(info.current, env!("CARGO_PKG_VERSION"));
         assert_eq!(
             info.url,
-            "https://github.com/tero-k/verkkokyyla/releases/tag/v0.2.0"
+            "https://github.com/tero-k/verkkokyyla/releases/tag/v99.0.0"
         );
     }
 
     #[test]
     fn evaluate_release_accepts_tag_without_v_prefix() {
         let info = evaluate_release(
-            "0.2.0",
+            "99.0.0",
             "https://github.com/tero-k/verkkokyyla/releases",
             &current(),
         );
-        assert_eq!(info.expect("newer release").version, "0.2.0");
+        assert_eq!(info.expect("newer release").version, "99.0.0");
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn evaluate_release_falls_back_to_releases_page_for_foreign_urls() {
-        let info = evaluate_release("v0.2.0", "https://evil.example/steal", &current())
+        let info = evaluate_release("v99.0.0", "https://evil.example/steal", &current())
             .expect("newer release should be reported");
         assert_eq!(info.url, RELEASES_PAGE_URL);
     }
