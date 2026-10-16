@@ -1,4 +1,5 @@
 import type { MikrotikBridgeVlanDto, MikrotikVlanDto } from "../lib/types"
+import { HorizontalScrollArea } from "./ui/HorizontalScrollArea"
 
 import styles from "./MikrotikVlanPanel.module.css"
 
@@ -38,7 +39,7 @@ export function MikrotikVlanPanel({
         {vlans.length === 0 ? (
           <p className={styles.empty}>No VLANs configured</p>
         ) : (
-          <div className={styles.tableWrapper}>
+          <HorizontalScrollArea label="VLAN interfaces" className={styles.tableWrapper}>
             <table className={styles.table} aria-label="VLAN interfaces">
               <thead>
                 <tr>
@@ -61,7 +62,7 @@ export function MikrotikVlanPanel({
                 ))}
               </tbody>
             </table>
-          </div>
+          </HorizontalScrollArea>
         )}
       </section>
 
@@ -70,7 +71,7 @@ export function MikrotikVlanPanel({
         {bridgeVlans.length === 0 ? (
           <p className={styles.empty}>No VLANs configured</p>
         ) : (
-          <div className={styles.tableWrapper}>
+          <HorizontalScrollArea label="Bridge VLAN entries" className={styles.tableWrapper}>
             <table className={styles.table} aria-label="Bridge VLAN entries">
               <thead>
                 <tr>
@@ -98,7 +99,7 @@ export function MikrotikVlanPanel({
                 ))}
               </tbody>
             </table>
-          </div>
+          </HorizontalScrollArea>
         )}
       </section>
     </div>

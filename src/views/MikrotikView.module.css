@@ -58,8 +58,8 @@
 
 .tabBar {
   display: flex;
-  gap: 22px;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 0 22px;
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
   background: var(--header-bg);

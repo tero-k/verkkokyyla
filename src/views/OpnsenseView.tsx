@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
 import { Button, Card, Live, Segmented, ViewHeader } from "../components/ui/ui"
+import { HorizontalScrollArea } from "../components/ui/HorizontalScrollArea"
 import { SshTerminalPanel, terminalAccentFor, type SshTerminalAdapter } from "../components/SshTerminalPanel"
 import { TerminalSwitchWarning } from "../components/TerminalSwitchWarning"
 import { ConfirmDialog } from "../components/ConfirmDialog"
@@ -17,10 +18,11 @@ import {
   opnsenseErrorPayload,
   type CreateOpnsenseProfileRequest,
   type OpnsenseBackupResultDto,
-  type OpnsenseFirmwareStatusDto,
   type OpnsenseInterfaceDto,
   type OpnsenseProfile,
   type OpnsenseRevisionDto,
+  type OpnsenseRuleDto,
+  type OpnsenseVersionCheckDto,
   type OpnsenseVpnServiceDto,
   type OpnsenseWireguardPeerDto,
   type UpdateOpnsenseProfileRequest,
@@ -32,11 +34,11 @@ const TABS = [
   { id: "profiles", label: "Profiles" },
   { id: "overview", label: "Overview" },
   { id: "rules", label: "Firewall rules" },
-  { id: "logs", label: "Firewall logs" },
   { id: "vpn", label: "Interfaces & VPN" },
+  { id: "logs", label: "Firewall logs" },
   { id: "firmware", label: "Firmware" },
-  { id: "backups", label: "Backups" },
   { id: "terminal", label: "Terminal" },
+  { id: "backups", label: "Backups" },
 ] as const
 
 type TabId = (typeof TABS)[number]["id"]
@@ -73,6 +75,16 @@ function actionBadgeClass(action: string): string {
   if (action === "pass") return styles.badgeOk
   if (action === "block" || action === "reject") return styles.badgeErr
   return styles.badgeMuted
+}
+
+const PASSPHRASE_HINT = "Use at least 12 characters with a mix of letters, digits or symbols."
+
+/** Mirrors the backend policy: ≥12 chars AND ≥2 of lower/upper/digit/symbol. */
+function passphraseStrength(passphrase: string): "blank" | "weak" | "ok" {
+  if (passphrase.trim() === "") return "blank"
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^\p{L}\p{N}]/u]
+    .filter((re) => re.test(passphrase)).length
+  return Array.from(passphrase).length >= 12 && classes >= 2 ? "ok" : "weak"
 }
 
 function staleTag(view: OpnsenseSectionView<unknown> | null | undefined): ReactNode {
@@ -375,10 +387,94 @@ function OverviewTab({ device }: { readonly device: OpnsenseDeviceState | null }
 // Firewall rules tab
 // ---------------------------------------------------------------------------
 
+/** Rules grouped by the interface token list. Tokens normalize to lowercase
+    for the key ("WAN" and "wan" land together; "lan,opt1" stays one group);
+    the first-seen original casing becomes the label. Empty interface sorts
+    last as "Floating / all interfaces". */
+type RuleGroup = {
+  readonly key: string
+  readonly label: string
+  readonly rules: readonly OpnsenseRuleDto[]
+}
+
+function groupRules(rules: readonly OpnsenseRuleDto[]): RuleGroup[] {
+  const groups = new Map<string, { label: string; rules: OpnsenseRuleDto[] }>()
+  for (const rule of rules) {
+    const trimmed = rule.interface.trim()
+    const key =
+      trimmed === ""
+        ? ""
+        : trimmed.split(",").map((token) => token.trim().toLowerCase()).join(",")
+    let group = groups.get(key)
+    if (group === undefined) {
+      group = { label: trimmed === "" ? "Floating / all interfaces" : trimmed, rules: [] }
+      groups.set(key, group)
+    }
+    group.rules.push(rule)
+  }
+  return [...groups.entries()]
+    .map(([key, group]) => ({ key, label: group.label, rules: group.rules }))
+    .sort((a, b) => {
+      if (a.key === "") return 1
+      if (b.key === "") return -1
+      return a.label.localeCompare(b.label)
+    })
+}
+
+function RuleGroupTable({ group }: { readonly group: RuleGroup }) {
+  return (
+    <HorizontalScrollArea label={`Firewall rules — ${group.label}`} className={styles.scroller}>
+      <table className={styles.table} aria-label={`Firewall rules — ${group.label}`}>
+        <thead>
+          <tr>
+            <th scope="col">Action</th>
+            <th scope="col">Interface</th>
+            <th scope="col">Description</th>
+            <th scope="col">Source</th>
+            <th scope="col">Destination</th>
+            <th scope="col">Proto</th>
+            <th scope="col" className={styles.num}>Hits (packets)</th>
+            <th scope="col" className={styles.num}>Evaluations</th>
+            <th scope="col" className={styles.num}>Bytes</th>
+            <th scope="col" className={styles.num}>States</th>
+          </tr>
+        </thead>
+        <tbody>
+          {group.rules.map((rule) => (
+            <tr key={rule.uuid} className={rule.enabled ? undefined : styles.rowDisabled} data-testid="opnsense-rule-row">
+              <td><span className={`${styles.badge} ${actionBadgeClass(rule.action)}`}>{rule.action}</span></td>
+              <td>{rule.interface}</td>
+              <td>{rule.description || "—"}</td>
+              <td className={styles.mono}>{rule.source}</td>
+              <td className={styles.mono}>{rule.destination}</td>
+              <td className={styles.mono}>{rule.protocol || "—"}</td>
+              <td className={styles.num}>{dash(rule.packets)}</td>
+              <td className={styles.num}>{dash(rule.evaluations)}</td>
+              <td className={styles.num}>{formatBytes(rule.bytes)}</td>
+              <td className={styles.num}>{dash(rule.states)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </HorizontalScrollArea>
+  )
+}
+
 function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
   const view = device?.rules ?? null
   const placeholder = sectionPlaceholder(view, "Connect to collect firewall rules.")
   const data = view?.data ?? null
+  const groups = useMemo(() => (data !== null ? groupRules(data.rules) : []), [data])
+  const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string>>(new Set())
+
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsedKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   return (
     <div className={styles.tabStack} data-testid="opnsense-rules">
@@ -397,41 +493,45 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
               Hit counters unavailable: {data.countersError.message} — rule definitions are shown without counters.
             </p>
           ) : null}
-          <div className={styles.scroller}>
-            <table className={styles.table} aria-label="Firewall rules">
-              <thead>
-                <tr>
-                  <th scope="col">Action</th>
-                  <th scope="col">Interface</th>
-                  <th scope="col">Description</th>
-                  <th scope="col">Source</th>
-                  <th scope="col">Destination</th>
-                  <th scope="col">Proto</th>
-                  <th scope="col" className={styles.num}>Hits (packets)</th>
-                  <th scope="col" className={styles.num}>Evaluations</th>
-                  <th scope="col" className={styles.num}>Bytes</th>
-                  <th scope="col" className={styles.num}>States</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rules.map((rule) => (
-                  <tr key={rule.uuid} className={rule.enabled ? undefined : styles.rowDisabled} data-testid="opnsense-rule-row">
-                    <td><span className={`${styles.badge} ${actionBadgeClass(rule.action)}`}>{rule.action}</span></td>
-                    <td>{rule.interface}</td>
-                    <td>{rule.description || "—"}</td>
-                    <td className={styles.mono}>{rule.source}</td>
-                    <td className={styles.mono}>{rule.destination}</td>
-                    <td className={styles.mono}>{rule.protocol || "—"}</td>
-                    <td className={styles.num}>{dash(rule.packets)}</td>
-                    <td className={styles.num}>{dash(rule.evaluations)}</td>
-                    <td className={styles.num}>{dash(rule.bytes)}</td>
-                    <td className={styles.num}>{dash(rule.states)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {data.rules.length === 0 ? <p className={styles.empty}>No rules reported.</p> : null}
-          </div>
+          {groups.length > 0 ? (
+            <div className={styles.toolbarRow}>
+              <Button variant="secondary" onClick={() => setCollapsedKeys(new Set(groups.map((group) => group.key)))}>
+                Collapse all
+              </Button>
+              <Button variant="secondary" onClick={() => setCollapsedKeys(new Set())}>
+                Expand all
+              </Button>
+            </div>
+          ) : null}
+          {groups.map((group) => {
+            const collapsed = collapsedKeys.has(group.key)
+            let hitsSum: number | null = null
+            for (const rule of group.rules) {
+              if (rule.packets != null) hitsSum = (hitsSum ?? 0) + rule.packets
+            }
+            return (
+              <section key={group.key} className={styles.ruleGroup} data-testid="opnsense-rule-group-section">
+                <button
+                  type="button"
+                  className={styles.ruleGroupHeader}
+                  aria-expanded={!collapsed}
+                  data-testid="opnsense-rule-group"
+                  onClick={() => toggleGroup(group.key)}
+                >
+                  <span className={styles.ruleGroupChevron} aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+                  <span className={styles.ruleGroupLabel}>{group.label}</span>
+                  <span className={styles.hint}>
+                    {group.rules.length === 1 ? "1 rule" : `${group.rules.length} rules`}
+                  </span>
+                  {hitsSum !== null ? (
+                    <span className={styles.hint}>Σ {hitsSum.toLocaleString()} hits</span>
+                  ) : null}
+                </button>
+                {collapsed ? null : <RuleGroupTable group={group} />}
+              </section>
+            )
+          })}
+          {data.rules.length === 0 ? <p className={styles.empty}>No rules reported.</p> : null}
           <p className={styles.hint}>
             {data.rules.length === data.total
               ? `${data.total} rules. `
@@ -442,7 +542,7 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
           {data.unmappedRunning.length > 0 ? (
             <section data-testid="opnsense-unmapped-rules">
               <h3 className={styles.cardTitle}>Unmapped running rules</h3>
-              <div className={styles.scroller}>
+              <HorizontalScrollArea label="Unmapped running rules" className={styles.scroller}>
                 <table className={styles.table} aria-label="Unmapped running rules">
                   <thead>
                     <tr>
@@ -465,7 +565,7 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </HorizontalScrollArea>
               <p className={styles.hint}>
                 Active PF rules/stats that match no reported rule UUID. Numeric PF IDs are never
                 joined to rule UUIDs.
@@ -538,7 +638,7 @@ function LogsTab({ profileId }: { readonly profileId: number | null }) {
 
       {logs.error !== "" ? <p className={styles.banner} role="alert">{logs.error}</p> : null}
 
-      <div className={styles.scroller} ref={scrollerRef}>
+      <HorizontalScrollArea label="Firewall logs" className={styles.scroller} scrollRef={scrollerRef}>
         <table className={styles.table} aria-label="Firewall log entries">
           <thead>
             <tr>
@@ -572,7 +672,7 @@ function LogsTab({ profileId }: { readonly profileId: number | null }) {
             {logs.running ? "Waiting for log entries…" : "Connect to the stream to see firewall logs."}
           </p>
         ) : null}
-      </div>
+      </HorizontalScrollArea>
       <p className={styles.hint}>
         {logs.entries.length === logs.totalCount
           ? `${logs.totalCount} entries (newest 500 kept)`
@@ -589,13 +689,16 @@ function LogsTab({ profileId }: { readonly profileId: number | null }) {
 function InterfaceTable({ interfaces }: { readonly interfaces: readonly OpnsenseInterfaceDto[] }) {
   if (interfaces.length === 0) return <p className={styles.hint}>No interfaces reported.</p>
   return (
-    <div className={styles.scroller}>
-      <table className={styles.table} aria-label="Network interfaces">
+    <HorizontalScrollArea label="Network interfaces" className={styles.scroller}>
+      <table className={`${styles.table} ${styles.ifaceTable}`} aria-label="Network interfaces">
         <thead>
           <tr>
             <th scope="col">Name</th>
             <th scope="col">Description</th>
             <th scope="col">Link</th>
+            <th scope="col">MAC</th>
+            <th scope="col" className={styles.num}>MTU</th>
+            <th scope="col">Media</th>
             <th scope="col">IPv4</th>
             <th scope="col">IPv6</th>
             <th scope="col" className={styles.num}>RX bytes</th>
@@ -607,7 +710,20 @@ function InterfaceTable({ interfaces }: { readonly interfaces: readonly Opnsense
         <tbody>
           {interfaces.map((item) => (
             <tr key={item.name} className={item.enabled ? undefined : styles.rowDisabled}>
-              <td className={styles.mono}>{item.name}</td>
+              <td className={styles.mono}>
+                {item.name}
+                {item.lagg != null ? (
+                  <div className={styles.laggLine}>
+                    {item.name} · {item.lagg.proto ?? "lagg"} —{" "}
+                    {item.lagg.members.map((member) => {
+                      const details = [...member.state, member.media ?? null, member.link ?? null]
+                        .filter((part): part is string => part !== null && part !== "")
+                        .join(", ")
+                      return `${member.name}${details !== "" ? ` (${details})` : ""}`
+                    }).join(", ")}
+                  </div>
+                ) : null}
+              </td>
               <td>{item.description ?? "—"}</td>
               <td>
                 {item.link !== null && item.link !== undefined ? (
@@ -616,17 +732,20 @@ function InterfaceTable({ interfaces }: { readonly interfaces: readonly Opnsense
                   "—"
                 )}
               </td>
-              <td className={styles.mono}>{item.ipv4 ?? "—"}</td>
-              <td className={styles.mono}>{item.ipv6 ?? "—"}</td>
-              <td className={styles.num}>{dash(item.rxBytes)}</td>
-              <td className={styles.num}>{dash(item.txBytes)}</td>
+              <td className={styles.mono}>{item.macaddr ?? "—"}</td>
+              <td className={styles.num}>{item.mtu ?? "—"}</td>
+              <td className={styles.mono}>{item.media ?? "—"}</td>
+              <td className={styles.mono}>{item.ipv4.length > 0 ? item.ipv4.join(", ") : "—"}</td>
+              <td className={styles.mono}>{item.ipv6.length > 0 ? item.ipv6.join(", ") : "—"}</td>
+              <td className={styles.num}>{formatBytes(item.rxBytes)}</td>
+              <td className={styles.num}>{formatBytes(item.txBytes)}</td>
               <td className={styles.num}>{dash(item.rxPackets)}</td>
               <td className={styles.num}>{dash(item.txPackets)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </HorizontalScrollArea>
   )
 }
 
@@ -704,6 +823,12 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                           {wgInterface.peers.map((peer) => (
                             <li key={peer.name}>
                               <span>{peer.name}</span> <WireguardPeerStatus peer={peer} />
+                              {peer.endpoint != null ? <span className={styles.hint}> — {peer.endpoint}</span> : null}
+                              {(peer.transferRxBytes != null || peer.transferTxBytes != null) ? (
+                                <span className={styles.hint}>
+                                  {" "}↓ {formatBytes(peer.transferRxBytes)} ↑ {formatBytes(peer.transferTxBytes)}
+                                </span>
+                              ) : null}
                             </li>
                           ))}
                         </ul>
@@ -727,6 +852,9 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                       <span>{session.name}</span>
                       {session.description != null ? <span className={styles.hint}> — {session.description}</span> : null}
                       <span className={styles.hint}> ({session.kind})</span>
+                      {session.realAddress != null ? <span className={styles.hint}> · from {session.realAddress}</span> : null}
+                      {session.virtualAddress != null ? <span className={styles.hint}> · tunnel {session.virtualAddress}</span> : null}
+                      {session.connectedSince != null ? <span className={styles.hint}> · since {session.connectedSince}</span> : null}
                     </li>
                   ))}
                 </ul>
@@ -745,6 +873,8 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                       </span>{" "}
                       <span>{session.name}</span>
                       {session.description != null ? <span className={styles.hint}> — {session.description}</span> : null}
+                      {session.remoteHost != null ? <span className={styles.hint}> · {session.remoteHost}</span> : null}
+                      {session.version != null ? <span className={styles.hint}> · {session.version}</span> : null}
                     </li>
                   ))}
                 </ul>
@@ -780,12 +910,14 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                 ) : (
                   <ul className={styles.upgradeList}>
                     {data.peers.map((peer) => (
-                      <li key={peer.name}>
+                      <li key={peer.name} className={styles.peerRow}>
                         <span className={`${styles.badge} ${peer.online === true ? styles.badgeOk : peer.online === false ? styles.badgeMuted : styles.badgeWarn}`}>
                           {peer.online == null ? "unknown" : peer.online ? "online" : "offline"}
-                        </span>{" "}
-                        <span>{peer.name}</span>{" "}
-                        <span className={styles.hint}>{peer.ips.join(", ")}{peer.lastSeen != null ? ` · last seen ${peer.lastSeen}` : ""}</span>
+                        </span>
+                        <span className={styles.peerBody}>
+                          <span className={styles.peerName}>{peer.name}</span>
+                          <span className={styles.hint}>{peer.ips.join(", ")}{peer.lastSeen != null ? ` · last seen ${peer.lastSeen}` : ""}</span>
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -795,21 +927,18 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
           </VpnServiceCard>
         </div>
       ) : null}
+      <p className={styles.hint}>Refreshes every 5 s while monitoring runs.</p>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Firmware tab (cached status only)
-// ---------------------------------------------------------------------------
-
 function FirmwareTab({ profileId, firmware, onRefresh }: {
   readonly profileId: number | null
-  readonly firmware: { readonly profileId: number; readonly status: OpnsenseFirmwareStatusDto } | null
+  readonly firmware: { readonly profileId: number; readonly check: OpnsenseVersionCheckDto } | null
   readonly onRefresh: (profileId?: number) => Promise<unknown>
 }) {
   const [busy, setBusy] = useState(false)
-  const status = firmware !== null && firmware.profileId === profileId ? firmware.status : null
+  const check = firmware !== null && firmware.profileId === profileId ? firmware.check : null
 
   async function refresh(): Promise<void> {
     if (profileId === null) return
@@ -824,81 +953,67 @@ function FirmwareTab({ profileId, firmware, onRefresh }: {
   return (
     <div className={styles.tabStack} data-testid="opnsense-firmware">
       <p className={styles.hint}>
-        This reads the firewall&apos;s <strong>cached</strong> update check — the app never triggers a
-        remote check with the read-only API key. To refresh what the firewall knows, run
-        &quot;Check for updates&quot; in the OPNsense GUI first.
+        Compares installed firmware with the changelog cached on the firewall. The firewall
+        fetches it during its own update checks; this read-only app never triggers a check
+        or installs updates. The cached core and plugin results may be stale.
       </p>
       <div className={styles.toolbarRow}>
         <Button variant="primary" disabled={profileId === null || busy} onClick={() => void refresh()}>
-          {busy ? "Refreshing…" : "Refresh cached status"}
+          {busy ? "Reading…" : "Read cached status"}
         </Button>
       </div>
-
-      {status !== null ? (
+      {check !== null ? (
         <div className={styles.tabStack}>
-          {status.state === "no-cache" ? (
-            <p className={`${styles.banner} ${styles.bannerWarn}`} data-testid="opnsense-firmware-no-cache">
-              No cached update check — run Check for updates in OPNsense, then refresh here.
+          {check.state === "update-available" ? (
+            <p className={`${styles.banner} ${styles.bannerWarn}`} data-testid="opnsense-update-available">
+              Firmware update available: {check.installedVersion ?? "unknown"} → {check.latestVersion}
             </p>
           ) : null}
-          {status.state === "unavailable" ? (
-            <p className={styles.banner} role="alert">
-              {status.message ?? "Cached update status unavailable with read-only API access"}
+          {check.state === "up-to-date" ? (
+            <p className={styles.success}>No newer release in the firewall&apos;s cached {check.series} changelog.</p>
+          ) : null}
+          {check.state === "unknown" || check.state === "error" ? (
+            <p className={`${styles.banner} ${styles.bannerWarn}`} role="status" data-testid="opnsense-firmware-unknown">
+              Update availability unknown: {check.message ?? "No cached release changelog is available."}
             </p>
           ) : null}
-          {status.state === "error" ? (
-            <p className={styles.banner} role="alert">{status.message ?? "Update status error"}</p>
-          ) : null}
-          {status.state === "cached-none" ? (
-            <p className={styles.success}>No updates in the last cached check.</p>
-          ) : null}
-
-          {status.state === "cached-updates" ? (
-            <div className={styles.cards}>
-              {status.coreUpgrades.length > 0 ? (
-                <Card className={styles.card}>
-                  <h3 className={styles.cardTitle}>Core/system upgrades</h3>
-                  <ul className={styles.upgradeList}>
-                    {status.coreUpgrades.map((upgrade) => (
-                      <li key={upgrade.name}>
-                        <span>{upgrade.name}</span>
-                        <span>{upgrade.oldVersion ?? "?"} → {upgrade.newVersion ?? "?"}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              ) : null}
-              <Card className={styles.card}>
-                <h3 className={styles.cardTitle}>Plugin upgrades</h3>
-                {status.pluginUpgrades.length === 0 ? (
-                  <p className={styles.hint}>No plugin upgrades in the last cached check.</p>
-                ) : (
-                  <ul className={styles.upgradeList}>
-                    {status.pluginUpgrades.map((upgrade) => (
-                      <li key={upgrade.name}>
-                        <span>{upgrade.name}</span>
-                        <span>{upgrade.oldVersion ?? "?"} → {upgrade.newVersion ?? "?"}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-            </div>
-          ) : null}
-
-          {status.rebootRequired ? (
-            <p className={`${styles.banner} ${styles.bannerWarn}`}>
-              A reboot is required to complete the pending upgrade — reboot from the OPNsense GUI.
-            </p>
-          ) : null}
-
           <p className={styles.hint} data-testid="opnsense-firmware-meta">
-            Installed version: {status.installedVersion ?? "unknown"} ·{" "}
-            {status.checkedAt != null ? `Checked at: ${status.checkedAt}` : "Check time unknown"}
+            Installed: {check.installedVersion ?? "unknown"} · Latest cached: {check.latestVersion ?? "unknown"} ·
+            {" "}ABI: {check.abi ?? "unknown"} · Cache read: {check.checkedAt}
           </p>
+          {check.changelog.length > 0 ? (
+            <Card className={styles.card}>
+              <h3 className={styles.cardTitle}>Newer releases</h3>
+              <ul className={styles.upgradeList}>
+                {check.changelog.map((entry) => (
+                  <li key={entry.version}>{entry.version}{entry.date != null ? ` · ${entry.date}` : ""}</li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+          <Card className={styles.card}>
+            <h3 className={styles.cardTitle}>Installed plugins</h3>
+            {check.plugins.length === 0 ? <p className={styles.hint}>No installed plugins reported.</p> : (
+              <ul className={styles.upgradeList}>
+                {check.plugins.map((plugin) => (
+                  <li key={plugin.name}>
+                    {plugin.name} · {plugin.version ?? "version unknown"}
+                    {plugin.cachedUpgradeVersion != null ? (
+                      <span className={`${styles.badge} ${styles.badgeWarn}`}>
+                        cached upgrade → {plugin.cachedUpgradeVersion}
+                      </span>
+                    ) : <span className={styles.hint}>update availability unknown</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className={styles.hint}>
+              Check System ▸ Firmware ▸ Plugins in OPNsense for current plugin updates.
+            </p>
+          </Card>
         </div>
       ) : (
-        <p className={styles.hint}>Select a profile and refresh to read the cached update status.</p>
+        <p className={styles.hint}>Select a profile to read its cached release changelog.</p>
       )}
     </div>
   )
@@ -933,8 +1048,11 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
   const [error, setError] = useState("")
   const [result, setResult] = useState<OpnsenseBackupResultDto | null>(null)
   const items = revisions !== null && revisions.profileId === profileId ? revisions.items : null
+  const [revisionId, setRevisionId] = useState<string | null>(null)
   const nameIsValid = validBackupName(backupName)
-  const canSubmit = profileId !== null && destination !== "" && passphrase !== "" && nameIsValid && !busy
+  const strength = passphraseStrength(passphrase)
+  const canSubmit = profileId !== null && items !== null && items.length > 0 &&
+    destination !== "" && strength === "ok" && nameIsValid && !busy
   const profileRef = useRef(profileId)
   profileRef.current = profileId
 
@@ -945,6 +1063,7 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
     setResult(null)
     setError("")
     setPassphrase("")
+    setRevisionId(null)
     if (profileId !== null) void refreshRef.current(profileId)
   }, [profileId])
 
@@ -954,12 +1073,12 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
   }
 
   async function run(): Promise<void> {
-    if (profileId === null || destination === "" || passphrase === "" || !nameIsValid) return
+    if (!canSubmit || profileId === null) return
     setBusy(true)
     setError("")
     setResult(null)
     try {
-      const next = await onBackup({ profileId, destinationDir: destination, backupName, passphrase })
+      const next = await onBackup({ profileId, destinationDir: destination, backupName, passphrase, revisionId })
       if (profileRef.current !== profileId) return
       if (next !== null) {
         setResult(next)
@@ -984,7 +1103,7 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
           <p className={styles.hint} data-testid="opnsense-no-revisions">No saved configuration revision.</p>
         ) : null}
         {items !== null && items.length > 0 ? (
-          <div className={styles.scroller}>
+          <HorizontalScrollArea label="Saved configuration revisions" className={styles.scroller}>
             <table className={styles.table} aria-label="Saved configuration revisions">
               <thead>
                 <tr>
@@ -1005,7 +1124,7 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
                 ))}
               </tbody>
             </table>
-          </div>
+          </HorizontalScrollArea>
         ) : null}
         <p className={styles.hint}>
           The firewall keeps saved revisions on its own schedule — the newest one may be older than
@@ -1022,6 +1141,19 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
         <label>
           Passphrase (required, never stored)
           <input type="password" value={passphrase} autoComplete="new-password" onChange={(event) => setPassphrase(event.currentTarget.value)} />
+        </label>
+        <p className={strength === "weak" ? styles.error : styles.hint}>{PASSPHRASE_HINT}</p>
+        <label>
+          Saved revision
+          <select value={revisionId ?? ""} disabled={items === null || items.length === 0}
+            onChange={(event) => setRevisionId(event.currentTarget.value || null)}>
+            <option value="">Latest saved revision</option>
+            {items?.map((revision) => (
+              <option key={revision.id} value={revision.id}>
+                {revision.id}{revision.timeIso != null ? ` · ${revision.timeIso}` : ""}
+              </option>
+            ))}
+          </select>
         </label>
         {!nameIsValid ? <p className={styles.error}>Use 1-64 letters, numbers, dot, underscore, or dash; no Windows device names.</p> : null}
         <div className={styles.formActions}>
@@ -1043,7 +1175,7 @@ function BackupsTab({ profileId, revisions, onRefresh, onBackup }: {
             Saved <code>{result.path}</code>
           </p>
           <p>
-            Source: latest <strong>saved</strong> firewall revision <code>{result.sourceRevisionId}</code>
+            Source: <strong>saved</strong> firewall revision <code>{result.sourceRevisionId}</code>
             {result.sourceTimeIso != null ? ` (${result.sourceTimeIso})` : ""} — possibly older than
             unsaved changes on the device.
           </p>
@@ -1406,7 +1538,7 @@ export default function OpnsenseView() {
         <FirmwareTab
           profileId={opnsense.selectedProfile?.id ?? null}
           firmware={opnsense.firmware}
-          onRefresh={opnsense.refreshFirmwareStatus}
+          onRefresh={opnsense.checkFirmwareUpdates}
         />
       </section>
 

@@ -1,8 +1,6 @@
 .wrapper {
   width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-color: var(--surface-3) var(--surface-1);
+  box-sizing: border-box;
 }
 
 .table {

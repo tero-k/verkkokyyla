@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { HorizontalScrollArea } from "../components/ui/HorizontalScrollArea"
 import { useSessionHistory } from "../hooks/useSessionHistory"
 import {
   RevealButton,
@@ -561,7 +562,7 @@ export default function DnsTesterView() {
                   />
                 </div>
 
-                <div className={styles.tableScroll}>
+                <HorizontalScrollArea label="DNS lookup records" outerClassName={styles.tableScroll} className={styles.recordsViewport} unbounded>
                   <table className={styles.recordsTable}>
                     <thead>
                       <tr>
@@ -636,7 +637,7 @@ export default function DnsTesterView() {
                       })}
                     </tbody>
                   </table>
-                </div>
+                </HorizontalScrollArea>
               </Card>
 
               <Card className={styles.dnssecStrip}>

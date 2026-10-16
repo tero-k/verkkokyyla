@@ -12,17 +12,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OPNsense monitoring**: the sidebar's MikroTik group is now Devices,
   with OPNsense (Ctrl 8) alongside MikroTik. OPNsense profiles use a
   dedicated read-only API key (HTTPS GET requests only, stored as one
-  OS-keyring entry) and offer firewall rule hit counters, a live
-  allowed/blocked firewall log stream, interface/VPN/Tailscale status,
-  PF state-table and resource health cards, and cached firmware/plugin
-  update availability (the firewall's own last check — the app never
-  triggers remote checks). Backups download the latest *saved*
-  configuration revision and are always stored locally as
+  OS-keyring entry) and offer firewall rule hit counters grouped by
+  interface, a live allowed/blocked firewall log stream, interface and
+  link-aggregation status, VPN/Tailscale status, and PF state-table and
+  resource health cards. Firmware checks compare the installed version
+  with the firewall's cached release changelog without starting an update
+  check; missing or stale cache cannot prove current availability. Installed
+  plugins show cached upgrade targets when available. Backups can select a
+  saved configuration revision and are always stored locally as
   passphrase-encrypted `*.xml.age` files (restore with
   `age -d -o config.xml <file>.xml.age`, then import in the OPNsense GUI).
   The SSH terminal uses a separate interactive user login with explicit
   SHA-256 host-key verification; API credentials never authenticate SSH.
   Help moved to Ctrl 9.
+
+### Fixed
+
+- Wide data tables now show a draggable horizontal control when window or OS
+  settings hide native scrollbars. Narrow device and diagnostic tabs wrap
+  instead of concealing navigation or table columns.
 
 ## [0.1.5] - 2026-09-20
 

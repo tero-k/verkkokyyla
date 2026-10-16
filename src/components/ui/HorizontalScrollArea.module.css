@@ -1,0 +1,74 @@
+.outer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bounded {
+  /* Keep the horizontal control visible while a long table scrolls vertically. */
+  max-height: min(560px, max(180px, calc(100vh - 320px)));
+}
+
+.viewport {
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* The explicit range is the horizontal bar. Keep native vertical scrolling,
+   but avoid a second horizontal track in WebView2 when both axes overflow. */
+.viewport::-webkit-scrollbar {
+  width: 10px;
+  height: 0;
+}
+
+.viewport::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+.control {
+  display: block;
+  width: 100%;
+  height: 17px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: var(--surface-2);
+  cursor: grab;
+}
+
+.control:active {
+  cursor: grabbing;
+}
+
+.control::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+
+.control::-webkit-slider-thumb {
+  width: var(--scroll-thumb-width);
+  height: 8px;
+  border: 0;
+  border-radius: 4px;
+  appearance: none;
+  background: var(--accent);
+}
+
+.control::-moz-range-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+
+.control::-moz-range-thumb {
+  width: var(--scroll-thumb-width);
+  height: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+}

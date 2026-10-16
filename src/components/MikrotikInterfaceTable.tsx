@@ -1,4 +1,5 @@
 import { formatMetric } from "../lib/format"
+import { HorizontalScrollArea } from "./ui/HorizontalScrollArea"
 import type { MikrotikInterfaceDto } from "../lib/types"
 
 import styles from "./MikrotikInterfaceTable.module.css"
@@ -92,7 +93,7 @@ export function MikrotikInterfaceTable({
   onSelectInterface,
 }: MikrotikInterfaceTableProps) {
   return (
-    <div className={styles.wrapper}>
+    <HorizontalScrollArea label="MikroTik interfaces" className={styles.wrapper}>
       <table
         className={styles.table}
         aria-label="MikroTik interfaces"
@@ -179,6 +180,6 @@ export function MikrotikInterfaceTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </HorizontalScrollArea>
   )
 }

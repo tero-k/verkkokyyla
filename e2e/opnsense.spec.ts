@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 import { installMockTauri } from "./mock-ipc"
 
 async function openOpnsense(page: Page): Promise<void> {
@@ -22,6 +22,20 @@ async function connectMonitor(page: Page): Promise<void> {
   await expect(page.getByTestId("opnsense-rule-row")).toHaveCount(2)
 }
 
+test("OPNsense sections follow the operational order", async ({ page }) => {
+  await openOpnsense(page)
+  await expect(page.getByRole("tablist", { name: "OPNsense sections" }).getByRole("tab")).toHaveText([
+    "Profiles",
+    "Overview",
+    "Firewall rules",
+    "Interfaces & VPN",
+    "Firewall logs",
+    "Firmware",
+    "Terminal",
+    "Backups",
+  ])
+})
+
 test("Devices profile creation, API connection and packet hit counters", async ({ page }) => {
   await openOpnsense(page)
   await expect(page.locator('nav[aria-label="Tools"]')).toContainText("Devices")
@@ -37,10 +51,18 @@ test("Devices profile creation, API connection and packet hit counters", async (
   await page.locator("#opnsense-profile").selectOption("3")
   await connectMonitor(page)
   const rows = page.getByTestId("opnsense-rule-row")
-  await expect(page.getByRole("columnheader", { name: "Hits (packets)" })).toBeVisible()
+  await expect(page.getByRole("table", { name: "Firewall rules — lan" }).getByRole("columnheader", { name: "Hits (packets)" })).toBeVisible()
   await expect(rows.filter({ hasText: "Permit Branch firewall" }).locator("td").nth(6)).toHaveText("12")
   await expect(rows.filter({ hasText: "Block Branch firewall" }).locator("td").nth(6)).toHaveText("0")
   await expect(page.getByTestId("opnsense-rules")).toContainText("older versions may omit legacy rules")
+  const groups = page.getByTestId("opnsense-rule-group")
+  await expect(groups).toHaveCount(2)
+  await expect(groups.first()).toContainText("lan")
+  await groups.first().click()
+  await expect(groups.first()).toHaveAttribute("aria-expanded", "false")
+  await expect(rows).toHaveCount(1)
+  await groups.first().click()
+  await expect(rows).toHaveCount(2)
 })
 
 test("read-only GET pagination limits are visible instead of duplicating rule or interface rows", async ({ page }) => {
@@ -76,11 +98,22 @@ test("blocked and allowed firewall streams filter independently and search visib
 })
 
 test("VPN sections survive missing Tailscale plugin and a healthy firewall reports peers", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 })
   await openOpnsense(page)
   await connectMonitor(page)
   let vpn = await tab(page, "Interfaces & VPN")
   await expect(vpn.getByRole("table", { name: "Network interfaces" })).toContainText("igb0")
   await expect(vpn.getByTestId("opnsense-vpn-wireguard")).toContainText("remote office")
+  await expect(vpn.getByRole("table", { name: "Network interfaces" })).toContainText("aa:bb:cc:dd:ee:ff")
+  await expect(vpn.getByRole("table", { name: "Network interfaces" })).toContainText("lagg0 · lacp")
+  const wan = vpn.getByRole("table", { name: "Network interfaces" }).getByRole("row", { name: /igb0/ })
+  await expect(wan).toContainText("4.0 KiB")
+  await expect(wan).toContainText("2.0 KiB")
+  await expect(wan).toContainText("123,456")
+  await expect(wan).toContainText("78,910")
+  await expect(vpn.getByRole("table", { name: "Network interfaces" })).toContainText("em0 (attached, active")
+  await expect(vpn.getByTestId("opnsense-vpn-wireguard")).toContainText("203.0.113.2:51820")
+  await expect(vpn.getByTestId("opnsense-vpn-openvpn")).toContainText("10.8.0.2")
   await expect(vpn.getByTestId("opnsense-vpn-wireguard")).toContainText("stale")
   await expect(vpn.getByTestId("opnsense-vpn-ipsec")).toContainText("branch tunnel")
   await expect(vpn.getByTestId("opnsense-vpn-ipsec")).toContainText("connected")
@@ -90,40 +123,110 @@ test("VPN sections survive missing Tailscale plugin and a healthy firewall repor
   vpn = await tab(page, "Interfaces & VPN")
   await expect(vpn.getByTestId("opnsense-vpn-tailscale")).toContainText("workstation")
   await expect(vpn.getByTestId("opnsense-vpn-tailscale")).toContainText("100.101.102.103")
+  const tailscale = vpn.getByTestId("opnsense-vpn-tailscale")
+  const ownIps = tailscale.getByText(/fd7a:115c:a1e0::3e01:6f4f/)
+  const offline = tailscale.getByText("offline", { exact: true })
+  await expect(ownIps).toBeVisible()
+  await expect(offline).toBeVisible()
+  expect(await ownIps.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+  expect(await offline.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+  const peerName = tailscale.getByText("Tero's MacBook Pro")
+  expect(await peerName.evaluate((el) => el.getBoundingClientRect().height)).toBeLessThan(25)
   await expect(vpn.getByTestId("opnsense-vpn-ipsec")).toContainText("connected")
 })
 
-test("firmware refresh displays a cached plugin-only upgrade and no-cache guidance", async ({ page }) => {
+test("wide OPNsense tables expose a usable horizontal control on narrow windows", async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 650 })
   await openOpnsense(page)
-  const firmware = await tab(page, "Firmware")
-  await firmware.getByRole("button", { name: "Refresh cached status" }).click()
-  await expect(firmware.getByRole("heading", { name: "Plugin upgrades" })).toBeVisible()
-  await expect(firmware).toContainText("os-tailscale")
-  await expect(firmware).toContainText("1.2 → 1.3")
-  await expect(firmware.getByRole("heading", { name: "Core/system upgrades" })).toHaveCount(0)
-  await expect(firmware.getByTestId("opnsense-firmware-meta")).toContainText("2026-10-04T08:30:00Z")
-  await page.locator("#opnsense-profile").selectOption("2")
-  await firmware.getByRole("button", { name: "Refresh cached status" }).click()
-  await expect(firmware.getByTestId("opnsense-firmware-no-cache")).toContainText("run Check for updates in OPNsense")
-  await expect(firmware.getByTestId("opnsense-firmware-meta")).toContainText("Check time unknown")
-  await expect(firmware.getByRole("heading", { name: "Plugin upgrades" })).toHaveCount(0)
+  await connectMonitor(page)
+  await expect(page.getByRole("tab", { name: "Terminal" })).toBeInViewport()
+
+  async function scrollToLastColumn(panel: Locator, label: string, tableName: string, lastColumn: string) {
+    const slider = panel.getByRole("slider", { name: `Scroll ${label} horizontally` })
+    await expect(slider).toBeVisible()
+    await slider.focus()
+    await slider.press("End")
+    await expect.poll(() => slider.evaluate((el) => {
+      const scroller = el.previousElementSibling as HTMLElement
+      return scroller.scrollLeft >= scroller.scrollWidth - scroller.clientWidth - 1
+    })).toBe(true)
+    const header = panel.getByRole("table", { name: tableName }).getByRole("columnheader", { name: lastColumn })
+    expect(await header.evaluate((el) => {
+      const viewport = el.closest("table")!.parentElement!.getBoundingClientRect()
+      const cell = el.getBoundingClientRect()
+      return cell.left >= viewport.left && cell.right <= viewport.right
+    })).toBe(true)
+  }
+
+  let panel = await tab(page, "Firewall rules")
+  await scrollToLastColumn(panel, "Firewall rules — lan", "Firewall rules — lan", "States")
+
+  panel = await tab(page, "Firewall logs")
+  await panel.getByRole("button", { name: "Connect", exact: true }).click()
+  await expect(panel.getByTestId("opnsense-log-row")).toHaveCount(2)
+  await scrollToLastColumn(panel, "Firewall logs", "Firewall log entries", "Rule")
+
+  panel = await tab(page, "Interfaces & VPN")
+  await scrollToLastColumn(panel, "Network interfaces", "Network interfaces", "TX packets")
+  // A real firewall can report enough interfaces to exceed the window height.
+  // Simulate a long response without altering the default test fixtures.
+  await panel.getByRole("table", { name: "Network interfaces" }).evaluate((table) => {
+    const body = (table as HTMLTableElement).tBodies[0]
+    for (let i = 0; i < 14; i++) body.appendChild(body.rows[0].cloneNode(true))
+  })
+  const bar = panel.getByRole("slider", { name: "Scroll Network interfaces horizontally" })
+  expect(await bar.evaluate((el) => {
+    const viewport = el.previousElementSibling as HTMLElement
+    const bounds = el.closest('[role="tabpanel"]')!.getBoundingClientRect()
+    return {
+      tall: viewport.scrollHeight > viewport.clientHeight,
+      reachable: el.getBoundingClientRect().bottom <= bounds.bottom,
+    }
+  })).toEqual({ tall: true, reachable: true })
+  await page.setViewportSize({ width: 1800, height: 768 })
+  await expect(panel.getByRole("slider", { name: "Scroll Network interfaces horizontally" })).toHaveCount(0)
+
+  panel = await tab(page, "Backups")
+  await expect(panel.getByRole("table", { name: "Saved configuration revisions" })).toBeVisible()
+  await expect(panel.getByRole("slider", { name: "Scroll Saved configuration revisions horizontally" })).toHaveCount(0)
 })
 
-test("encrypted backup identifies its latest saved revision and clears passphrase", async ({ page }) => {
+test("firmware compares cached releases and reports unknown when the cache is missing", async ({ page }) => {
+  await openOpnsense(page)
+  const firmware = await tab(page, "Firmware")
+  await firmware.getByRole("button", { name: "Read cached status" }).click()
+  await expect(firmware.getByTestId("opnsense-update-available")).toContainText("25.7.3 → 25.7.11")
+  await expect(firmware.getByRole("heading", { name: "Newer releases" })).toBeVisible()
+  await expect(firmware).toContainText("os-tailscale · 1.2")
+  await expect(firmware).toContainText("cached upgrade → 1.3")
+  await expect(firmware).toContainText("os-nginx · 1.35")
+  await expect(firmware).toContainText("update availability unknown")
+  await expect(firmware.getByTestId("opnsense-firmware-meta")).toContainText("ABI: 25.7")
+  await page.locator("#opnsense-profile").selectOption("2")
+  await firmware.getByRole("button", { name: "Read cached status" }).click()
+  await expect(firmware.getByTestId("opnsense-firmware-unknown")).toContainText("No cached release changelog")
+  await expect(firmware.getByTestId("opnsense-firmware-meta")).toContainText("Installed: 25.7.3")
+  await expect(firmware.getByRole("heading", { name: "Newer releases" })).toHaveCount(0)
+})
+
+test("encrypted backup selects a saved revision, rejects weak passphrases and clears secrets", async ({ page }) => {
   await openOpnsense(page)
   const backups = await tab(page, "Backups")
   const revisions = backups.getByRole("table", { name: "Saved configuration revisions" })
   await expect(revisions).toContainText("config-20261004.xml")
-  await expect(revisions).toContainText("2026-10-04T09:15:00Z")
+  await expect(revisions).toContainText("config-20260930.xml")
   await backups.getByRole("button", { name: "Choose directory" }).click()
   await backups.getByLabel("Backup name").fill("edge-saved")
+  await backups.getByLabel("Saved revision").selectOption("config-20260930.xml")
   const passphrase = backups.getByLabel("Passphrase (required, never stored)")
+  await passphrase.fill("weak")
+  await expect(backups.getByRole("button", { name: "Save encrypted backup" })).toBeDisabled()
   await passphrase.fill("correct horse battery staple")
   await backups.getByRole("button", { name: "Save encrypted backup" }).click()
   const result = backups.getByTestId("opnsense-backup-result")
   await expect(result).toContainText("edge-saved.xml.age")
-  await expect(result).toContainText("2026-10-04T09:15:00Z")
-  await expect(result).toContainText("latest saved firewall revision")
+  await expect(result).toContainText("config-20260930.xml")
+  await expect(result).toContainText("2026-09-30T09:15:00Z")
   await expect(result).toContainText("age -d -o config.xml")
   await expect(passphrase).toHaveValue("")
   await expect(backups.getByRole("button", { name: "Save encrypted backup" })).toBeDisabled()

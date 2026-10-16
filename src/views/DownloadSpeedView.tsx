@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { BenchmarkResultPanel } from "../components/BenchmarkResultPanel"
+import { HorizontalScrollArea } from "../components/ui/HorizontalScrollArea"
 import { DownloadSpeedSessionPanel } from "../components/DownloadSpeedSessionPanel"
 import {
   useDownloadSpeedTest,
@@ -623,7 +624,7 @@ function PageResult({ result }: { readonly result: import("../lib/types").PageSp
             Slowest only
           </button>
         </div>
-        <div className={styles.tableWrapper}>
+        <HorizontalScrollArea label="Web benchmark resources" className={styles.tableWrapper}>
           <table className={styles.resourceTable} data-testid="page-resource-table">
             <thead>
               <tr>
@@ -689,7 +690,7 @@ function PageResult({ result }: { readonly result: import("../lib/types").PageSp
               })}
             </tbody>
           </table>
-        </div>
+        </HorizontalScrollArea>
       </Card>
     </div>
   )
