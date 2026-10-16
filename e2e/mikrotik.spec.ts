@@ -173,7 +173,7 @@ test("backup library compares two .rsc exports and shows the config diff", async
   await expect(diff.locator('[data-testid="mikrotik-backup-diff-add"]')).toHaveCount(2)
   await expect(diff.locator('[data-testid="mikrotik-backup-diff-remove"]')).toHaveCount(1)
   await expect(diff).toContainText("add chain=forward action=accept")
-  await page.screenshot({ path: ".omo/evidence/mikrotik-backup-diff.png", fullPage: true })
+  await page.screenshot({ path: "test-results/visual-evidence/mikrotik-backup-diff.png", fullPage: true })
 })
 
 const versionCases = [

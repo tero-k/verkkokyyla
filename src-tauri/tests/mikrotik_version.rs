@@ -16,9 +16,9 @@ mod mikrotik_version {
         BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, ResourceDto,
         RouterboardDto, SensorDto, UpdateStatusDto, VlanDto,
     };
-    use verkkokyyla_lib::mikrotik::secrets::MemoryStore;
     use verkkokyyla_lib::mikrotik::types::*;
     use verkkokyyla_lib::mikrotik::version::*;
+    use verkkokyyla_lib::secrets::MemoryStore;
 
     struct TempDir(PathBuf);
 

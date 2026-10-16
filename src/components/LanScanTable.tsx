@@ -1,4 +1,5 @@
 import type { ScanHostDto } from "../lib/types"
+import { HorizontalScrollArea } from "./ui/HorizontalScrollArea"
 
 import styles from "./LanScanTable.module.css"
 
@@ -33,7 +34,7 @@ function formatLastSeen(iso: string): string {
 
 export function LanScanTable({ rows }: LanScanTableProps) {
   return (
-    <div className={styles.wrapper}>
+    <HorizontalScrollArea label="Discovered network devices" outerClassName={styles.wrapper} className={styles.scrollViewport} unbounded>
       <table
         className={styles.table}
         data-testid="lan-scan-table"
@@ -113,6 +114,6 @@ export function LanScanTable({ rows }: LanScanTableProps) {
           )}
         </tbody>
       </table>
-    </div>
+    </HorizontalScrollArea>
   )
 }

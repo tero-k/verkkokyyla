@@ -21,7 +21,7 @@ use crate::mikrotik::parse::{
     ResourceDto, RouterboardDto, SensorDto, UpdateStatusDto, VlanDto,
 };
 
-pub use crate::mikrotik::secrets::SecretError;
+use crate::secrets::SecretError;
 
 /// Factory that builds the per-session REST API handle. Production wraps
 /// [`crate::mikrotik::client::MikrotikClient`]; tests inject a scripted fake

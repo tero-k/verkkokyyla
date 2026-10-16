@@ -16,7 +16,8 @@ const SHORTCUTS: readonly (readonly [string, string])[] = [
   ["Ctrl 5", "MTU Discovery"],
   ["Ctrl 6", "DNS Toolkit"],
   ["Ctrl 7", "MikroTik"],
-  ["Ctrl 8", "Help"],
+  ["Ctrl 8", "OPNsense"],
+  ["Ctrl 9", "Help"],
 ]
 
 export default function HelpView({
@@ -35,9 +36,9 @@ export default function HelpView({
           <h2>Getting around</h2>
           <p>
             Tools are grouped in the sidebar: <strong>Measure</strong> (active probes),{" "}
-            <strong>Discover</strong> (network reconnaissance), and <strong>MikroTik</strong>{" "}
-            (router management). Every tool keeps a local history: sessions are stored in a
-            SQLite database on this machine and can be reopened later.
+            <strong>Discover</strong> (network reconnaissance), and <strong>Devices</strong>{" "}
+            (router and firewall management). Every tool keeps a local history where applicable:
+            sessions are stored in a SQLite database on this machine and can be reopened later.
           </p>
           <ul className={styles.shortcuts}>
             {SHORTCUTS.map(([kbd, label]) => (
@@ -176,6 +177,71 @@ export default function HelpView({
             For typical LAN-managed routers the app accepts unknown SSH host keys on first
             connection instead of requiring a known-hosts entry. If you manage devices you cannot
             physically trust, verify fingerprints out of band before opening terminals or backups.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>OPNsense: profiles &amp; read-only API key</h2>
+          <p>
+            Add a profile per firewall: HTTPS host and port, plus an OPNsense API key/secret
+            stored in the operating system keyring — never in the app&apos;s database. The key
+            must be restricted to read-only (GET) access: the app only ever reads rule counters,
+            status, VPN state, installed firmware and cached plugin upgrades, and saved revisions. If an
+            OPNsense privilege bundles a needed read with write endpoints and no strictly
+            read-only right exists, that section stays unavailable and the app says so instead of
+            asking for elevated credentials. Backup downloads read already-saved revisions — the
+            app never creates a remote snapshot, reverts, or deletes anything on the firewall.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>OPNsense: monitoring, rules &amp; logs</h2>
+          <p>
+            Connect a profile to start a live monitor: firewall rule hit counters, interface and
+            PF state capacity, resources, and VPN/Tailscale status update on their own cadence.
+            Each section reports success or failure independently — a failed section keeps its
+            last good data with a stale timestamp instead of showing zeros. Rule counters are
+            reported by OPNsense and reset on reload; older versions may omit legacy rules. The
+            Firewall logs tab streams pass/block decisions live, but only traffic matched by
+            rules with logging enabled appears.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>OPNsense: firmware and plugin status</h2>
+          <p>
+            The Firmware tab compares the installed core version with the firewall&apos;s cached
+            release changelog; it does not start a check or install updates. A missing or stale
+            cache cannot establish current availability. Installed plugins show upgrade targets
+            only if the firewall&apos;s previous check reported one; an absent target does not prove
+            a plugin is current. Run &quot;Check for updates&quot; in the OPNsense GUI for fresh core
+            and plugin availability.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>OPNsense: encrypted backups</h2>
+          <p>
+            Backups download the selected <em>saved</em> configuration revision (or the latest
+            saved revision by default) — possibly older than unsaved changes on the device — and
+            store it locally with a strong passphrase in age format (<code>*.xml.age</code>).
+            To restore, decrypt outside the app with{" "}
+            <code>age -d -o config.xml &lt;file&gt;.xml.age</code> and import the XML in the
+            OPNsense GUI. The app never keeps plaintext XML on disk and never restores by itself.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>OPNsense: terminal</h2>
+          <p>
+            The Terminal tab opens an interactive SSH shell using a <strong>separate</strong>{" "}
+            OPNsense user and password entered each time — the API key is never used for SSH, and
+            SSH credentials never call the HTTP API. Commands run only inside that authenticated
+            session. On the first connection the app shows the firewall&apos;s SSH host-key
+            fingerprint and refuses to authenticate until you explicitly verify it; the verified
+            fingerprint is pinned locally, a changed key is rejected, and re-keying requires
+            deliberately forgetting the pinned key. As with MikroTik, the colored identity tag
+            and matching device-strip pill show which firewall a shell drives.
           </p>
         </section>
       </div>

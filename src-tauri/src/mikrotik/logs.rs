@@ -331,8 +331,8 @@ mod tests {
         BridgeVlanDto, EthernetMonitorDto, EthernetStatsDto, InterfaceDto, LogSeverity,
         ResourceDto, SensorDto, VlanDto,
     };
-    use crate::mikrotik::secrets::{MemoryStore, SecretStore};
     use crate::mikrotik::types::MikrotikApiFactory;
+    use crate::secrets::{MemoryStore, SecretStore};
 
     // ---- Pure helpers ------------------------------------------------------
 

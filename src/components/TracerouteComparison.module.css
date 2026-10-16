@@ -67,11 +67,6 @@
   text-align: center;
 }
 
-.tableWrapper {
-  overflow-x: auto;
-  scrollbar-color: var(--surface-3) var(--surface-1);
-}
-
 .table {
   width: 100%;
   min-width: 780px;

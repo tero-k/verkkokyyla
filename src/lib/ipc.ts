@@ -71,6 +71,25 @@ import type {
   WebBenchmarkResult,
 } from "./types"
 
+import type {
+  CreateOpnsenseProfileRequest,
+  OpnsenseActiveMonitorDto,
+  OpnsenseBackupResultDto,
+  OpnsenseDeleteResultDto,
+  OpnsenseVersionCheckDto,
+  OpnsenseLogEvent,
+  OpnsenseLogStartDto,
+  OpnsenseLogStatusEvent,
+  OpnsenseProfile,
+  OpnsenseRevisionDto,
+  OpnsenseSnapshotDto,
+  OpnsenseStartDto,
+  OpnsenseStatusEvent,
+  OpnsenseTerminalOpenDto,
+  OpnsenseTestConnectionDto,
+  UpdateOpnsenseProfileRequest,
+} from "./types"
+
 export function startSession(
   target: string,
   family: Family,
@@ -549,4 +568,140 @@ export function checkForUpdate(): Promise<UpdateInfo | null> {
 
 export function appVersion(): Promise<string> {
   return invoke<string>("app_version")
+}
+
+// OPNsense IPC wrappers — all device traffic is read-only HTTP GET; the
+// commands below only change local state or open read streams.
+
+export function opnsenseListProfiles(): Promise<OpnsenseProfile[]> {
+  return invoke<OpnsenseProfile[]>("opnsense_list_profiles")
+}
+
+export function opnsenseCreateProfile(
+  request: CreateOpnsenseProfileRequest,
+): Promise<OpnsenseProfile> {
+  return invoke<OpnsenseProfile>("opnsense_create_profile", { request })
+}
+
+export function opnsenseUpdateProfile(
+  request: UpdateOpnsenseProfileRequest,
+): Promise<OpnsenseProfile> {
+  return invoke<OpnsenseProfile>("opnsense_update_profile", { request })
+}
+
+export function opnsenseDeleteProfile(id: number): Promise<OpnsenseDeleteResultDto> {
+  return invoke<OpnsenseDeleteResultDto>("opnsense_delete_profile", { id })
+}
+
+export function opnsenseSetCredentials(id: number, key: string, secret: string): Promise<void> {
+  return invoke<void>("opnsense_set_credentials", { id, key, secret })
+}
+
+export function opnsenseTestConnection(id: number): Promise<OpnsenseTestConnectionDto> {
+  return invoke<OpnsenseTestConnectionDto>("opnsense_test_connection", { id })
+}
+
+export function opnsenseStart(
+  profileId: number,
+  onSnapshot: (snapshot: OpnsenseSnapshotDto) => void,
+  onStatus: (event: OpnsenseStatusEvent) => void,
+): Promise<OpnsenseStartDto> {
+  const onSnapshotChannel = new Channel<OpnsenseSnapshotDto>(onSnapshot)
+  const onStatusChannel = new Channel<OpnsenseStatusEvent>(onStatus)
+  return invoke<OpnsenseStartDto>("opnsense_start", {
+    profileId,
+    onSnapshot: onSnapshotChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function opnsenseStop(profileId: number): Promise<void> {
+  return invoke<void>("opnsense_stop", { profileId })
+}
+
+export function opnsenseListActive(): Promise<OpnsenseActiveMonitorDto[]> {
+  return invoke<OpnsenseActiveMonitorDto[]>("opnsense_list_active")
+}
+
+export function opnsenseCheckUpdates(profileId: number): Promise<OpnsenseVersionCheckDto> {
+  return invoke<OpnsenseVersionCheckDto>("opnsense_check_updates", { profileId })
+}
+
+export function opnsenseLogStart(
+  profileId: number,
+  onEvent: (event: OpnsenseLogEvent) => void,
+  onStatus: (event: OpnsenseLogStatusEvent) => void,
+): Promise<OpnsenseLogStartDto> {
+  const onEventChannel = new Channel<OpnsenseLogEvent>(onEvent)
+  const onStatusChannel = new Channel<OpnsenseLogStatusEvent>(onStatus)
+  return invoke<OpnsenseLogStartDto>("opnsense_log_start", {
+    profileId,
+    onEvent: onEventChannel,
+    onStatus: onStatusChannel,
+  })
+}
+
+export function opnsenseLogStop(profileId: number): Promise<void> {
+  return invoke<void>("opnsense_log_stop", { profileId })
+}
+
+export function opnsenseListRevisions(profileId: number): Promise<OpnsenseRevisionDto[]> {
+  return invoke<OpnsenseRevisionDto[]>("opnsense_list_revisions", { profileId })
+}
+
+export function opnsenseBackup(
+  profileId: number,
+  destinationDir: string,
+  backupName: string,
+  passphrase: string,
+  revisionId: string | null,
+): Promise<OpnsenseBackupResultDto> {
+  return invoke<OpnsenseBackupResultDto>("opnsense_backup", {
+    profileId,
+    destinationDir,
+    backupName,
+    passphrase,
+    revisionId,
+  })
+}
+
+export function opnsenseTerminalOpen(
+  profileId: number,
+  username: string,
+  password: string,
+  cols: number,
+  rows: number,
+  confirmedFingerprint: string | null,
+  onData: (chunk: string) => void,
+): Promise<OpnsenseTerminalOpenDto> {
+  const onDataChannel = new Channel<string>(onData)
+  return invoke<OpnsenseTerminalOpenDto>("opnsense_terminal_open", {
+    profileId,
+    username,
+    password,
+    cols,
+    rows,
+    confirmedFingerprint,
+    onData: onDataChannel,
+  })
+}
+
+export function opnsenseTerminalWrite(terminalId: string, dataB64: string): Promise<void> {
+  return invoke<void>("opnsense_terminal_write", { terminalId, dataB64 })
+}
+
+export function opnsenseTerminalResize(
+  terminalId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return invoke<void>("opnsense_terminal_resize", { terminalId, cols, rows })
+}
+
+export function opnsenseTerminalClose(terminalId: string): Promise<void> {
+  return invoke<void>("opnsense_terminal_close", { terminalId })
+}
+
+export function opnsenseForgetSshHostKey(profileId: number): Promise<void> {
+  return invoke<void>("opnsense_forget_ssh_host_key", { profileId })
 }

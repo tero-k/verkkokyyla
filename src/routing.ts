@@ -8,6 +8,7 @@ export type Route =
   | "lan-scan"
   | "dns-tester"
   | "mikrotik"
+  | "opnsense"
   | "help";
 
 export interface NavItem {
@@ -24,11 +25,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { route: "mtu", label: "MTU Discovery", hash: "#/mtu" },
   { route: "dns-tester", label: "DNS Toolkit", hash: "#/dns-tester" },
   { route: "mikrotik", label: "MikroTik", hash: "#/mikrotik" },
+  { route: "opnsense", label: "OPNsense", hash: "#/opnsense" },
   { route: "help", label: "Help", hash: "#/help" },
 ];
 
-// Sidebar grouping and Ctrl+digit shortcuts, mirroring the Claude Design
-// sidebar mockup (MEASURE / DISCOVER / MIKROTIK groups with kbd hints).
+// Sidebar grouping also defines Ctrl+digit shortcut order.
 export interface NavGroup {
   readonly label: string;
   readonly items: readonly { readonly route: Route; readonly shortcut: string }[];
@@ -52,12 +53,15 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
-    label: "MikroTik",
-    items: [{ route: "mikrotik", shortcut: "Ctrl 7" }],
+    label: "Devices",
+    items: [
+      { route: "mikrotik", shortcut: "Ctrl 7" },
+      { route: "opnsense", shortcut: "Ctrl 8" },
+    ],
   },
   {
     label: "Guide",
-    items: [{ route: "help", shortcut: "Ctrl 8" }],
+    items: [{ route: "help", shortcut: "Ctrl 9" }],
   },
 ];
 
@@ -68,6 +72,7 @@ export function resolveRoute(hash: string): Route {
   if (hash === "#/lan-scan") return "lan-scan";
   if (hash === "#/dns-tester") return "dns-tester";
   if (hash === "#/mikrotik") return "mikrotik";
+  if (hash === "#/opnsense") return "opnsense";
   if (hash === "#/help") return "help";
   return "ping";
 }

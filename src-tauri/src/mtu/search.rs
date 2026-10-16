@@ -1,5 +1,5 @@
 //! Pure search controller: state machine mapping probe outcomes to the next
-//! probe (or the final result). No I/O - see `.omo/plans/mtu-discovery.md`.
+//! probe (or the final result). No I/O - see `.omp/plans/mtu-discovery.md`.
 
 use super::types::{
     LowerBoundReason, MtuConfig, ProbeOutcome, ResultKind, SearchAction, SearchResult,

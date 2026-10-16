@@ -1,6 +1,6 @@
 //! TCP PLPMTUD probe engine (RFC 4821 style): connects to a TCP port with
 //! PMTU discovery in "do" mode, then binary searches the largest request the
-//! path carries. See `.omo/plans/mtu-discovery.md` milestone 3.
+//! path carries. See `.omp/plans/mtu-discovery.md` milestone 3.
 //!
 //! Platform support: Linux only. Linux refuses oversized writes with
 //! `EMSGSIZE` under `IP_PMTUDISC_DO` and exposes the kernel-cached path MTU

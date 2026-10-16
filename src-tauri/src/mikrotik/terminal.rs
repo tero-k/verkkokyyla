@@ -300,8 +300,8 @@ impl TerminalManager {
 mod tests {
     use super::*;
     use crate::db::{now_rfc3339, Database, NewMikrotikProfile};
-    use crate::mikrotik::secrets::{MemoryStore, SecretStore};
     use crate::mikrotik::types::MikrotikApiFactory;
+    use crate::secrets::{MemoryStore, SecretStore};
     use russh::server::{Auth, Server as _};
     use russh::Channel;
     use std::sync::atomic::AtomicUsize;

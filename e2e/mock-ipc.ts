@@ -246,6 +246,30 @@ type MockMtuResult =
   | { readonly kind: "unreachable" }
   | { readonly kind: "failed"; readonly message: string }
 
+type MockOpnsenseProfile = {
+  id: number
+  name: string
+  host: string
+  port: number
+  allowInvalidCerts: boolean
+  sshPort: number
+  hasCredentials: boolean
+  sshHostKeyVerified: boolean
+  createdAt: string
+}
+
+type MockOpnsenseChannel = { onmessage?: (message: unknown) => void }
+
+type ActiveOpnsense = {
+  onSnapshot: MockOpnsenseChannel
+  onStatus: MockOpnsenseChannel
+}
+
+type ActiveOpnsenseTerminal = {
+  profileId: number
+  onData: MockOpnsenseChannel
+}
+
 type MockMtuProbe = {
   seq: number
   payloadSize: number
@@ -375,6 +399,67 @@ export async function installMockTauri(page: Page): Promise<void> {
         profileId: number
         onDataChannel: { onmessage?: (message: unknown) => void }
       }>()
+      // OPNsense API credentials and SSH host pins belong to each profile;
+      // no device command shares MikroTik's mock credentials or sessions.
+      let nextOpnsenseProfileId = 3
+      let opnsenseProfiles: MockOpnsenseProfile[] = [
+        { id: 1, name: "Edge firewall", host: "edge-fw.lab", port: 443, allowInvalidCerts: true, sshPort: 22, hasCredentials: true, sshHostKeyVerified: false, createdAt: "2026-09-06T10:00:00.000Z" },
+        { id: 2, name: "Healthy firewall", host: "healthy-fw.lab", port: 443, allowInvalidCerts: false, sshPort: 2222, hasCredentials: true, sshHostKeyVerified: false, createdAt: "2026-09-06T11:00:00.000Z" },
+      ]
+      const opnsenseCredentials = new Map<number, { key: string; secret: string }>([
+        [1, { key: "edge-key", secret: "edge-secret" }],
+        [2, { key: "healthy-key", secret: "healthy-secret" }],
+      ])
+      const activeOpnsense = new Map<number, ActiveOpnsense>()
+      const activeOpnsenseLogs = new Map<number, { onStatus: MockOpnsenseChannel }>()
+      const activeOpnsenseTerminals = new Map<string, ActiveOpnsenseTerminal>()
+      let nextOpnsenseTerminalId = 0
+      const opnsenseFirmwareVariants = new Map<number, "unknown">([[2, "unknown"]])
+      const truncatedOpnsenseProfiles = new Set<number>()
+      const opnsenseFingerprint = "MOCK-EDGE-SHA256-KEY"
+      const opnsenseRevisions = [
+        { id: "config-20261004.xml", timeIso: "2026-10-04T09:15:00Z", description: "Saved before maintenance", filesize: 2048 },
+        { id: "config-20260930.xml", timeIso: "2026-09-30T09:15:00Z", description: "Baseline", filesize: 1024 },
+      ]
+
+      function opnsenseProfile(id: number): MockOpnsenseProfile {
+        const profile = opnsenseProfiles.find((item) => item.id === id)
+        if (profile === undefined) throw { kind: "profile-not-found", message: "OPNsense profile not found" }
+        return profile
+      }
+
+      function opnsenseSnapshot(profileId: number) {
+        return {
+          profileId,
+          at: new Date().toISOString(),
+          rules: { ok: true, data: {
+            rules: [
+              { uuid: "rule-pass", action: "pass", interface: "lan", description: `Permit ${opnsenseProfile(profileId).name}`, source: "192.0.2.0/24", destination: "any", protocol: "tcp", enabled: true, packets: 12, evaluations: 18, bytes: 960, states: 2 },
+              { uuid: "rule-block", action: "block", interface: "wan", description: `Block ${opnsenseProfile(profileId).name}`, source: "any", destination: "192.0.2.10", protocol: "udp", enabled: true, packets: 0, evaluations: 4, bytes: 0, states: 0 },
+            ],
+            total: truncatedOpnsenseProfiles.has(profileId) ? 3 : 2,
+            truncated: truncatedOpnsenseProfiles.has(profileId),
+            countersError: null, unmappedRunning: [],
+          } },
+          system: { ok: true, data: {
+            interfaces: [
+              { name: "igb0", description: "WAN", enabled: true, link: "up", ipv4: ["198.51.100.1/24"], ipv6: [], macaddr: "aa:bb:cc:dd:ee:ff", mtu: 1500, media: "1000baseT <full-duplex>", rxBytes: 4096, txBytes: 2048, rxPackets: 123456, txPackets: 78910 },
+              { name: "lagg0", description: "LAN", enabled: true, link: "up", ipv4: ["192.0.2.1/24"], ipv6: [], lagg: { proto: "lacp", members: [{ name: "em0", state: ["attached", "active"], link: "up", media: "10Gbase-SR" }] } },
+            ],
+            interfacesTruncated: truncatedOpnsenseProfiles.has(profileId),
+            pfStates: { current: 42, max: 10000 },
+            resources: { cpuUsagePercent: 21, memUsedBytes: 268435456, memTotalBytes: 1073741824, uptime: "2 days", loadavg: "0.12, 0.08, 0.06" },
+          } },
+          vpn: { ok: true, data: {
+            wireguard: { state: "ok", data: { interfaces: [{ name: "wg0", peers: [{ name: "remote office", handshakeAgeSecs: 7200, status: "stale", endpoint: "203.0.113.2:51820", transferRxBytes: 8192, transferTxBytes: 4096 }] }] } },
+            openvpn: { state: "ok", data: [{ name: "road-1", kind: "client", connected: true, realAddress: "198.51.100.7:1194", virtualAddress: "10.8.0.2" }] },
+            ipsec: { state: "ok", data: [{ name: "branch tunnel", description: "Site-to-site", connected: true, remoteHost: "203.0.113.10", version: "IKEv2" }] },
+            tailscale: opnsenseProfile(profileId).host === "healthy-fw.lab"
+              ? { state: "ok", data: { backendState: "Running", serviceRunning: true, hostname: "healthy-fw", ownIps: ["100.101.102.103", "fd7a:115c:a1e0::3e01:6f4f"], peers: [{ name: "workstation", ips: ["100.101.102.104"], online: true }, { name: "Tero's MacBook Pro", ips: ["fd7a:115c:a1e0::392c:4b55"], online: false }] } }
+              : { state: "unavailable", message: "Plugin unavailable (not installed or API unsupported)" },
+          } },
+        }
+      }
 
       // --- MTU discovery mock state -------------------------------------
       // Scripted 1420-byte link: baseline ok, bracket too-big at 1500,
@@ -1931,6 +2016,179 @@ export async function installMockTauri(page: Page): Promise<void> {
               removed: 1,
             }
           }
+          case "opnsense_list_profiles":
+            return opnsenseProfiles.map((profile) => ({ ...profile }))
+          case "opnsense_create_profile": {
+            const request = args.request as Record<string, unknown>
+            const profile: MockOpnsenseProfile = {
+              id: nextOpnsenseProfileId++,
+              name: String(request.name),
+              host: String(request.host),
+              port: Number(request.port),
+              allowInvalidCerts: Boolean(request.allowInvalidCerts),
+              sshPort: Number(request.sshPort),
+              hasCredentials: false,
+              sshHostKeyVerified: false,
+              createdAt: new Date().toISOString(),
+            }
+            opnsenseProfiles.push(profile)
+            return { ...profile }
+          }
+          case "opnsense_update_profile": {
+            const request = args.request as Record<string, unknown>
+            const profile = opnsenseProfile(Number(request.id))
+            const updated: MockOpnsenseProfile = {
+              ...profile,
+              name: String(request.name),
+              host: String(request.host),
+              port: Number(request.port),
+              sshPort: Number(request.sshPort),
+              allowInvalidCerts: Boolean(request.allowInvalidCerts),
+              sshHostKeyVerified: profile.host === request.host && profile.sshPort === request.sshPort && profile.sshHostKeyVerified,
+            }
+            opnsenseProfiles = opnsenseProfiles.map((item) => item.id === updated.id ? updated : item)
+            return { ...updated }
+          }
+          case "opnsense_delete_profile": {
+            const id = Number(args.id)
+            opnsenseProfile(id)
+            if (activeOpnsense.has(id) || activeOpnsenseLogs.has(id) || Array.from(activeOpnsenseTerminals.values()).some((terminal) => terminal.profileId === id)) {
+              throw { kind: "active-session", message: "Disconnect this profile before deleting it" }
+            }
+            opnsenseProfiles = opnsenseProfiles.filter((item) => item.id !== id)
+            const secretDeleted = opnsenseCredentials.delete(id)
+            opnsenseFirmwareVariants.delete(id)
+            return { deleted: true, secretDeleted, warning: null }
+          }
+          case "opnsense_set_credentials": {
+            const id = Number(args.id)
+            opnsenseProfile(id)
+            const key = String(args.key)
+            const secret = String(args.secret)
+            if (!key.trim() || !secret.trim()) throw { kind: "invalid-credentials", message: "Key and secret are required" }
+            opnsenseCredentials.set(id, { key, secret })
+            opnsenseProfiles = opnsenseProfiles.map((profile) => profile.id === id ? { ...profile, hasCredentials: true } : profile)
+            return null
+          }
+          case "opnsense_test_connection": {
+            const profile = opnsenseProfile(Number(args.id))
+            return { connected: true, authorized: profile.hasCredentials }
+          }
+          case "opnsense_start": {
+            const profileId = Number(args.profileId)
+            opnsenseProfile(profileId)
+            if (activeOpnsense.has(profileId)) throw { kind: "already-running", message: "OPNsense monitoring is already running" }
+            const onSnapshot = args.onSnapshot as MockOpnsenseChannel
+            const onStatus = args.onStatus as MockOpnsenseChannel
+            activeOpnsense.set(profileId, { onSnapshot, onStatus })
+            sendChannel(onStatus, { event: "started", profileId })
+            // Backend sends an immediate snapshot followed by independent
+            // per-section refreshes; one full snapshot suffices for the UI.
+            window.setTimeout(() => {
+              if (activeOpnsense.get(profileId)?.onSnapshot === onSnapshot) {
+                sendChannel(onSnapshot, opnsenseSnapshot(profileId))
+              }
+            }, 10)
+            return { profileId }
+          }
+          case "opnsense_stop": {
+            const profileId = Number(args.profileId)
+            const active = activeOpnsense.get(profileId)
+            if (active === undefined) throw { kind: "not-running", message: "OPNsense monitoring is not running" }
+            activeOpnsense.delete(profileId)
+            sendChannel(active.onStatus, { event: "stopped", profileId })
+            return null
+          }
+          case "opnsense_list_active":
+            return Array.from(activeOpnsense.keys(), (profileId) => ({ profileId }))
+          case "opnsense_log_start": {
+            const profileId = Number(args.profileId)
+            const profile = opnsenseProfile(profileId)
+            if (activeOpnsenseLogs.has(profileId)) throw { kind: "already-running", message: "Firewall log stream already running" }
+            const onEvent = args.onEvent as MockOpnsenseChannel
+            const onStatus = args.onStatus as MockOpnsenseChannel
+            activeOpnsenseLogs.set(profileId, { onStatus })
+            sendChannel(onStatus, { event: "started", profileId })
+            window.setTimeout(() => {
+              if (!activeOpnsenseLogs.has(profileId)) return
+              sendChannel(onEvent, { profileId, receivedAt: "2026-10-04T10:00:00Z", timestamp: "2026-10-04T10:00:00Z", action: "block", interfaceName: "wan", dir: "in", proto: "tcp", src: "203.0.113.18", srcPort: "41234", dst: "192.0.2.10", dstPort: "443", label: `${profile.name} blocked ingress` })
+              sendChannel(onEvent, { profileId, receivedAt: "2026-10-04T10:00:01Z", timestamp: "2026-10-04T10:00:01Z", action: "pass", interfaceName: "lan", dir: "out", proto: "udp", src: "192.0.2.23", srcPort: "53000", dst: "198.51.100.8", dstPort: "53", label: `${profile.name} allowed DNS` })
+            }, 10)
+            return { profileId }
+          }
+          case "opnsense_log_stop": {
+            const profileId = Number(args.profileId)
+            const active = activeOpnsenseLogs.get(profileId)
+            if (active !== undefined) {
+              activeOpnsenseLogs.delete(profileId)
+              sendChannel(active.onStatus, { event: "stopped", profileId })
+            }
+            return null
+          }
+          case "opnsense_check_updates": {
+            const profileId = Number(args.profileId)
+            opnsenseProfile(profileId)
+            return opnsenseFirmwareVariants.get(profileId) === "unknown"
+              ? { state: "unknown", message: "No cached release changelog for this series — run an update check in the OPNsense GUI", installedVersion: "25.7.3", abi: "25.7", series: "25.7", latestVersion: null, checkedAt: "2026-10-04T08:30:00Z", changelog: [], plugins: [] }
+              : { state: "update-available", message: null, installedVersion: "25.7.3", abi: "25.7", series: "25.7", latestVersion: "25.7.11", checkedAt: "2026-10-04T08:30:00Z", changelog: [{ version: "25.7.11", date: "2026-10-04" }], plugins: [{ name: "os-tailscale", version: "1.2", cachedUpgradeVersion: "1.3" }, { name: "os-nginx", version: "1.35" }] }
+          }
+          case "opnsense_list_revisions":
+            opnsenseProfile(Number(args.profileId))
+            return opnsenseRevisions.map((revision) => ({ ...revision }))
+          case "opnsense_backup": {
+            opnsenseProfile(Number(args.profileId))
+            const passphrase = String(args.passphrase)
+            const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(passphrase)).length
+            if (passphrase.length < 12 || classes < 2) throw { kind: "passphrase-weak", message: "Passphrase is too weak" }
+            const backupName = String(args.backupName)
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(backupName)) throw { kind: "invalid-name", message: "Invalid backup name" }
+            const selected = args.revisionId == null
+              ? opnsenseRevisions[0]
+              : opnsenseRevisions.find((revision) => revision.id === args.revisionId)
+            if (selected === undefined) throw { kind: "invalid-revision-id", message: "Revision not found" }
+            return { path: `${String(args.destinationDir)}/${backupName}.xml.age`, sourceRevisionId: selected.id, sourceTimeIso: selected.timeIso }
+          }
+          case "opnsense_terminal_open": {
+            const profileId = Number(args.profileId)
+            const profile = opnsenseProfile(profileId)
+            if (!profile.sshHostKeyVerified && args.confirmedFingerprint !== opnsenseFingerprint) {
+              throw { kind: "unknown-host-key", message: "Verify the SSH host key", fingerprint: opnsenseFingerprint }
+            }
+            if (String(args.username) !== "ops" || String(args.password) !== "ssh-pass") {
+              throw { kind: "ssh-auth-failed", message: "SSH authentication failed" }
+            }
+            if (!profile.sshHostKeyVerified) {
+              opnsenseProfiles = opnsenseProfiles.map((item) => item.id === profileId ? { ...item, sshHostKeyVerified: true } : item)
+            }
+            const terminalId = `opnsense-terminal-${++nextOpnsenseTerminalId}`
+            const onData = args.onData as MockOpnsenseChannel
+            activeOpnsenseTerminals.set(terminalId, { profileId, onData })
+            window.setTimeout(() => {
+              if (activeOpnsenseTerminals.has(terminalId)) sendChannel(onData, btoa(`OPNsense console\r\n[ops@${profile.host}] $ `))
+            }, 20)
+            return { terminalId }
+          }
+          case "opnsense_terminal_write": {
+            const terminalId = String(args.terminalId)
+            const terminal = activeOpnsenseTerminals.get(terminalId)
+            if (terminal === undefined) throw { kind: "not-running", message: "SSH terminal closed" }
+            const encoded = String(args.dataB64)
+            window.setTimeout(() => {
+              if (activeOpnsenseTerminals.has(terminalId)) sendChannel(terminal.onData, encoded)
+            }, 5)
+            return null
+          }
+          case "opnsense_terminal_resize":
+            return null
+          case "opnsense_terminal_close":
+            activeOpnsenseTerminals.delete(String(args.terminalId))
+            return null
+          case "opnsense_forget_ssh_host_key": {
+            const profileId = Number(args.profileId)
+            opnsenseProfile(profileId)
+            opnsenseProfiles = opnsenseProfiles.map((item) => item.id === profileId ? { ...item, sshHostKeyVerified: false } : item)
+            return null
+          }
           default:
             throw new Error(`unknown command ${cmd}`)
         }
@@ -1990,6 +2248,11 @@ export async function installMockTauri(page: Page): Promise<void> {
 
       window.__TAURI_MOCK_MIKROTIK_BACKUP_COUNT__ = () => mikrotikBackupCount
 
+      window.__TAURI_MOCK_SET_OPNSENSE_TRUNCATED__ = (profileId, enabled) => {
+        if (enabled) truncatedOpnsenseProfiles.add(profileId)
+        else truncatedOpnsenseProfiles.delete(profileId)
+      }
+
       window.__TAURI_MOCK_SET_UPDATE_CHECK_RESULT__ = (result) => {
         updateCheckResult = result
       }
@@ -2010,6 +2273,7 @@ declare global {
     __TAURI_MOCK_SEND_STATUS_ERROR__: (message: string, sessionId?: number) => void
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
     __TAURI_MOCK_SET_DIALOG_CONFIRM__: (enabled: boolean) => void
+    __TAURI_MOCK_SET_OPNSENSE_TRUNCATED__: (profileId: number, enabled: boolean) => void
     __TAURI_MOCK_SET_MIKROTIK_TEST_401__: (enabled: boolean) => void
     __TAURI_MOCK_SET_MIKROTIK_ROUTERBOARD__: (enabled: boolean) => void
     __TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__: (variant: string) => void

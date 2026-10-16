@@ -1,5 +1,6 @@
 import type { ComparedHopRow, LoadedTraceDto, TraceHopRow } from "../lib/types"
 import { Button, Card, SectionHeader } from "./ui/ui"
+import { HorizontalScrollArea } from "./ui/HorizontalScrollArea"
 
 import styles from "./TracerouteComparison.module.css"
 
@@ -107,7 +108,8 @@ export function TracerouteComparison({ a, b, diff, onClear }: TracerouteComparis
         <Card className={styles.empty}>No hops to compare.</Card>
       ) : (
         <Card className={styles.tableWrapper}>
-          <table className={styles.table} data-testid="trace-comparison-table">
+          <HorizontalScrollArea label="Trace comparison">
+            <table className={styles.table} data-testid="trace-comparison-table">
             <thead>
               <tr>
                 <th className={styles.hopCol}>Hop</th>
@@ -138,7 +140,8 @@ export function TracerouteComparison({ a, b, diff, onClear }: TracerouteComparis
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </HorizontalScrollArea>
         </Card>
       )}
     </div>

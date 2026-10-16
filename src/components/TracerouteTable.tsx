@@ -1,5 +1,6 @@
 import type { TraceHopRow } from "../lib/types"
 import { Card } from "./ui/ui"
+import { HorizontalScrollArea } from "./ui/HorizontalScrollArea"
 
 import styles from "./TracerouteTable.module.css"
 
@@ -60,7 +61,8 @@ function lossClass(values: readonly (number | null)[]): string {
 export function TracerouteTable({ rows }: TracerouteTableProps) {
   return (
     <Card className={styles.wrapper}>
-      <table className={styles.table} data-testid="trace-table">
+      <HorizontalScrollArea label="Traceroute hops">
+        <table className={styles.table} data-testid="trace-table">
         <thead>
           <tr>
             <th scope="col" className={styles.hopColumn}>Hop</th>
@@ -125,7 +127,8 @@ export function TracerouteTable({ rows }: TracerouteTableProps) {
             )
           })}
         </tbody>
-      </table>
+        </table>
+      </HorizontalScrollArea>
     </Card>
   )
 }

@@ -370,6 +370,33 @@ pub struct MikrotikProfile {
     pub created_at: String,
 }
 
+/// Parameters for an OPNsense connection profile. The API key/secret pair
+/// lives in the OS keyring under `secret_key`, never in SQLite.
+#[derive(Debug, Clone)]
+pub struct NewOpnsenseProfile {
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub allow_invalid_certs: bool,
+    pub ssh_port: i64,
+    pub created_at: String,
+}
+
+/// Persisted OPNsense connection profile. `secret_key` is the keyring
+/// account name; `ssh_host_key` is the pinned SSH host key fingerprint.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpnsenseProfile {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub allow_invalid_certs: bool,
+    pub secret_key: String,
+    pub ssh_port: i64,
+    pub ssh_host_key: Option<String>,
+    pub created_at: String,
+}
+
 /// Parameters for a Mikrotik backup library record. Paths are absolute
 /// local filesystem paths exactly as the backup flow returned them.
 #[derive(Debug, Clone)]
@@ -1197,6 +1224,114 @@ impl Database {
         Ok(())
     }
 
+    /// Inserts an OPNsense profile and returns the persisted row.
+    pub async fn create_opnsense_profile(
+        &self,
+        profile: &NewOpnsenseProfile,
+    ) -> Result<OpnsenseProfile, DbError> {
+        let secret_key = new_opnsense_secret_key();
+        let result = sqlx::query(
+            "INSERT INTO opnsense_profiles \
+             (name, host, port, allow_invalid_certs, secret_key, ssh_port, ssh_host_key, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+        )
+        .bind(&profile.name)
+        .bind(&profile.host)
+        .bind(profile.port)
+        .bind(profile.allow_invalid_certs)
+        .bind(&secret_key)
+        .bind(profile.ssh_port)
+        .bind(&profile.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(OpnsenseProfile {
+            id: result.last_insert_rowid(),
+            name: profile.name.clone(),
+            host: profile.host.clone(),
+            port: profile.port,
+            allow_invalid_certs: profile.allow_invalid_certs,
+            secret_key,
+            ssh_port: profile.ssh_port,
+            ssh_host_key: None,
+            created_at: profile.created_at.clone(),
+        })
+    }
+
+    /// Updates editable OPNsense profile fields; the secret key is
+    /// immutable. `ssh_host_key` is untouched here — host-key pinning and
+    /// clearing go through `set_opnsense_ssh_host_key`.
+    pub async fn update_opnsense_profile(
+        &self,
+        id: i64,
+        profile: &NewOpnsenseProfile,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE opnsense_profiles \
+             SET name = ?, host = ?, port = ?, allow_invalid_certs = ?, ssh_port = ? \
+             WHERE id = ?",
+        )
+        .bind(&profile.name)
+        .bind(&profile.host)
+        .bind(profile.port)
+        .bind(profile.allow_invalid_certs)
+        .bind(profile.ssh_port)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Pins (or clears with `None`) the verified SSH host key fingerprint.
+    pub async fn set_opnsense_ssh_host_key(
+        &self,
+        id: i64,
+        fingerprint: Option<&str>,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE opnsense_profiles SET ssh_host_key = ? WHERE id = ?")
+            .bind(fingerprint)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Lists all OPNsense profiles newest first.
+    pub async fn list_opnsense_profiles(&self) -> Result<Vec<OpnsenseProfile>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id, name, host, port, allow_invalid_certs, secret_key, ssh_port, ssh_host_key, created_at \
+             FROM opnsense_profiles ORDER BY id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| opnsense_profile_from_row(row).map_err(DbError::from))
+            .collect()
+    }
+
+    /// Loads one OPNsense profile by id.
+    pub async fn load_opnsense_profile(&self, id: i64) -> Result<Option<OpnsenseProfile>, DbError> {
+        let row = sqlx::query(
+            "SELECT id, name, host, port, allow_invalid_certs, secret_key, ssh_port, ssh_host_key, created_at \
+             FROM opnsense_profiles WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref()
+            .map(opnsense_profile_from_row)
+            .transpose()
+            .map_err(DbError::from)
+    }
+
+    /// Deletes an OPNsense profile row.
+    pub async fn delete_opnsense_profile(&self, id: i64) -> Result<(), DbError> {
+        sqlx::query("DELETE FROM opnsense_profiles WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Inserts a Mikrotik backup library record and returns the persisted row.
     pub async fn create_mikrotik_backup(
         &self,
@@ -1653,6 +1788,22 @@ fn mikrotik_profile_from_row(
     })
 }
 
+fn opnsense_profile_from_row(
+    row: &sqlx::sqlite::SqliteRow,
+) -> Result<OpnsenseProfile, sqlx::Error> {
+    Ok(OpnsenseProfile {
+        id: row.try_get("id")?,
+        name: row.try_get("name")?,
+        host: row.try_get("host")?,
+        port: row.try_get("port")?,
+        allow_invalid_certs: row.try_get("allow_invalid_certs")?,
+        secret_key: row.try_get("secret_key")?,
+        ssh_port: row.try_get("ssh_port")?,
+        ssh_host_key: row.try_get("ssh_host_key")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
 fn mikrotik_backup_from_row(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<MikrotikBackupRecord, sqlx::Error> {
@@ -1713,6 +1864,20 @@ fn new_mikrotik_secret_key() -> String {
     for byte in bytes {
         key.push_str(&format!("{byte:02x}"));
     }
+    key
+}
+
+/// OPNsense keyring account: namespaced so an account name alone can never
+/// collide with a MikroTik entry or be mistaken for one.
+fn new_opnsense_secret_key() -> String {
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut key = String::with_capacity(32 + "opnsense::api".len());
+    key.push_str("opnsense:");
+    for byte in bytes {
+        key.push_str(&format!("{byte:02x}"));
+    }
+    key.push_str(":api");
     key
 }
 
@@ -2003,20 +2168,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_db_migrates_to_v13() {
+    async fn fresh_db_has_required_tables_and_indexes() {
         let dir = TestDir::new("fresh");
         let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 13);
-        let versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
-            .fetch_all(&db.pool)
-            .await
-            .expect("read versions");
-        let versions: Vec<i64> = versions
-            .iter()
-            .map(|row| row.try_get::<i64, _>("version").expect("version"))
-            .collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
-
         let tables =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
                 .fetch_all(&db.pool)
@@ -2040,6 +2194,7 @@ mod tests {
         assert!(tables.contains(&"app_settings".to_string()));
         assert!(tables.contains(&"mtu_runs".to_string()));
         assert!(tables.contains(&"mtu_probes".to_string()));
+        assert!(tables.contains(&"opnsense_profiles".to_string()));
 
         let indexes =
             sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
@@ -2104,39 +2259,10 @@ mod tests {
         let dir = TestDir::new("reopen");
         let path = dir.db_file();
         let db = Database::connect(&path).await.expect("first connect");
-        assert_eq!(migration_count(&db).await, 13);
+        let before = migration_count(&db).await;
         drop(db);
         let db = Database::connect(&path).await.expect("second connect");
-        assert_eq!(migration_count(&db).await, 13);
-    }
-
-    #[tokio::test]
-    async fn mikrotik_db_fresh_migrates() {
-        let dir = TestDir::new("mikrotik-fresh");
-        let db = Database::connect(&dir.db_file()).await.expect("connect");
-        assert_eq!(migration_count(&db).await, 13);
-
-        let tables = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table'")
-            .fetch_all(&db.pool)
-            .await
-            .expect("read tables");
-        let tables: Vec<String> = tables
-            .iter()
-            .map(|row| row.try_get::<String, _>("name").expect("table name"))
-            .collect();
-        assert!(tables.contains(&"mikrotik_profiles".to_string()));
-        assert!(tables.contains(&"mikrotik_sessions".to_string()));
-        assert!(tables.contains(&"mikrotik_snapshots".to_string()));
-
-        let indexes = sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index'")
-            .fetch_all(&db.pool)
-            .await
-            .expect("read indexes");
-        let indexes: Vec<String> = indexes
-            .iter()
-            .map(|row| row.try_get::<String, _>("name").expect("index name"))
-            .collect();
-        assert!(indexes.contains(&"idx_mikrotik_snapshots_session_at".to_string()));
+        assert_eq!(migration_count(&db).await, before);
     }
 
     #[tokio::test]

@@ -1,3 +1,4 @@
+mod backup_filename;
 pub mod bench;
 pub mod bench_stats;
 pub mod db;
@@ -8,9 +9,11 @@ pub mod engine;
 pub mod http_client;
 pub mod mikrotik;
 pub mod mtu;
+pub mod opnsense;
 pub mod page_speed;
 pub mod scan;
 mod scan_commands;
+pub mod secrets;
 pub mod session;
 pub mod stats;
 pub mod trace;
@@ -302,6 +305,124 @@ async fn mikrotik_test_connection(
     id: i64,
 ) -> Result<mikrotik::types::MikrotikTestConnectionDto, mikrotik::types::MikrotikManagerError> {
     manager.test_connection(id).await
+}
+
+#[tauri::command]
+async fn opnsense_list_profiles(
+    manager: tauri::State<'_, opnsense::manager::OpnsenseManager>,
+) -> Result<Vec<opnsense::types::OpnsenseProfileDto>, opnsense::types::OpnsenseManagerError> {
+    manager.list_profiles().await
+}
+
+#[tauri::command]
+async fn opnsense_create_profile(
+    manager: tauri::State<'_, opnsense::manager::OpnsenseManager>,
+    request: opnsense::types::CreateOpnsenseProfileRequest,
+) -> Result<opnsense::types::OpnsenseProfileDto, opnsense::types::OpnsenseManagerError> {
+    manager.create_profile(&request).await
+}
+
+#[tauri::command]
+async fn opnsense_update_profile(
+    manager: tauri::State<'_, opnsense::manager::OpnsenseManager>,
+    request: opnsense::types::UpdateOpnsenseProfileRequest,
+) -> Result<opnsense::types::OpnsenseProfileDto, opnsense::types::OpnsenseManagerError> {
+    manager.update_profile(&request).await
+}
+
+#[tauri::command]
+async fn opnsense_delete_profile(
+    manager: tauri::State<'_, opnsense::manager::OpnsenseManager>,
+    id: i64,
+) -> Result<opnsense::types::OpnsenseDeleteResultDto, opnsense::types::OpnsenseManagerError> {
+    manager.delete_profile(id).await
+}
+
+#[tauri::command]
+async fn opnsense_set_credentials(
+    manager: tauri::State<'_, opnsense::manager::OpnsenseManager>,
+    id: i64,
+    key: String,
+    secret: String,
+) -> Result<(), opnsense::types::OpnsenseManagerError> {
+    manager.set_credentials(id, &key, &secret).await
+}
+
+#[tauri::command]
+async fn opnsense_test_connection(
+    manager: tauri::State<'_, opnsense::manager::OpnsenseManager>,
+    id: i64,
+) -> Result<opnsense::types::OpnsenseTestConnectionDto, opnsense::types::OpnsenseManagerError> {
+    manager.test_connection(id).await
+}
+
+#[tauri::command]
+async fn opnsense_start(
+    manager: tauri::State<'_, opnsense::monitor::OpnsenseMonitorManager>,
+    profile_id: i64,
+    on_snapshot: tauri::ipc::Channel<opnsense::types::OpnsenseSnapshotDto>,
+    on_status: tauri::ipc::Channel<opnsense::types::OpnsenseStatusEvent>,
+) -> Result<opnsense::types::OpnsenseStartDto, opnsense::types::OpnsenseManagerError> {
+    manager
+        .start(
+            profile_id,
+            Arc::new(move |snapshot| {
+                let _ = on_snapshot.send(snapshot);
+            }),
+            Arc::new(move |status| {
+                let _ = on_status.send(status);
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn opnsense_stop(
+    manager: tauri::State<'_, opnsense::monitor::OpnsenseMonitorManager>,
+    profile_id: i64,
+) -> Result<(), opnsense::types::OpnsenseManagerError> {
+    manager.stop(profile_id).await
+}
+
+#[tauri::command]
+async fn opnsense_list_active(
+    manager: tauri::State<'_, opnsense::monitor::OpnsenseMonitorManager>,
+) -> Result<Vec<opnsense::types::OpnsenseActiveMonitorDto>, opnsense::types::OpnsenseManagerError> {
+    Ok(manager.list_active().await)
+}
+
+#[tauri::command]
+async fn opnsense_check_updates(
+    firmware: tauri::State<'_, opnsense::firmware::OpnsenseFirmwareManager>,
+    profile_id: i64,
+) -> Result<opnsense::types::OpnsenseVersionCheckDto, opnsense::types::OpnsenseManagerError> {
+    firmware.check(profile_id).await
+}
+
+#[tauri::command]
+async fn opnsense_log_start(
+    manager: tauri::State<'_, opnsense::logs::OpnsenseLogStreamManager>,
+    profile_id: i64,
+    on_event: tauri::ipc::Channel<opnsense::types::OpnsenseLogEvent>,
+    on_status: tauri::ipc::Channel<opnsense::types::OpnsenseLogStatusEvent>,
+) -> Result<opnsense::types::OpnsenseLogStartDto, opnsense::types::OpnsenseManagerError> {
+    manager
+        .start(
+            profile_id,
+            Arc::new(move |event| on_event.send(event).is_ok()),
+            Arc::new(move |status| {
+                let _ = on_status.send(status);
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn opnsense_log_stop(
+    manager: tauri::State<'_, opnsense::logs::OpnsenseLogStreamManager>,
+    profile_id: i64,
+) -> Result<(), opnsense::types::OpnsenseManagerError> {
+    manager.stop(profile_id).await
 }
 
 #[tauri::command]
@@ -633,7 +754,7 @@ pub fn run() {
             ));
             let mikrotik_manager = MikrotikManager::new(
                 tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
-                Arc::new(mikrotik::secrets::KeyringStore::new()),
+                Arc::new(secrets::KeyringStore::new()),
                 Arc::new(move |conn| {
                     Box::pin(async move {
                         Ok(Arc::new(mikrotik::client::MikrotikClient::new(&conn)?)
@@ -648,10 +769,34 @@ pub fn run() {
                 mikrotik_manager.clone(),
             ));
             app.manage(mikrotik_manager);
+            let opnsense_manager = opnsense::manager::OpnsenseManager::new(
+                tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
+                Arc::new(secrets::KeyringStore::new()),
+                Arc::new(move |conn| {
+                    Box::pin(async move {
+                        Ok(Arc::new(opnsense::client::OpnsenseClient::new(&conn)?)
+                            as Arc<dyn opnsense::client::OpnsenseApi>)
+                    })
+                }),
+            );
+            app.manage(opnsense::monitor::OpnsenseMonitorManager::new(
+                opnsense_manager.clone(),
+            ));
+            app.manage(opnsense::firmware::OpnsenseFirmwareManager::new(
+                opnsense_manager.clone(),
+            ));
+            app.manage(opnsense::logs::OpnsenseLogStreamManager::new(
+                opnsense_manager.clone(),
+            ));
+            app.manage(opnsense::terminal::OpnsenseTerminalManager::new(
+                opnsense_manager.clone(),
+                tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
+            ));
+            app.manage(opnsense_manager);
             app.manage(mikrotik::logs::LogStreamManager::new(
                 mikrotik::manager::MikrotikManager::new(
                     tauri::async_runtime::block_on(db::Database::connect(&db_path))?,
-                    Arc::new(mikrotik::secrets::KeyringStore::new()),
+                    Arc::new(secrets::KeyringStore::new()),
                     Arc::new(move |conn| {
                         Box::pin(async move {
                             Ok(Arc::new(mikrotik::client::MikrotikClient::new(&conn)?)
@@ -703,6 +848,25 @@ pub fn run() {
             mikrotik_delete_profile,
             mikrotik_set_profile_password,
             mikrotik_test_connection,
+            opnsense_list_profiles,
+            opnsense_create_profile,
+            opnsense_update_profile,
+            opnsense_delete_profile,
+            opnsense_set_credentials,
+            opnsense_test_connection,
+            opnsense_start,
+            opnsense_stop,
+            opnsense_list_active,
+            opnsense_check_updates,
+            opnsense_log_start,
+            opnsense_log_stop,
+            opnsense::backup::opnsense_list_revisions,
+            opnsense::backup::opnsense_backup,
+            opnsense::terminal::opnsense_terminal_open,
+            opnsense::terminal::opnsense_terminal_write,
+            opnsense::terminal::opnsense_terminal_resize,
+            opnsense::terminal::opnsense_terminal_close,
+            opnsense::terminal::opnsense_forget_ssh_host_key,
             mikrotik_start,
             mikrotik_stop,
             mikrotik_list_active,

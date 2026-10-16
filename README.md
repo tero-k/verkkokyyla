@@ -6,13 +6,14 @@
 
 A desktop network toolbox for Windows, macOS, and Linux (Tauri 2). It bundles
 the everyday network tools (ping, traceroute, a web download benchmark, a LAN
-scanner, MTU discovery, and DNS diagnostics) with MikroTik router management:
-multi-device live monitoring, log streaming, interactive SSH terminals, and
-backup downloads.
+scanner, MTU discovery, and DNS diagnostics) with MikroTik router and OPNsense
+firewall management: multi-device live monitoring, log streaming, interactive
+SSH terminals, and encrypted backup downloads.
 
-Everything a tool measures is kept in a local SQLite history you can reopen
-later. MikroTik passwords live in the operating system keyring, never in the
-database. An in-app **Help** view (sidebar or `Ctrl 8`) explains each tool.
+Measurement history is kept in local SQLite for reopening later.
+MikroTik passwords and OPNsense API credentials live in the operating
+system keyring, never in the database. An in-app **Help** view (sidebar or
+`Ctrl 9`) explains each tool.
 
 > The name is Finnish: *verkko* (network) + *kyylä* (someone who snoops
 > around).
@@ -50,9 +51,11 @@ AppImage). Or build from source; see [Development](#development).
 - **DNS Toolkit**: resolver diagnostics with an evidence chain for pinning
   down where resolution breaks.
 - **MikroTik**: see below.
+- **OPNsense**: read-only rule counters, firewall logs, interfaces/VPN,
+  firmware and cached plugin updates, saved-revision backups, SSH terminal.
 
-Navigation: sidebar groups (Measure / Discover / MikroTik / Guide) with
-`Ctrl 1`–`Ctrl 8` shortcuts; Light/Dark/OS theme switcher at the bottom.
+Navigation: sidebar groups (Measure / Discover / Devices / Guide) with
+`Ctrl 1`–`Ctrl 9` shortcuts; Light/Dark/OS theme switcher at the bottom.
 
 ## MikroTik
 
@@ -84,6 +87,19 @@ router's SSH service must be enabled for terminals and backups.
 **Accepted risk:** for typical LAN-managed routers, the app accepts unknown
 SSH host keys on first connection instead of requiring a pre-seeded
 known-hosts entry.
+
+## OPNsense
+
+Add a firewall profile with an HTTPS API key limited to GET access. Monitor
+rule hit counters grouped by interface, PF state usage, link aggregation, and
+WireGuard/OpenVPN/IPsec/Tailscale status; stream and filter allowed/blocked
+firewall logs. Firmware checks compare the installed version with the
+firewall's cached release changelog without starting an update check; missing
+or stale cache cannot prove current availability. Plugin upgrade targets also
+come from the firewall's previous check; verify them in the OPNsense GUI.
+Backups download a selected *saved* configuration revision, encrypt it locally
+as `*.xml.age`, and never persist plaintext. The separate SSH terminal
+requires explicit host-key verification.
 
 ## Development
 

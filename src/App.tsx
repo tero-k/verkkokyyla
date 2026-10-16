@@ -5,6 +5,7 @@ import HelpView from "./views/HelpView"
 import LanScanView from "./views/LanScanView"
 import MikrotikView from "./views/MikrotikView"
 import MtuView from "./views/MtuView"
+import OpnsenseView from "./views/OpnsenseView"
 import PingWorkspace from "./views/PingWorkspace"
 import TracerouteView from "./views/TracerouteView"
 import UpdateBanner from "./components/UpdateBanner"
@@ -24,12 +25,14 @@ export default function App() {
   // Becomes true on the first visit and never goes back — the keep-alive
   // switch for MikroTik's long-running sessions.
   const [mikrotikVisited, setMikrotikVisited] = useState(route === "mikrotik")
+  const [opnsenseVisited, setOpnsenseVisited] = useState(route === "opnsense")
 
   const { enabled, setEnabled, visibleUpdate, dismiss } = useUpdateCheck()
   const [version, setVersion] = useState("")
 
   useEffect(() => {
     if (route === "mikrotik") setMikrotikVisited(true)
+    if (route === "opnsense") setOpnsenseVisited(true)
   }, [route])
 
   useEffect(() => {
@@ -152,6 +155,15 @@ export default function App() {
         {mikrotikVisited ? (
           <div style={{ display: route === "mikrotik" ? "contents" : "none" }}>
             <MikrotikView />
+          </div>
+        ) : null}
+        {/* OPNsense gets the same lazy mount + keep-alive treatment: its
+            monitor, firewall log stream, and SSH terminals survive route
+            switches, and no OPNsense IPC runs on routes that never open
+            the view. */}
+        {opnsenseVisited ? (
+          <div style={{ display: route === "opnsense" ? "contents" : "none" }}>
+            <OpnsenseView />
           </div>
         ) : null}
       </main>

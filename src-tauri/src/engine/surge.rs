@@ -2,7 +2,7 @@
 //!
 //! One `Client`+`Pinger` per target. On Windows the DGRAM socket hint fails
 //! and surge-ping transparently falls back to a raw ICMP socket, which works
-//! unprivileged (spike: .omo/evidence/task-2-netdebug-ping.md).
+//! unprivileged (privilege spike outcome: .omp/plans/netdebug-ping.md, todo 2).
 
 use std::net::IpAddr;
 use std::num::NonZeroU32;

@@ -26,7 +26,7 @@ use thiserror::Error;
 use crate::db::{Database, DbError, MikrotikBackupRecord, NewMikrotikBackup};
 use crate::mikrotik::client::{MikrotikClient, MikrotikConnection};
 use crate::mikrotik::error::MikrotikError;
-use crate::mikrotik::secrets::{KeyringStore, SecretError, SecretStore};
+use crate::secrets::{KeyringStore, SecretError, SecretStore};
 
 /// SFTP connects on EXACTLY this port, never the profile's REST port.
 pub const SFTP_PORT: u16 = 22;
@@ -227,45 +227,11 @@ impl Serialize for BackupError {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Backup-name validation
-// ---------------------------------------------------------------------------
-
-/// Validate `backup_name` BEFORE any router call: `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
-/// and the stem before the first dot, case-insensitively, must not be a
-/// Windows device name (so `CON`, `con.txt`, `Com1.backup` all reject).
+/// Validate `backup_name` BEFORE any router call, mapping the shared
+/// validator's error into this flow's typed error.
 fn validate_backup_name(name: &str) -> Result<(), BackupError> {
-    let mut chars = name.chars();
-    let first = chars
-        .next()
-        .ok_or_else(|| BackupError::InvalidName(name.to_owned()))?;
-    let valid = first.is_ascii_alphanumeric()
-        && name.len() <= 64
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    if !valid {
-        return Err(BackupError::InvalidName(name.to_owned()));
-    }
-    let stem = name.split('.').next().unwrap_or(name);
-    if is_windows_device_name(stem) {
-        return Err(BackupError::InvalidName(name.to_owned()));
-    }
-    Ok(())
-}
-
-/// CON, PRN, AUX, NUL, COM1-9, LPT1-9 (case-insensitive; COM0/LPT0 are
-/// NOT reserved device names).
-fn is_windows_device_name(stem: &str) -> bool {
-    let upper = stem.to_ascii_uppercase();
-    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
-        return true;
-    }
-    let bytes = upper.as_bytes();
-    bytes.len() == 4
-        && (upper.starts_with("COM") || upper.starts_with("LPT"))
-        && bytes[3].is_ascii_digit()
-        && bytes[3] != b'0'
+    crate::backup_filename::validate_backup_name(name)
+        .map_err(|err| BackupError::InvalidName(err.0))
 }
 
 // ---------------------------------------------------------------------------
@@ -1106,77 +1072,6 @@ mod tests {
 
     async fn received(server: &MockServer) -> Vec<Request> {
         server.received_requests().await.unwrap_or_default()
-    }
-
-    // -- Name validation (before any router call) --------------------------
-
-    #[test]
-    fn mikrotik_backup_name_validation_table_reserved_set() {
-        // Full Windows device set: CON, PRN, AUX, NUL, COM1-9, LPT1-9 —
-        // mixed case and dotted extensions must all reject.
-        let mut reserved: Vec<String> = vec![
-            "CON".into(),
-            "con.txt".into(),
-            "Con".into(),
-            "cOn.bAk".into(),
-            "PRN".into(),
-            "prn.log".into(),
-            "AUX".into(),
-            "aux.txt".into(),
-            "NUL".into(),
-            "nul.rsc".into(),
-        ];
-        for n in 1..=9 {
-            reserved.push(format!("COM{n}"));
-            reserved.push(format!("Com{n}.backup"));
-            reserved.push(format!("lpt{n}"));
-            reserved.push(format!("LPT{n}.x"));
-        }
-        for name in reserved {
-            assert!(
-                matches!(
-                    validate_backup_name(&name),
-                    Err(BackupError::InvalidName(_))
-                ),
-                "{name:?} must be rejected"
-            );
-        }
-        // COM0/LPT0/COM10 are NOT reserved; ordinary names are fine.
-        for name in [
-            "demo",
-            "verkkokyyla-20260101-120000",
-            "a.b.c",
-            "COM0",
-            "LPT0",
-            "COM10",
-            "LPT10",
-            "conx",
-            "console",
-            "ok_1.2",
-        ] {
-            assert!(
-                validate_backup_name(name).is_ok(),
-                "{name:?} must be accepted"
-            );
-        }
-        // Regex violations: empty, bad first char, illegal chars, >64 chars.
-        // `_ok-1.2` starts with `_`: the spec regex requires an alphanumeric
-        // FIRST char (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`), so it rejects too.
-        for name in [
-            "",
-            ".hidden",
-            "-dash",
-            "_ok-1.2",
-            "a b",
-            "a/b",
-            "a\\b",
-            &"x".repeat(65),
-        ] {
-            assert!(
-                matches!(validate_backup_name(name), Err(BackupError::InvalidName(_))),
-                "{name:?} must be rejected"
-            );
-        }
     }
 
     #[tokio::test]

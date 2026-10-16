@@ -1,0 +1,613 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  background: var(--bg);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.field label {
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.field select {
+  min-width: 200px;
+  padding: 8px 11px;
+  font: 500 12px/1 var(--font-mono);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hint {
+  margin: 0;
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-faint);
+}
+
+.banner {
+  margin: 0 20px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--status-error-panel-bg);
+  color: var(--status-error-panel-text);
+  font-size: 12px;
+}
+
+.bannerWarn {
+  background: var(--status-warning-soft-bg);
+  color: var(--status-warning-text);
+}
+
+.tabBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 22px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+}
+
+.tabBar button {
+  flex: 0 0 auto;
+  padding: 10px 0 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: 600 12.5px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 150ms ease-in-out;
+}
+
+.tabBar button:hover {
+  color: var(--text);
+}
+
+.tabBar button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.tabPanel {
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.tabPanel[hidden] {
+  display: none;
+}
+
+.tabStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.deviceStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.deviceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-1);
+}
+
+.deviceChipSelected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.deviceSelect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--text);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.deviceSelect:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.deviceDetached {
+  font: 500 9.5px var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+
+/* Marks a device whose SSH terminal is open; the accent matches the
+   terminal panel's identity tag so a chip and its shell pair visually. */
+.deviceChipTerm {
+  padding: 2px 5px;
+  border: 1px solid var(--terminal-accent, var(--accent));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--terminal-accent, var(--accent)) 18%, transparent);
+  color: var(--terminal-accent, var(--accent));
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* --- Cards & stats ---------------------------------------------------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.card {
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.cardTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  font: 600 10px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px 16px;
+}
+
+.statGrid > * {
+  min-width: 0;
+}
+
+.statLabel {
+  font: 600 9px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.statValue {
+  margin-top: 4px;
+  font: 600 15px/1.2 var(--font-mono);
+  color: var(--text);
+  /* Long tokens (IPv6 lists, hostnames) must wrap inside the card. */
+  overflow-wrap: anywhere;
+}
+
+.statSub {
+  margin-top: 2px;
+  font: 400 10.5px/1.3 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.badge {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badgeOk {
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+.badgeWarn {
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+.badgeErr {
+  background: var(--status-error-bg);
+  color: var(--status-error-text);
+}
+
+.badgeMuted {
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+}
+
+.staleTag {
+  color: var(--status-warning-text);
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* --- Tables ------------------------------------------------------------ */
+
+.scroller {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-faint);
+  font: 600 9px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+/* Long unbroken tokens (IPv6 addresses, MACs) wrap at word boundaries
+   first; only a token that would overflow its cell breaks mid-token.
+   Numeric cells stay on one line via .num's nowrap. */
+.table .mono {
+  overflow-wrap: break-word;
+}
+
+/* The interface table has 12 columns; give it a natural width and let the
+   scroller scroll horizontally instead of crushing every column. */
+.ifaceTable {
+  min-width: 1400px;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.num {
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rowDisabled {
+  opacity: 0.55;
+}
+
+.ruleGroup {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ruleGroupHeader {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ruleGroupHeader:hover {
+  background: var(--surface-3);
+}
+
+.ruleGroupHeader:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ruleGroupChevron {
+  color: var(--accent);
+}
+
+.ruleGroupLabel {
+  font: 600 12px/1.3 var(--font-ui);
+}
+
+.laggLine {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font: 400 10px/1.4 var(--font-mono);
+}
+
+.empty {
+  margin: 0;
+  padding: 14px;
+  color: var(--text-faint);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+/* --- Toolbar rows (logs) ------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.toolbarRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.search {
+  min-width: 220px;
+  padding: 7px 10px;
+  font: 500 11.5px/1 var(--font-mono);
+}
+
+/* --- Profiles ----------------------------------------------------------- */
+
+.profileList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profileRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.profileRow h3 {
+  margin: 0;
+  font: 600 13px/1.2 var(--font-ui);
+  color: var(--text);
+}
+
+.profileMeta {
+  margin: 3px 0 0;
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--text-muted);
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 14px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.formGrid h2 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: 600 10px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.formGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.formGrid input {
+  padding: 7px 10px;
+  font: 500 12px/1 var(--font-mono);
+}
+
+.checkboxRow {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font: 500 11.5px/1 var(--font-ui) !important;
+  color: var(--text-secondary) !important;
+}
+
+.formActions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-error-text);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.success {
+  margin: 0;
+  color: var(--status-success-text);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+/* --- Firmware / backups ------------------------------------------------- */
+
+.upgradeList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upgradeList li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font: 400 11.5px/1.4 var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Peer names/IPs/endpoints wrap at word boundaries; only an overlong
+   unbroken token (IPv6) breaks mid-token. Badges never shrink. */
+.upgradeList li > span {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.upgradeList .peerRow {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+}
+
+.peerBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.peerName {
+  color: var(--text);
+}
+
+.peerBody .hint {
+  overflow-wrap: anywhere;
+}
+
+.note {
+  margin: 0;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: 400 11px/1.5 var(--font-ui);
+}
+
+.note code {
+  font-family: var(--font-mono);
+  color: var(--text);
+  /* Backup paths and commands are long unbroken tokens. */
+  overflow-wrap: anywhere;
+}
+
+/* --- SSH credential slot (terminal tab) --------------------------------- */
+
+.credentialBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.credentialBox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 9.5px/1 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.credentialBox input {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 10px;
+  font: 500 12px/1 var(--font-mono);
+}
+
+.fingerprint {
+  font: 600 12px/1.4 var(--font-mono);
+  color: var(--text);
+  word-break: break-all;
+}

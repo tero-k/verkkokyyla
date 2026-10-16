@@ -61,15 +61,6 @@
   white-space: normal;
 }
 
-.tableWrapper::-webkit-scrollbar {
-  block-size: 0.75rem;
-}
-
-.tableWrapper::-webkit-scrollbar-thumb {
-  border-radius: 1em;
-  background: var(--surface-3);
-}
-
 .table tbody tr:hover {
   background: var(--surface-2);
 }

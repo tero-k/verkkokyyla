@@ -84,9 +84,9 @@
 
 .recordTypeWell {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px;
-  overflow-x: auto;
   border-radius: 8px;
   background: var(--well);
 }
@@ -115,9 +115,9 @@
 
 .tabs {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 0 22px;
   padding: 0 20px;
-  overflow-x: auto;
 }
 
 .tab {
@@ -208,6 +208,13 @@
 }
 
 .tableScroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.recordsViewport {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -548,7 +555,8 @@
   max-width: 100%;
   box-sizing: border-box;
   padding: 12px;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-0);
@@ -710,6 +718,7 @@
 
   .lookupGrid {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(340px, auto) minmax(320px, auto);
   }
 
   .raceCard {
@@ -727,10 +736,9 @@
     padding: 12px;
   }
 
-  .recordTypeWell,
   .headerShell :global(.vk-segmented) {
+    flex-wrap: wrap;
     max-width: 100%;
-    overflow-x: auto;
   }
 
   .tabs {

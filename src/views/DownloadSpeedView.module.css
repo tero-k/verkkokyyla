@@ -33,12 +33,13 @@
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 10px;
 }
 
 .urlControl {
-  flex: 1;
+  flex: 1 1 260px;
   min-width: 260px;
 }
 
@@ -104,7 +105,7 @@
 }
 
 .headerActions {
-  margin-left: 0;
+  margin-left: auto;
   flex: none;
 }
 
@@ -117,9 +118,9 @@
 
 .tabs {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 0 22px;
   margin-top: 13px;
-  overflow-x: auto;
 }
 
 .tab {

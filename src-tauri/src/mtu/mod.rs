@@ -1,6 +1,6 @@
 //! Path MTU discovery: probe engines, a pure search controller, the session
 //! manager with SQLite history, and the Tauri command surface.
-//! See `.omo/plans/mtu-discovery.md`.
+//! See `.omp/plans/mtu-discovery.md`.
 
 pub mod engine;
 pub mod manager;

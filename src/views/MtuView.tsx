@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { HorizontalScrollArea } from "../components/ui/HorizontalScrollArea"
 import { useConfirmDialog } from "../hooks/useConfirmDialog"
 import { useSessionHistory } from "../hooks/useSessionHistory"
 import {
@@ -554,7 +555,7 @@ export default function MtuView() {
                   aside={`${rows.length} ${rows.length === 1 ? "attempt" : "attempts"}`}
                 />
               </div>
-              <div className={styles.tableScroll}>
+              <HorizontalScrollArea label="MTU probe sequence" className={styles.tableScroll}>
                 <table className={styles.probeTable} data-testid="mtu-probe-table">
                   <thead>
                     <tr>
@@ -593,7 +594,7 @@ export default function MtuView() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </HorizontalScrollArea>
             </Card>
           </main>
 
@@ -615,7 +616,7 @@ export default function MtuView() {
                   onCancel={runHistory.exitSelectMode}
                 />
               )}
-              <div className={styles.tableScroll}>
+              <HorizontalScrollArea label="Saved MTU runs" className={styles.tableScroll}>
                 <table className={styles.historyTable}>
                   <thead>
                     <tr>
@@ -691,7 +692,7 @@ export default function MtuView() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </HorizontalScrollArea>
               <RevealButton
                 totalCount={history.length}
                 hiddenCount={runHistory.hiddenCount}

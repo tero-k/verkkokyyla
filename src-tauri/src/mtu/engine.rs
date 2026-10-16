@@ -1,5 +1,5 @@
 //! MTU probe engines: per-probe I/O producing [`ProbeOutcome`].
-//! See `.omo/plans/mtu-discovery.md` milestone 1.
+//! See `.omp/plans/mtu-discovery.md` milestone 1.
 
 use std::collections::VecDeque;
 use std::net::IpAddr;
