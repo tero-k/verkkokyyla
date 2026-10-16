@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   opnsenseBackup,
+  opnsenseCheckUpdates,
   opnsenseCreateProfile,
   opnsenseDeleteProfile,
-  opnsenseGetUpdateStatus,
   opnsenseListActive,
   opnsenseListProfiles,
   opnsenseListRevisions,
@@ -19,7 +19,7 @@ import {
   type OpnsenseActiveMonitorDto,
   type OpnsenseBackupResultDto,
   type OpnsenseDeleteResultDto,
-  type OpnsenseFirmwareStatusDto,
+  type OpnsenseVersionCheckDto,
   type OpnsenseProfile,
   type OpnsenseRevisionDto,
   type OpnsenseRulesSectionDto,
@@ -38,6 +38,8 @@ export type RunOpnsenseBackupRequest = {
   readonly destinationDir: string
   readonly backupName: string
   readonly passphrase: string
+  /** Saved revision to download; null = newest saved revision. */
+  readonly revisionId: string | null
 }
 
 /** Last-good view of one snapshot section: fresh data, or the previous
@@ -132,10 +134,10 @@ export function useOpnsense() {
   const [selectedProfile, setSelectedProfile] = useState<OpnsenseProfile | null>(null)
   const [devices, setDevices] = useState<ReadonlyMap<number, OpnsenseDeviceState>>(new Map())
   const [globalError, setGlobalError] = useState("")
-  /** Cached firmware status for the profile that requested it. */
+  /** Firmware version check for the profile that requested it. */
   const [firmware, setFirmware] = useState<{
     readonly profileId: number
-    readonly status: OpnsenseFirmwareStatusDto
+    readonly check: OpnsenseVersionCheckDto
   } | null>(null)
   /** Saved config revisions for the profile that requested them. */
   const [revisions, setRevisions] = useState<{
@@ -414,18 +416,17 @@ export function useOpnsense() {
     [],
   )
 
-  /** Reads the firewall's CACHED update check — never triggers a remote
-      probe (the device API only probes on POST, which the read-only key
-      must not do). */
-  const refreshFirmwareStatus = useCallback(
-    async (profileId?: number): Promise<OpnsenseFirmwareStatusDto | null> => {
+  /** Compares the installed core version against the official OPNsense
+      release CDN and returns the full check result. */
+  const checkFirmwareUpdates = useCallback(
+    async (profileId?: number): Promise<OpnsenseVersionCheckDto | null> => {
       const targetId = profileId ?? selectedProfile?.id
       if (targetId === undefined) return null
       try {
-        const status = await opnsenseGetUpdateStatus(targetId)
-        setFirmware({ profileId: targetId, status })
+        const check = await opnsenseCheckUpdates(targetId)
+        setFirmware({ profileId: targetId, check })
         setGlobalError("")
-        return status
+        return check
       } catch (err) {
         setGlobalError(errorMessage(err))
         return null
@@ -461,6 +462,7 @@ export function useOpnsense() {
           request.destinationDir,
           request.backupName,
           request.passphrase,
+          request.revisionId,
         )
         setGlobalError("")
         return result
@@ -502,7 +504,7 @@ export function useOpnsense() {
     setCredentials,
     testConnection,
     firmware,
-    refreshFirmwareStatus,
+    checkFirmwareUpdates,
     revisions,
     refreshRevisions,
     runBackup,

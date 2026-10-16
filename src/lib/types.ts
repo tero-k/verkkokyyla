@@ -1274,12 +1274,34 @@ export type OpnsenseInterfaceDto = {
   readonly enabled: boolean
   /** Link state as reported ("up"/"down"), null when not reported. */
   readonly link?: string | null
-  readonly ipv4?: string | null
-  readonly ipv6?: string | null
+  /** All IPv4 addresses with CIDR prefix. */
+  readonly ipv4: readonly string[]
+  /** All IPv6 addresses with CIDR prefix. */
+  readonly ipv6: readonly string[]
+  readonly macaddr?: string | null
+  readonly mtu?: number | null
+  /** Link media/speed, e.g. "1000baseT <full-duplex>". */
+  readonly media?: string | null
+  /** Present on link-aggregation parents: protocol + member ports. */
+  readonly lagg?: OpnsenseLaggDto | null
   readonly rxBytes?: number | null
   readonly txBytes?: number | null
   readonly rxPackets?: number | null
   readonly txPackets?: number | null
+}
+
+export type OpnsenseLaggDto = {
+  /** "lacp" | "failover" | "loadbalance" | ... */
+  readonly proto?: string | null
+  readonly members: readonly OpnsenseLaggMemberDto[]
+}
+
+export type OpnsenseLaggMemberDto = {
+  readonly name: string
+  /** ifconfig laggport state flags, e.g. ["attached", "active"]. */
+  readonly state: readonly string[]
+  readonly link?: string | null
+  readonly media?: string | null
 }
 
 /** PF state table capacity — a firewall health signal. */
@@ -1293,6 +1315,8 @@ export type OpnsenseResourcesDto = {
   readonly memUsedBytes?: number | null
   readonly memTotalBytes?: number | null
   readonly uptime?: string | null
+  /** Load average string, e.g. "0.12, 0.08, 0.06". */
+  readonly loadavg?: string | null
 }
 
 export type OpnsenseSystemSectionDto = {
@@ -1317,8 +1341,12 @@ export type OpnsenseWireguardPeerDto = {
   readonly name: string
   /** Seconds since the latest handshake; absent when never handshaked. */
   readonly handshakeAgeSecs?: number | null
-  /** "active" | "stale" | "never" | "unknown" — stale is DISTINCT from offline. */
+  /** "active" | "stale" | "offline" | "never" — stale is DISTINCT from offline. */
   readonly status: string
+  /** Remote endpoint "host:port". */
+  readonly endpoint?: string | null
+  readonly transferRxBytes?: number | null
+  readonly transferTxBytes?: number | null
 }
 
 export type OpnsenseWireguardInterfaceDto = {
@@ -1336,12 +1364,22 @@ export type OpnsenseOpenvpnSessionDto = {
   /** "client" | "server" | "unknown". */
   readonly kind: string
   readonly connected: boolean
+  /** Client remote address "ip:port". */
+  readonly realAddress?: string | null
+  /** Client tunnel address. */
+  readonly virtualAddress?: string | null
+  readonly connectedSince?: string | null
+  readonly bytesReceived?: number | null
+  readonly bytesSent?: number | null
 }
 
 export type OpnsenseIpsecSessionDto = {
   readonly name: string
   readonly description?: string | null
   readonly connected: boolean
+  readonly remoteHost?: string | null
+  /** IKE version, e.g. "IKEv2". */
+  readonly version?: string | null
 }
 
 /** Tailscale status with sensitive raw plugin JSON intentionally dropped. */
@@ -1378,23 +1416,37 @@ export type OpnsenseSnapshotDto = {
   readonly vpn: OpnsenseSectionDto<OpnsenseVpnSectionDto>
 }
 
-/** Cached firmware status — the app never triggers a remote check. */
-export type OpnsenseFirmwareStatusDto = {
-  /** "cached-updates" | "cached-none" | "no-cache" | "unavailable" | "error". */
+/** Installed firmware vs the firewall's cached release changelog. */
+export type OpnsenseVersionCheckDto = {
+  /** "up-to-date" | "update-available" | "unknown" | "error". */
   readonly state: string
   readonly message?: string | null
-  /** Remote check timestamp, when the device provided one. */
-  readonly checkedAt?: string | null
+  /** Installed core version from the device. */
   readonly installedVersion?: string | null
-  readonly coreUpgrades: readonly OpnsenseUpgradeDto[]
-  readonly pluginUpgrades: readonly OpnsenseUpgradeDto[]
-  readonly rebootRequired: boolean
+  /** CORE_ABI as reported by the firewall, e.g. "26.7". */
+  readonly abi?: string | null
+  /** Release series, e.g. "25.7". */
+  readonly series?: string | null
+  /** Latest production version in the cached changelog for this series. */
+  readonly latestVersion?: string | null
+  /** RFC 3339 UTC timestamp when this app read the cache. */
+  readonly checkedAt: string
+  /** Cached changelog entries newer than the installed version, newest first. */
+  readonly changelog: readonly OpnsenseChangelogEntryDto[]
+  /** Installed plugins; cached upgrade targets may be stale. */
+  readonly plugins: readonly OpnsensePluginDto[]
 }
 
-export type OpnsenseUpgradeDto = {
+export type OpnsenseChangelogEntryDto = {
+  readonly version: string
+  readonly date?: string | null
+}
+
+export type OpnsensePluginDto = {
   readonly name: string
-  readonly oldVersion?: string | null
-  readonly newVersion?: string | null
+  readonly version?: string | null
+  /** Target from the firewall's last cached update check, if reported. */
+  readonly cachedUpgradeVersion?: string | null
 }
 
 export type OpnsenseRevisionDto = {

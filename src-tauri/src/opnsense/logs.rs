@@ -447,8 +447,8 @@ mod tests {
 
     use crate::db::{Database, NewOpnsenseProfile};
     use crate::opnsense::client::{
-        FirmwareStatusPayload, InterfaceInfoPage, OpnsenseApi, OpnsenseConnection, PfRuleId,
-        RuleSearchPage, RuleStat,
+        FirmwareInfoPayload, InterfaceInfoPage, OpnsenseApi, OpnsenseConnection, PfRuleId,
+        RuleSearchPage, RuleStat, SystemTimePayload,
     };
     use crate::opnsense::types::{
         OpnsenseApiFactory, OpnsenseInterfaceDto, OpnsenseIpsecSessionDto,
@@ -651,7 +651,14 @@ mod tests {
     /// A stream that yields the scripted chunks and then stays open forever,
     /// so the reader only exits via explicit stop or error.
     fn scripted_stream(chunks: Vec<Result<Vec<u8>, OpnsenseError>>) -> SseByteStream {
-        Box::pin(futures_util::stream::iter(chunks).chain(futures_util::stream::pending()))
+        Box::pin(
+            futures_util::stream::iter(
+                chunks
+                    .into_iter()
+                    .map(|chunk| chunk.map(bytes::Bytes::from)),
+            )
+            .chain(futures_util::stream::pending()),
+        )
     }
 
     /// One-shot fake: `open_log_stream` returns the scripted result; every
@@ -665,11 +672,7 @@ mod tests {
         async fn get_system_status(&self) -> Result<(), OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
-        async fn search_rules(
-            &self,
-            _current: u32,
-            _row_count: u32,
-        ) -> Result<RuleSearchPage, OpnsenseError> {
+        async fn search_rules(&self) -> Result<RuleSearchPage, OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
         async fn rule_stats(&self) -> Result<Vec<(String, RuleStat)>, OpnsenseError> {
@@ -678,11 +681,7 @@ mod tests {
         async fn list_rule_ids(&self) -> Result<Vec<PfRuleId>, OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
-        async fn interfaces_info(
-            &self,
-            _current: u32,
-            _row_count: u32,
-        ) -> Result<InterfaceInfoPage, OpnsenseError> {
+        async fn interfaces_info(&self) -> Result<InterfaceInfoPage, OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
         async fn interface_statistics(&self) -> Result<Vec<OpnsenseInterfaceDto>, OpnsenseError> {
@@ -709,10 +708,13 @@ mod tests {
         async fn tailscale_service_status(&self) -> Result<Option<bool>, OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
-        async fn firmware_status(&self) -> Result<FirmwareStatusPayload, OpnsenseError> {
+        async fn system_time(&self) -> Result<SystemTimePayload, OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
-        async fn firmware_info(&self) -> Result<Option<String>, OpnsenseError> {
+        async fn cpu_usage_sample(&self) -> Result<f64, OpnsenseError> {
+            unreachable!("log stream only calls open_log_stream")
+        }
+        async fn firmware_info(&self) -> Result<FirmwareInfoPayload, OpnsenseError> {
             unreachable!("log stream only calls open_log_stream")
         }
         async fn backup_revisions(&self) -> Result<Vec<OpnsenseRevisionDto>, OpnsenseError> {

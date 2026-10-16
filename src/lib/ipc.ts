@@ -76,7 +76,7 @@ import type {
   OpnsenseActiveMonitorDto,
   OpnsenseBackupResultDto,
   OpnsenseDeleteResultDto,
-  OpnsenseFirmwareStatusDto,
+  OpnsenseVersionCheckDto,
   OpnsenseLogEvent,
   OpnsenseLogStartDto,
   OpnsenseLogStatusEvent,
@@ -623,8 +623,8 @@ export function opnsenseListActive(): Promise<OpnsenseActiveMonitorDto[]> {
   return invoke<OpnsenseActiveMonitorDto[]>("opnsense_list_active")
 }
 
-export function opnsenseGetUpdateStatus(profileId: number): Promise<OpnsenseFirmwareStatusDto> {
-  return invoke<OpnsenseFirmwareStatusDto>("opnsense_get_update_status", { profileId })
+export function opnsenseCheckUpdates(profileId: number): Promise<OpnsenseVersionCheckDto> {
+  return invoke<OpnsenseVersionCheckDto>("opnsense_check_updates", { profileId })
 }
 
 export function opnsenseLogStart(
@@ -654,12 +654,14 @@ export function opnsenseBackup(
   destinationDir: string,
   backupName: string,
   passphrase: string,
+  revisionId: string | null,
 ): Promise<OpnsenseBackupResultDto> {
   return invoke<OpnsenseBackupResultDto>("opnsense_backup", {
     profileId,
     destinationDir,
     backupName,
     passphrase,
+    revisionId,
   })
 }
 

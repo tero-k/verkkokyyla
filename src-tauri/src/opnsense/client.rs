@@ -22,10 +22,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::opnsense::types::{
-    OpnsenseInterfaceDto, OpnsenseIpsecSessionDto, OpnsenseOpenvpnSessionDto, OpnsensePfStatesDto,
-    OpnsenseResourcesDto, OpnsenseRevisionDto, OpnsenseRuleDto, OpnsenseTailscalePeerDto,
-    OpnsenseTailscaleStatusDto, OpnsenseUnmappedRuleDto, OpnsenseWireguardInterfaceDto,
-    OpnsenseWireguardPeerDto, OpnsenseWireguardStatusDto,
+    OpnsenseInterfaceDto, OpnsenseIpsecSessionDto, OpnsenseLaggDto, OpnsenseLaggMemberDto,
+    OpnsenseOpenvpnSessionDto, OpnsensePfStatesDto, OpnsenseResourcesDto, OpnsenseRevisionDto,
+    OpnsenseRuleDto, OpnsenseTailscalePeerDto, OpnsenseTailscaleStatusDto, OpnsenseUnmappedRuleDto,
+    OpnsenseWireguardInterfaceDto, OpnsenseWireguardPeerDto, OpnsenseWireguardStatusDto,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -137,20 +137,20 @@ pub struct OpnsenseConnection {
     pub api_secret: String,
 }
 
-/// Raw pages/rows from search endpoints.
-/// `current` is the page number returned by the firewall; on releases
-/// where searchRecordsetBase only reads POST fields, GET pagination is
-/// ignored and the caller must stop rather than append page 1 again.
+/// Raw rows from search endpoints. GET pagination does not exist on
+/// OPNsense (searchRecordsetBase reads POST only), so every search
+/// endpoint is a single GET returning all rows; `total` is the reported
+/// total for truncation detection (`rows < total`).
+#[derive(Clone)]
 pub struct RuleSearchPage {
     pub rules: Vec<OpnsenseRuleDto>,
     pub total: i64,
-    pub current: Option<u32>,
 }
 
+#[derive(Clone)]
 pub struct InterfaceInfoPage {
     pub interfaces: Vec<OpnsenseInterfaceDto>,
     pub total: i64,
-    pub current: Option<u32>,
 }
 
 /// Fresh per-UUID counters from `filter_util/ruleStats`.
@@ -169,24 +169,41 @@ pub struct PfRuleId {
     pub description: Option<String>,
 }
 
-/// Raw firmware status payload parsed for the cached-status card.
+/// Parsed `diagnostics/system/system_time` payload.
 #[derive(Clone, Debug, Default)]
-pub struct FirmwareStatusPayload {
-    pub status: Option<String>,
-    pub status_msg: Option<String>,
-    /// `product.product_check` is non-null, whether it is a string or the
-    /// actual cached result object returned by FirmwareController.
-    pub has_cached_check: bool,
-    /// Remote check time only when the firewall explicitly provides one.
-    pub checked_at: Option<String>,
-    pub reboot_required: bool,
-    /// (name, old, new) for every upgrade candidate; the caller splits
-    /// core from `os-*` plugins.
-    pub upgrades: Vec<(String, Option<String>, Option<String>)>,
+pub struct SystemTimePayload {
+    pub uptime: Option<String>,
+    pub loadavg: Option<String>,
+}
+
+/// One entry of the firewall's cached release changelog (`info.changelog`):
+/// series + version + release date. The firewall fetches and
+/// signature-verifies this list itself during its own update checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirmwareChangelogItem {
+    pub series: Option<String>,
+    pub version: String,
+    pub date: Option<String>,
+}
+
+/// Parsed `core/firmware/info` payload.
+#[derive(Clone, Debug, Default)]
+pub struct FirmwareInfoPayload {
+    pub product_version: Option<String>,
+    /// Package ABI as the device reports it, e.g. "26.7" (CORE_ABI).
+    pub abi: Option<String>,
+    /// Installed plugins: (name, version).
+    pub plugins: Vec<(String, Option<String>)>,
+    /// Upgrade targets from the device's *previous* check. No probe is
+    /// started here; absent cache leaves plugin availability unknown.
+    pub cached_plugin_upgrades: Vec<(String, String)>,
+    /// Cached release changelog (all series). Empty when the firewall has
+    /// never fetched one.
+    pub changelog: Vec<FirmwareChangelogItem>,
 }
 
 /// Byte stream of an open SSE response (no total deadline).
-pub type SseByteStream = BoxStream<'static, Result<Vec<u8>, OpnsenseError>>;
+pub type SseByteStream = BoxStream<'static, Result<bytes::Bytes, OpnsenseError>>;
 
 /// The fixed read-only endpoint surface. Tests inject fakes; production is
 /// [`OpnsenseClient`].
@@ -195,12 +212,9 @@ pub trait OpnsenseApi: Send + Sync {
     /// `GET /api/core/system/status` — connectivity/authorization probe.
     async fn get_system_status(&self) -> Result<(), OpnsenseError>;
 
-    /// `GET /api/firewall/filter/searchRule?show_all=1` — one page.
-    async fn search_rules(
-        &self,
-        current: u32,
-        row_count: u32,
-    ) -> Result<RuleSearchPage, OpnsenseError>;
+    /// `GET /api/firewall/filter/searchRule?show_all=1` — ALL rules in one
+    /// GET (pagination params are POST-only and ignored on GET).
+    async fn search_rules(&self) -> Result<RuleSearchPage, OpnsenseError>;
 
     /// `GET /api/firewall/filter_util/ruleStats` — counters keyed by UUID.
     async fn rule_stats(&self) -> Result<Vec<(String, RuleStat)>, OpnsenseError>;
@@ -208,12 +222,9 @@ pub trait OpnsenseApi: Send + Sync {
     /// `GET /api/diagnostics/firewall/listRuleIds` — active PF rule IDs.
     async fn list_rule_ids(&self) -> Result<Vec<PfRuleId>, OpnsenseError>;
 
-    /// `GET /api/interfaces/overview/interfacesInfo` — one page.
-    async fn interfaces_info(
-        &self,
-        current: u32,
-        row_count: u32,
-    ) -> Result<InterfaceInfoPage, OpnsenseError>;
+    /// `GET /api/interfaces/overview/interfacesInfo` — ALL interfaces in
+    /// one GET, including lagg membership (`laggport`) and media.
+    async fn interfaces_info(&self) -> Result<InterfaceInfoPage, OpnsenseError>;
 
     /// `GET /api/diagnostics/interface/get_interface_statistics`.
     async fn interface_statistics(&self) -> Result<Vec<OpnsenseInterfaceDto>, OpnsenseError>;
@@ -221,8 +232,16 @@ pub trait OpnsenseApi: Send + Sync {
     /// `GET /api/diagnostics/firewall/pfStates` — state table usage.
     async fn pf_states(&self) -> Result<OpnsensePfStatesDto, OpnsenseError>;
 
-    /// `GET /api/diagnostics/system/system_resources`.
+    /// `GET /api/diagnostics/system/system_resources` — memory only.
     async fn system_resources(&self) -> Result<OpnsenseResourcesDto, OpnsenseError>;
+
+    /// `GET /api/diagnostics/system/system_time` — uptime and loadavg.
+    async fn system_time(&self) -> Result<SystemTimePayload, OpnsenseError>;
+
+    /// `GET /api/diagnostics/cpu_usage/stream` — the only live CPU source
+    /// (SSE, `iostat -w 1`); opens the stream, takes the first INTERVAL
+    /// sample (the first event is a since-boot average) and closes it.
+    async fn cpu_usage_sample(&self) -> Result<f64, OpnsenseError>;
 
     /// `GET /api/wireguard/service/show`.
     async fn wireguard_show(&self) -> Result<OpnsenseWireguardStatusDto, OpnsenseError>;
@@ -240,12 +259,10 @@ pub trait OpnsenseApi: Send + Sync {
     /// `GET /api/tailscale/service/status` — service running flag only.
     async fn tailscale_service_status(&self) -> Result<Option<bool>, OpnsenseError>;
 
-    /// `GET /api/core/firmware/status` — LAST firewall-side check only;
-    /// never POSTs (that would trigger a synchronous probe).
-    async fn firmware_status(&self) -> Result<FirmwareStatusPayload, OpnsenseError>;
-
-    /// `GET /api/core/firmware/info` — installed core version.
-    async fn firmware_info(&self) -> Result<Option<String>, OpnsenseError>;
+    /// `GET /api/core/firmware/info` — installed core version, package
+    /// ABI, and installed plugins. Never POSTs (that would trigger a
+    /// synchronous check on the firewall).
+    async fn firmware_info(&self) -> Result<FirmwareInfoPayload, OpnsenseError>;
 
     /// `GET /api/core/backup/backups/this` — saved config revisions.
     async fn backup_revisions(&self) -> Result<Vec<OpnsenseRevisionDto>, OpnsenseError>;
@@ -328,12 +345,43 @@ impl OpnsenseClient {
         let response = check_status(response)?;
         Ok(response
             .bytes_stream()
-            .map(|chunk| {
-                chunk
-                    .map(|b| b.to_vec())
-                    .map_err(|e| classify_transport(&e))
-            })
+            .map(|chunk| chunk.map_err(|e| classify_transport(&e)))
             .boxed())
+    }
+
+    /// Open the `cpu_usage/stream` SSE feed and take one interval sample.
+    /// `iostat`'s first event is a since-boot average, so the SECOND event
+    /// (first real ~1 s interval) is preferred; if the stream ends after a
+    /// single event that one is used. The caller wraps this in the
+    /// per-request timeout.
+    async fn cpu_usage_sample_inner(&self) -> Result<f64, OpnsenseError> {
+        let mut stream = self.get_stream("diagnostics/cpu_usage/stream").await?;
+        let mut buf: Vec<u8> = Vec::new();
+        let mut first: Option<f64> = None;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if buf.len() + chunk.len() > 64 * 1024 {
+                return Err(OpnsenseError::TooLarge(64 * 1024));
+            }
+            buf.extend_from_slice(&chunk);
+            while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
+                let sample = std::str::from_utf8(&buf[..pos])
+                    .ok()
+                    .and_then(|line| line.trim().strip_prefix("data:"))
+                    .and_then(|data| serde_json::from_str::<Value>(data.trim()).ok())
+                    .and_then(|value| field(&value, &["total"]).and_then(opt_f64));
+                buf.drain(..=pos);
+                let Some(total) = sample else {
+                    continue;
+                };
+                match first {
+                    None => first = Some(total),
+                    // Second event = first true interval sample.
+                    Some(_) => return Ok(total),
+                }
+            }
+        }
+        first.ok_or_else(|| OpnsenseError::Parse("CPU stream ended without a sample".to_owned()))
     }
 }
 
@@ -479,19 +527,11 @@ impl OpnsenseApi for OpnsenseClient {
         Ok(())
     }
 
-    async fn search_rules(
-        &self,
-        current: u32,
-        row_count: u32,
-    ) -> Result<RuleSearchPage, OpnsenseError> {
+    async fn search_rules(&self) -> Result<RuleSearchPage, OpnsenseError> {
         let value = self
             .get_json(
                 "firewall/filter/searchRule",
-                &[
-                    ("show_all", "1".to_owned()),
-                    ("current", current.to_string()),
-                    ("rowCount", row_count.to_string()),
-                ],
+                &[("show_all", "1".to_owned())],
             )
             .await?;
         let rules = rows_of(&value)
@@ -500,7 +540,6 @@ impl OpnsenseApi for OpnsenseClient {
             .collect::<Vec<_>>();
         Ok(RuleSearchPage {
             total: total_of(&value, rules.len() as i64),
-            current: i64_field(&value, &["current"]).and_then(|n| u32::try_from(n).ok()),
             rules,
         })
     }
@@ -517,27 +556,17 @@ impl OpnsenseApi for OpnsenseClient {
         Ok(parse_rule_ids(&value))
     }
 
-    async fn interfaces_info(
-        &self,
-        current: u32,
-        row_count: u32,
-    ) -> Result<InterfaceInfoPage, OpnsenseError> {
+    async fn interfaces_info(&self) -> Result<InterfaceInfoPage, OpnsenseError> {
         let value = self
-            .get_json(
-                "interfaces/overview/interfacesInfo",
-                &[
-                    ("current", current.to_string()),
-                    ("rowCount", row_count.to_string()),
-                ],
-            )
+            .get_json("interfaces/overview/interfacesInfo", &[])
             .await?;
-        let interfaces = rows_of(&value)
+        let mut interfaces = rows_of(&value)
             .into_iter()
             .map(parse_interface_row)
             .collect::<Vec<_>>();
+        join_lagg_members(&mut interfaces);
         Ok(InterfaceInfoPage {
             total: total_of(&value, interfaces.len() as i64),
-            current: i64_field(&value, &["current"]).and_then(|n| u32::try_from(n).ok()),
             interfaces,
         })
     }
@@ -559,6 +588,20 @@ impl OpnsenseApi for OpnsenseClient {
             .get_json("diagnostics/system/system_resources", &[])
             .await?;
         Ok(parse_system_resources(&value))
+    }
+
+    async fn system_time(&self) -> Result<SystemTimePayload, OpnsenseError> {
+        let value = self.get_json("diagnostics/system/system_time", &[]).await?;
+        Ok(parse_system_time(&value))
+    }
+
+    async fn cpu_usage_sample(&self) -> Result<f64, OpnsenseError> {
+        let sample = tokio::time::timeout(DEFAULT_REQUEST_TIMEOUT, self.cpu_usage_sample_inner())
+            .await
+            .map_err(|_| {
+                OpnsenseError::Timeout("CPU usage stream produced no sample".to_owned())
+            })??;
+        Ok(sample)
     }
 
     async fn wireguard_show(&self) -> Result<OpnsenseWireguardStatusDto, OpnsenseError> {
@@ -586,16 +629,9 @@ impl OpnsenseApi for OpnsenseClient {
         Ok(field(&value, &["status"]).and_then(opt_bool))
     }
 
-    async fn firmware_status(&self) -> Result<FirmwareStatusPayload, OpnsenseError> {
-        let value = self.get_json("core/firmware/status", &[]).await?;
-        Ok(parse_firmware_status(&value))
-    }
-
-    async fn firmware_info(&self) -> Result<Option<String>, OpnsenseError> {
+    async fn firmware_info(&self) -> Result<FirmwareInfoPayload, OpnsenseError> {
         let value = self.get_json("core/firmware/info", &[]).await?;
-        Ok(value
-            .get("product")
-            .and_then(|p| str_field(p, &["product_version", "version"])))
+        Ok(parse_firmware_info(&value))
     }
 
     async fn backup_revisions(&self) -> Result<Vec<OpnsenseRevisionDto>, OpnsenseError> {
@@ -704,8 +740,36 @@ fn parse_rule_ids(value: &Value) -> Vec<PfRuleId> {
 }
 
 fn parse_interface_row(row: &Value) -> OpnsenseInterfaceDto {
-    let name = str_field(row, &["name", "identifier", "ifname", "interface"]).unwrap_or_default();
+    // Real payloads key the device as "device"; older spellings kept.
+    let name = str_field(
+        row,
+        &["device", "name", "identifier", "ifname", "interface"],
+    )
+    .unwrap_or_default();
     let (ipv4, ipv6) = parse_addresses(row);
+    let macaddr = str_field(row, &["macaddr", "mac"])
+        // ifconfig reports 00:00:00:00:00:00 for virtual devices — noise.
+        .filter(|mac| mac != "00:00:00:00:00:00");
+    let lagg = field(row, &["laggport"])
+        .and_then(Value::as_object)
+        .map(|ports| {
+            OpnsenseLaggDto {
+                proto: str_field(row, &["laggproto"]),
+                members: ports
+                    .iter()
+                    .map(|(port, info)| OpnsenseLaggMemberDto {
+                        name: port.clone(),
+                        state: field(info, &["state"])
+                            .and_then(Value::as_array)
+                            .map(|flags| flags.iter().filter_map(opt_str).collect())
+                            .unwrap_or_default(),
+                        // Filled by join_lagg_members from the port's own row.
+                        link: None,
+                        media: None,
+                    })
+                    .collect(),
+            }
+        });
     OpnsenseInterfaceDto {
         name,
         description: str_field(row, &["description", "descr"]),
@@ -713,6 +777,10 @@ fn parse_interface_row(row: &Value) -> OpnsenseInterfaceDto {
         link: str_field(row, &["link", "status"]).map(|s| s.to_ascii_lowercase()),
         ipv4,
         ipv6,
+        macaddr,
+        mtu: i64_field(row, &["mtu"]),
+        media: str_field(row, &["media"]),
+        lagg,
         rx_bytes: None,
         tx_bytes: None,
         rx_packets: None,
@@ -720,52 +788,170 @@ fn parse_interface_row(row: &Value) -> OpnsenseInterfaceDto {
     }
 }
 
-fn parse_addresses(row: &Value) -> (Option<String>, Option<String>) {
-    let take = |keys: &[&str]| -> Option<String> {
-        match field(row, keys) {
-            Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
-            Some(Value::Array(items)) => items.iter().find_map(opt_str),
-            Some(Value::Object(map)) => map.values().find_map(opt_str),
-            _ => None,
+/// Members of a lagg carry no speed in the parent row; each member appears
+/// as its own interface row with media/link. Join by exact device name.
+fn join_lagg_members(interfaces: &mut [OpnsenseInterfaceDto]) {
+    let details: Vec<(String, Option<String>, Option<String>)> = interfaces
+        .iter()
+        .map(|iface| (iface.name.clone(), iface.link.clone(), iface.media.clone()))
+        .collect();
+    for iface in interfaces.iter_mut() {
+        let Some(lagg) = iface.lagg.as_mut() else {
+            continue;
+        };
+        for member in &mut lagg.members {
+            if let Some((_, link, media)) = details.iter().find(|(name, _, _)| *name == member.name)
+            {
+                member.link = link.clone();
+                member.media = media.clone();
+            }
         }
+        // Deterministic member order.
+        lagg.members.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+}
+
+/// Addresses come as primary strings (`addr4`/`addr6`, "" when absent)
+/// plus `ipv4`/`ipv6` arrays of objects carrying `ipaddr` with CIDR.
+fn parse_addresses(row: &Value) -> (Vec<String>, Vec<String>) {
+    let collect = |primary_keys: &[&str], array_keys: &[&str]| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if let Some(primary) = str_field(row, primary_keys) {
+            out.push(primary);
+        }
+        if let Some(items) = field(row, array_keys).and_then(Value::as_array) {
+            for item in items {
+                let addr = match item {
+                    Value::String(_) => opt_str(item),
+                    Value::Object(_) => str_field(item, &["ipaddr", "address", "addr"]),
+                    _ => None,
+                };
+                if let Some(addr) = addr {
+                    if !out.contains(&addr) {
+                        out.push(addr);
+                    }
+                }
+            }
+        }
+        out
     };
     (
-        take(&["ipv4", "ipv4_address", "ipaddr"]),
-        take(&["ipv6", "ipv6_address", "ipaddr6"]),
+        collect(&["addr4"], &["ipv4", "ipv4_addresses"]),
+        collect(&["addr6"], &["ipv6", "ipv6_addresses"]),
     )
 }
 
 fn parse_interface_statistics(value: &Value) -> Vec<OpnsenseInterfaceDto> {
-    // Shape: {"statistics": {"em0": {"bytes received": ..., ...}}}
+    // Real shape (Diagnostics InterfaceController::getInterfaceStatisticsAction):
+    // {"statistics": {"[WAN] (igc0) / a8:b8:e0:02:5a:53": {"name": "igc0",
+    //  "received-bytes": 143428806637, ...}, "[WAN] (igc0) / 100.64.104.184":
+    //  {"name": "igc0", ...}, ...}}
+    // The MAP KEY is a display label, not the device name — the node's own
+    // `name` field carries the device ("igc0") that the monitor merges on.
+    // One device appears once PER ADDRESS (link layer + each IP); the
+    // link-layer ("<Link#N>") entry holds the interface totals, so merging
+    // takes the MAX of each counter — never the sum, which would double
+    // count traffic.
     let stats = match field(value, &["statistics"]).and_then(Value::as_object) {
         Some(map) => map,
         None => return Vec::new(),
     };
-    stats
-        .iter()
-        .map(|(name, entry)| {
-            let find = |keys: &[&str]| -> Option<i64> {
-                keys.iter().find_map(|k| entry.get(*k)).and_then(opt_i64)
-            };
-            OpnsenseInterfaceDto {
+    let mut by_device: std::collections::HashMap<String, OpnsenseInterfaceDto> =
+        std::collections::HashMap::new();
+    for (key, entry) in stats {
+        let find = |keys: &[&str]| -> Option<i64> {
+            keys.iter().find_map(|k| entry.get(*k)).and_then(opt_i64)
+        };
+        let name = str_field(entry, &["name"])
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| device_from_stats_label(key));
+        let merged = by_device
+            .entry(name)
+            .or_insert_with_key(|name| OpnsenseInterfaceDto {
                 name: name.clone(),
                 description: None,
                 enabled: true,
                 link: None,
-                ipv4: None,
-                ipv6: None,
-                rx_bytes: find(&["bytes received", "rx-bytes", "rx_bytes", "ibytes"]),
-                tx_bytes: find(&["bytes transmitted", "tx-bytes", "tx_bytes", "obytes"]),
-                rx_packets: find(&["packets received", "rx-packets", "rx_packets", "ipackets"]),
-                tx_packets: find(&[
-                    "packets transmitted",
-                    "tx-packets",
-                    "tx_packets",
-                    "opackets",
-                ]),
+                ipv4: Vec::new(),
+                ipv6: Vec::new(),
+                macaddr: None,
+                mtu: None,
+                media: None,
+                lagg: None,
+                rx_bytes: None,
+                tx_bytes: None,
+                rx_packets: None,
+                tx_packets: None,
+            });
+        let keep_max = |slot: &mut Option<i64>, candidate: Option<i64>| {
+            if let Some(v) = candidate {
+                if slot.is_none_or(|cur| v > cur) {
+                    *slot = Some(v);
+                }
             }
-        })
-        .collect()
+        };
+        keep_max(
+            &mut merged.rx_bytes,
+            find(&[
+                "bytes received",
+                "received-bytes",
+                "rx-bytes",
+                "rx_bytes",
+                "ibytes",
+            ]),
+        );
+        keep_max(
+            &mut merged.tx_bytes,
+            find(&[
+                "bytes transmitted",
+                "sent-bytes",
+                "tx-bytes",
+                "tx_bytes",
+                "obytes",
+            ]),
+        );
+        keep_max(
+            &mut merged.rx_packets,
+            find(&[
+                "packets received",
+                "received-packets",
+                "rx-packets",
+                "rx_packets",
+                "ipackets",
+            ]),
+        );
+        keep_max(
+            &mut merged.tx_packets,
+            find(&[
+                "packets transmitted",
+                "sent-packets",
+                "tx-packets",
+                "tx_packets",
+                "opackets",
+            ]),
+        );
+    }
+    by_device.into_values().collect()
+}
+
+/// Device name out of a statistics map label: "[WAN] (igc0) / 10.0.0.1"
+/// → "igc0"; "[igc2] / -" → "igc2". Anything unrecognized passes through
+/// unchanged so a bare device name still merges.
+fn device_from_stats_label(label: &str) -> String {
+    if let Some(start) = label.rfind('(') {
+        if let Some(end) = label[start..].find(')') {
+            let inner = &label[start + 1..start + end];
+            if !inner.is_empty() {
+                return inner.to_owned();
+            }
+        }
+    }
+    label
+        .strip_prefix('[')
+        .and_then(|rest| rest.split(']').next())
+        .filter(|inner| !inner.is_empty())
+        .unwrap_or(label)
+        .to_owned()
 }
 
 fn parse_pf_states(value: &Value) -> OpnsensePfStatesDto {
@@ -783,11 +969,10 @@ fn parse_pf_states(value: &Value) -> OpnsensePfStatesDto {
     OpnsensePfStatesDto { current, max }
 }
 
+/// `system_resources` reports MEMORY ONLY (CPU comes from the
+/// `cpu_usage/stream` SSE feed, uptime/load from `system_time`); memory
+/// values may be the localized string "N/A" when sysctl data is missing.
 fn parse_system_resources(value: &Value) -> OpnsenseResourcesDto {
-    let cpu = field(value, &["cpu"]);
-    let cpu_usage = cpu
-        .and_then(|c| field(c, &["used", "usage", "load"]).and_then(opt_f64))
-        .or_else(|| i64_field(value, &["cpu_usage", "cpu"]).map(|v| v as f64));
     let memory = field(value, &["memory", "mem"]);
     let (mem_used, mem_total) = match memory {
         Some(m) => (
@@ -797,22 +982,33 @@ fn parse_system_resources(value: &Value) -> OpnsenseResourcesDto {
         None => (None, None),
     };
     OpnsenseResourcesDto {
-        cpu_usage_percent: cpu_usage,
+        cpu_usage_percent: None,
         mem_used_bytes: mem_used,
         mem_total_bytes: mem_total,
-        uptime: str_field(value, &["uptime"]),
+        uptime: None,
+        loadavg: None,
+    }
+}
+
+fn parse_system_time(value: &Value) -> SystemTimePayload {
+    let clean = |keys: &[&str]| str_field(value, keys).filter(|s| !s.eq_ignore_ascii_case("n/a"));
+    SystemTimePayload {
+        uptime: clean(&["uptime"]),
+        loadavg: clean(&["loadavg"]),
     }
 }
 
 fn parse_wireguard_show(value: &Value) -> OpnsenseWireguardStatusDto {
     let rows = rows_of(value);
     let mut interfaces: Vec<OpnsenseWireguardInterfaceDto> = Vec::new();
+    // Device ("if" = wg0) alongside the configured name, for peer joins.
+    let mut devices: Vec<String> = Vec::new();
     for row in &rows {
         let kind = str_field(row, &["type"]).unwrap_or_default();
         if kind == "interface" {
-            let name = str_field(row, &["name", "interface"]).unwrap_or_default();
+            devices.push(str_field(row, &["if"]).unwrap_or_default());
             interfaces.push(OpnsenseWireguardInterfaceDto {
-                name,
+                name: str_field(row, &["name", "if", "ifname"]).unwrap_or_default(),
                 peers: Vec::new(),
             });
         }
@@ -822,30 +1018,58 @@ fn parse_wireguard_show(value: &Value) -> OpnsenseWireguardStatusDto {
         if kind != "peer" {
             continue;
         }
-        let parent = str_field(row, &["interface", "ifname"]).unwrap_or_default();
+        // Peer rows attach to their interface via "if" (the wgN device),
+        // NOT "ifname" (which is the server instance name).
+        let parent = str_field(row, &["if", "interface", "ifname"]).unwrap_or_default();
         let name = str_field(row, &["name", "descr", "description"])
             .or_else(|| {
                 str_field(row, &["public-key", "public_key", "pubkey"])
                     .map(|key| key.chars().take(12).collect::<String>())
             })
             .unwrap_or_else(|| "(peer)".to_owned());
-        let handshake_age = i64_field(row, &["latest-handshake", "latest_handshake"]);
-        let status = match handshake_age {
-            None => "never",
-            Some(age) if age <= 180 => "active",
-            Some(_) => "stale",
-        };
+        let handshake_age = i64_field(row, &["latest-handshake-age", "latest_handshake_age"])
+            .or_else(|| i64_field(row, &["latest-handshake", "latest_handshake"]));
+        // The firewall computes peer-status itself (online ≤300s); trust
+        // it when present, derive otherwise.
+        let status = str_field(row, &["peer-status", "peer_status"])
+            .map(|s| match s.as_str() {
+                "online" => "active".to_owned(),
+                other => other.to_owned(),
+            })
+            .unwrap_or_else(|| match handshake_age {
+                None => "never".to_owned(),
+                Some(age) if age <= 300 => "active".to_owned(),
+                Some(_) => "stale".to_owned(),
+            });
+        let endpoint = str_field(row, &["endpoint"]).filter(|e| !e.is_empty() && e != "(none)");
         let peer = OpnsenseWireguardPeerDto {
             name,
             handshake_age_secs: handshake_age,
-            status: status.to_owned(),
+            status,
+            endpoint,
+            transfer_rx_bytes: i64_field(row, &["transfer-rx", "transfer_rx"]),
+            transfer_tx_bytes: i64_field(row, &["transfer-tx", "transfer_tx"]),
         };
-        match interfaces.iter_mut().find(|i| i.name == parent) {
-            Some(iface) => iface.peers.push(peer),
-            None => interfaces.push(OpnsenseWireguardInterfaceDto {
-                name: parent,
-                peers: vec![peer],
-            }),
+        // Peers carry the device; interface rows may only expose their
+        // configured name — match either.
+        let idx = interfaces
+            .iter()
+            .enumerate()
+            .find(|(i, iface)| {
+                iface.name == parent
+                    || devices.get(*i).is_some_and(|device| *device == parent)
+                    || str_field(row, &["ifname"]).as_deref() == Some(iface.name.as_str())
+            })
+            .map(|(i, _)| i);
+        match idx {
+            Some(i) => interfaces[i].peers.push(peer),
+            None => {
+                devices.push(parent.clone());
+                interfaces.push(OpnsenseWireguardInterfaceDto {
+                    name: parent,
+                    peers: vec![peer],
+                });
+            }
         }
     }
     OpnsenseWireguardStatusDto { interfaces }
@@ -853,15 +1077,24 @@ fn parse_wireguard_show(value: &Value) -> OpnsenseWireguardStatusDto {
 
 fn parse_openvpn_row(row: &Value) -> OpnsenseOpenvpnSessionDto {
     let kind = str_field(row, &["type", "mode", "role"]).unwrap_or_else(|| "unknown".to_owned());
+    // Client rows carry status "connected"; server rows "ok" when the
+    // management socket answered. Older payloads use a connected bool.
     let connected = field(row, &["connected"])
         .and_then(opt_bool)
-        .or_else(|| str_field(row, &["status"]).and_then(|s| opt_bool(&Value::String(s))))
+        .or_else(|| {
+            str_field(row, &["status"]).map(|s| matches!(s.as_str(), "connected" | "ok" | "up"))
+        })
         .unwrap_or(false);
     OpnsenseOpenvpnSessionDto {
-        name: str_field(row, &["name", "common_name", "id"]).unwrap_or_default(),
+        name: str_field(row, &["common_name", "name", "id"]).unwrap_or_default(),
         description: str_field(row, &["description", "descr"]),
         kind,
         connected,
+        real_address: str_field(row, &["real_address"]),
+        virtual_address: str_field(row, &["virtual_address"]),
+        connected_since: str_field(row, &["connected_since"]),
+        bytes_received: i64_field(row, &["bytes_received"]),
+        bytes_sent: i64_field(row, &["bytes_sent"]),
     }
 }
 
@@ -871,8 +1104,10 @@ fn parse_ipsec_row(row: &Value) -> OpnsenseIpsecSessionDto {
         .unwrap_or(false);
     OpnsenseIpsecSessionDto {
         name: str_field(row, &["name", "connection", "id"]).unwrap_or_default(),
-        description: str_field(row, &["description", "descr"]),
+        description: str_field(row, &["phase1desc", "description", "descr"]),
         connected,
+        remote_host: str_field(row, &["remote-host", "remote_host"]).filter(|h| !h.is_empty()),
+        version: str_field(row, &["version"]),
     }
 }
 
@@ -921,33 +1156,77 @@ fn parse_tailscale_status(value: &Value) -> Result<OpnsenseTailscaleStatusDto, O
     })
 }
 
-fn parse_firmware_status(value: &Value) -> FirmwareStatusPayload {
+/// `core/firmware/info`: installed version/ABI under `product` (newer
+/// releases) or top level, plus the installed plugin list.
+fn parse_firmware_info(value: &Value) -> FirmwareInfoPayload {
     let product = value.get("product");
-    let mut upgrades = Vec::new();
-    for key in ["all_packages", "all_sets"] {
-        if let Some(Value::Object(packages)) = value.get(key) {
-            for (name, entry) in packages {
-                upgrades.push((
-                    name.clone(),
-                    str_field(entry, &["old", "old_version", "installed"]),
-                    str_field(entry, &["new", "new_version", "candidate"]),
-                ));
-            }
-        }
-    }
-    let check = product.and_then(|p| p.get("product_check"));
-    FirmwareStatusPayload {
-        status: str_field(value, &["status"]),
-        status_msg: str_field(value, &["status_msg", "statusMessage"]),
-        has_cached_check: check.is_some_and(|v| !v.is_null()),
-        checked_at: check
+    let pick = |keys: &[&str]| {
+        product
+            .and_then(|p| field(p, keys))
+            .or_else(|| field(value, keys))
             .and_then(opt_str)
-            .or_else(|| check.and_then(|v| str_field(v, &["checked_at", "timestamp", "time"])))
-            .or_else(|| product.and_then(|p| str_field(p, &["product_lastcheck"]))),
-        reboot_required: field(value, &["upgrade_needs_reboot", "reboot_required"])
-            .and_then(opt_bool)
-            .unwrap_or(false),
-        upgrades,
+    };
+    let plugins = field(value, &["plugin", "plugins"])
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| {
+                    field(item, &["installed"])
+                        .and_then(opt_bool)
+                        .unwrap_or(false)
+                })
+                .filter_map(|item| {
+                    let name = str_field(item, &["name"])?;
+                    Some((name, str_field(item, &["version"])))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let cached_plugin_upgrades = product
+        .and_then(|p| p.get("product_check"))
+        .and_then(|check| check.get("upgrade_packages"))
+        .and_then(Value::as_array)
+        .map(|packages| {
+            packages
+                .iter()
+                .filter_map(|package| {
+                    let name = str_field(package, &["name"])?;
+                    let version = str_field(package, &["new_version"])?;
+                    name.starts_with("os-").then_some((name, version))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let changelog = field(value, &["changelog"])
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let version = str_field(item, &["version"])?;
+                    Some(FirmwareChangelogItem {
+                        series: str_field(item, &["series"]),
+                        version,
+                        date: str_field(item, &["date"]),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    FirmwareInfoPayload {
+        product_version: str_field(value, &["product_version"]).or_else(|| {
+            pick(&[
+                "product_version",
+                "version",
+                "CORE_PKGVERSION",
+                "CORE_VERSION",
+            ])
+        }),
+        abi: pick(&["product_abi", "abi", "CORE_ABI"]),
+        plugins,
+        cached_plugin_upgrades,
+        changelog,
     }
 }
 
@@ -1007,6 +1286,233 @@ pub fn join_rule_counters(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn parse_interface_row_reads_real_interfaces_info_shape() {
+        let row = json!({
+            "device": "igb0",
+            "description": "WAN",
+            "identifier": "wan",
+            "enabled": "1",
+            "status": "up",
+            "macaddr": "aa:bb:cc:dd:ee:ff",
+            "mtu": "1500",
+            "media": "1000baseT <full-duplex>",
+            "addr4": "198.51.100.1/24",
+            "addr6": "",
+            "ipv4": [{"ipaddr": "198.51.100.1/24"}, {"ipaddr": "198.51.100.2/24"}],
+            "ipv6": [{"ipaddr": "2001:db8::1/64"}]
+        });
+        let iface = parse_interface_row(&row);
+        assert_eq!(iface.name, "igb0");
+        assert_eq!(iface.link.as_deref(), Some("up"));
+        assert_eq!(
+            iface.ipv4,
+            vec!["198.51.100.1/24".to_owned(), "198.51.100.2/24".to_owned()],
+            "primary first, no duplicates"
+        );
+        assert_eq!(iface.ipv6, vec!["2001:db8::1/64".to_owned()]);
+        assert_eq!(iface.macaddr.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
+        assert_eq!(iface.mtu, Some(1500));
+        assert_eq!(iface.media.as_deref(), Some("1000baseT <full-duplex>"));
+        assert!(iface.lagg.is_none());
+    }
+
+    #[test]
+    fn parse_interface_row_drops_zero_mac_and_empty_addresses() {
+        let row = json!({
+            "device": "lo0",
+            "macaddr": "00:00:00:00:00:00",
+            "addr4": "",
+            "addr6": ""
+        });
+        let iface = parse_interface_row(&row);
+        assert!(iface.macaddr.is_none());
+        assert!(iface.ipv4.is_empty());
+        assert!(iface.ipv6.is_empty());
+    }
+
+    #[test]
+    fn parse_interface_statistics_resolves_device_from_labelled_keys() {
+        // Real payload (OPNsense 25.7): one entry PER ADDRESS, keyed by
+        // display label; counters use ifconfig-style "received-bytes" keys;
+        // the link-layer entry carries the interface totals.
+        let value = json!({
+            "statistics": {
+                "[WAN] (igc0) / a8:b8:e0:02:5a:53": {
+                    "name": "igc0", "network": "<Link#1>", "address": "a8:b8:e0:02:5a:53",
+                    "received-packets": 123488770, "received-bytes": 143428806637i64,
+                    "sent-packets": 49507047, "sent-bytes": 29502684429i64
+                },
+                "[WAN] (igc0) / 100.64.104.184": {
+                    "name": "igc0", "address": "100.64.104.184",
+                    "received-packets": 1142069, "received-bytes": 564088745,
+                    "sent-packets": 1710989, "sent-bytes": 1037328038
+                },
+                "[igc2] / -": {
+                    "received-bytes": 1
+                },
+                "lo0": {
+                    "bytes received": 2, "packets received": 3
+                }
+            }
+        });
+        let stats = parse_interface_statistics(&value);
+        let by_name = |n: &str| stats.iter().find(|s| s.name == n).expect(n);
+        // Interface totals come from the link-layer entry (the max), never
+        // a sum over the per-address entries.
+        let wan = by_name("igc0");
+        assert_eq!(wan.rx_bytes, Some(143428806637));
+        assert_eq!(wan.tx_bytes, Some(29502684429));
+        assert_eq!(wan.rx_packets, Some(123488770));
+        assert_eq!(wan.tx_packets, Some(49507047));
+        // Label without "(device)" falls back to the bracketed token.
+        let unassigned = by_name("igc2");
+        assert_eq!(unassigned.rx_bytes, Some(1));
+        assert_eq!(unassigned.tx_bytes, None);
+        // Bare device-name keys (older builds) pass through unchanged.
+        let bare = by_name("lo0");
+        assert_eq!(bare.rx_bytes, Some(2));
+        assert_eq!(bare.rx_packets, Some(3));
+        assert!(
+            !stats.iter().any(|s| s.name.contains('[')),
+            "no display label must leak into the device name"
+        );
+        assert_eq!(stats.len(), 3, "per-address entries merge into one row");
+    }
+
+    #[test]
+    fn lagg_members_join_link_and_media_from_member_rows() {
+        let mut interfaces = vec![
+            parse_interface_row(&json!({
+                "device": "lagg0",
+                "description": "UPLINK",
+                "status": "up",
+                "laggproto": "lacp",
+                "laggport": {
+                    "em1": {"state": ["attached", "active"]},
+                    "em0": {"state": ["attached"]}
+                }
+            })),
+            parse_interface_row(&json!({
+                "device": "em0", "status": "up", "media": "1000baseT <full-duplex>"
+            })),
+            parse_interface_row(&json!({
+                "device": "em1", "status": "no carrier"
+            })),
+        ];
+        join_lagg_members(&mut interfaces);
+        let lagg = interfaces[0].lagg.as_ref().expect("lagg");
+        assert_eq!(lagg.proto.as_deref(), Some("lacp"));
+        assert_eq!(lagg.members.len(), 2);
+        // Sorted by member name; link/media joined from the member rows.
+        assert_eq!(lagg.members[0].name, "em0");
+        assert_eq!(
+            lagg.members[0].media.as_deref(),
+            Some("1000baseT <full-duplex>")
+        );
+        assert_eq!(lagg.members[0].link.as_deref(), Some("up"));
+        assert_eq!(lagg.members[1].name, "em1");
+        assert_eq!(lagg.members[1].link.as_deref(), Some("no carrier"));
+        assert!(lagg.members[1].media.is_none());
+    }
+
+    #[test]
+    fn parse_system_time_reads_uptime_and_loadavg() {
+        let value = json!({
+            "uptime": "2 days, 14:03:11",
+            "datetime": "Thu Oct 9 12:00:00 CEST 2026",
+            "loadavg": "0.12, 0.08, 0.06"
+        });
+        let time = parse_system_time(&value);
+        assert_eq!(time.uptime.as_deref(), Some("2 days, 14:03:11"));
+        assert_eq!(time.loadavg.as_deref(), Some("0.12, 0.08, 0.06"));
+        // Localized "N/A" must not reach the UI.
+        let none = parse_system_time(&json!({"uptime": "N/A", "loadavg": "N/A"}));
+        assert!(none.uptime.is_none());
+        assert!(none.loadavg.is_none());
+    }
+
+    #[test]
+    fn parse_wireguard_show_joins_peers_by_device_and_trusts_peer_status() {
+        let value = json!({
+            "rows": [
+                {"type": "interface", "if": "wg0", "name": "Roadwarriors", "status": "up"},
+                {"type": "interface", "if": "wg1", "name": "SiteB", "status": "up"},
+                {"type": "peer", "if": "wg0", "ifname": "Roadwarriors", "name": "laptop",
+                 "peer-status": "online", "latest-handshake-age": 42,
+                 "endpoint": "203.0.113.9:51820", "transfer-rx": 1024, "transfer-tx": 2048},
+                {"type": "peer", "if": "wg1", "ifname": "SiteB", "name": "branch",
+                 "peer-status": "stale", "latest-handshake-age": 900, "endpoint": ""}
+            ]
+        });
+        let status = parse_wireguard_show(&value);
+        assert_eq!(status.interfaces.len(), 2);
+        assert_eq!(status.interfaces[0].name, "Roadwarriors");
+        assert_eq!(status.interfaces[0].peers.len(), 1);
+        let peer = &status.interfaces[0].peers[0];
+        assert_eq!(peer.name, "laptop");
+        assert_eq!(peer.status, "active");
+        assert_eq!(peer.handshake_age_secs, Some(42));
+        assert_eq!(peer.endpoint.as_deref(), Some("203.0.113.9:51820"));
+        assert_eq!(peer.transfer_rx_bytes, Some(1024));
+        let stale = &status.interfaces[1].peers[0];
+        assert_eq!(stale.status, "stale");
+        assert!(stale.endpoint.is_none(), "empty endpoint stays None");
+    }
+
+    #[test]
+    fn parse_wireguard_show_derives_status_when_peer_status_absent() {
+        let value = json!({
+            "rows": [
+                {"type": "peer", "if": "wg0", "name": "new", "latest-handshake-age": null},
+                {"type": "peer", "if": "wg0", "name": "old", "latest-handshake-age": 3600}
+            ]
+        });
+        let status = parse_wireguard_show(&value);
+        assert_eq!(status.interfaces[0].peers[0].status, "never");
+        assert_eq!(status.interfaces[0].peers[1].status, "stale");
+    }
+
+    #[test]
+    fn parse_openvpn_row_reads_real_session_shape() {
+        let row = json!({
+            "type": "client",
+            "is_client": true,
+            "common_name": "roadwarrior-1",
+            "description": "Road warriors",
+            "status": "connected",
+            "real_address": "203.0.113.7:1194",
+            "virtual_address": "10.8.0.2",
+            "connected_since": "2026-10-09 08:15:00",
+            "bytes_received": 12345,
+            "bytes_sent": 6789
+        });
+        let session = parse_openvpn_row(&row);
+        assert_eq!(session.name, "roadwarrior-1");
+        assert_eq!(session.kind, "client");
+        assert!(session.connected);
+        assert_eq!(session.real_address.as_deref(), Some("203.0.113.7:1194"));
+        assert_eq!(session.virtual_address.as_deref(), Some("10.8.0.2"));
+        assert_eq!(session.bytes_received, Some(12345));
+    }
+
+    #[test]
+    fn parse_ipsec_row_reads_real_phase1_shape() {
+        let row = json!({
+            "name": "site-to-site",
+            "phase1desc": "Branch tunnel",
+            "connected": true,
+            "remote-host": "203.0.113.1",
+            "version": "IKEv2"
+        });
+        let session = parse_ipsec_row(&row);
+        assert_eq!(session.name, "site-to-site");
+        assert_eq!(session.description.as_deref(), Some("Branch tunnel"));
+        assert!(session.connected);
+        assert_eq!(session.remote_host.as_deref(), Some("203.0.113.1"));
+        assert_eq!(session.version.as_deref(), Some("IKEv2"));
+    }
 
     #[test]
     fn parse_rule_row_accepts_string_numbers_and_alt_spellings() {
@@ -1105,23 +1611,60 @@ mod tests {
     }
 
     #[test]
-    fn parse_firmware_status_splits_candidates_and_check_time() {
+    fn parse_firmware_info_extracts_version_abi_and_installed_plugins() {
         let value = json!({
-            "status": "update",
-            "status_msg": "There are updates available",
-            "product": {"product_check": {"status": "update"}, "product_version": "26.1"},
-            "upgrade_needs_reboot": "1",
-            "all_packages": {
-                "os-tailscale": {"old": "1.0", "new": "1.1"},
-                "opnsense": {"old": "26.1", "new": "26.1.1"}
-            }
+            "product": {
+                "product_version": "25.7.3",
+                "product_abi": "FreeBSD:14:amd64",
+                "product_check": {"upgrade_packages": [
+                    {"name": "os-tailscale", "new_version": "1.3"},
+                    {"name": "opnsense", "new_version": "25.7.11"}
+                ]}
+            },
+            "plugin": [
+                {"name": "os-tailscale", "version": "1.2", "installed": "1"},
+                {"name": "os-nginx", "version": "1.0", "installed": "0"}
+            ]
         });
-        let payload = parse_firmware_status(&value);
-        assert_eq!(payload.status.as_deref(), Some("update"));
-        assert!(payload.has_cached_check);
-        assert!(payload.checked_at.is_none());
-        assert!(payload.reboot_required);
-        assert_eq!(payload.upgrades.len(), 2);
+        let payload = parse_firmware_info(&value);
+        assert_eq!(payload.product_version.as_deref(), Some("25.7.3"));
+        assert_eq!(payload.abi.as_deref(), Some("FreeBSD:14:amd64"));
+        assert_eq!(
+            payload.plugins,
+            vec![("os-tailscale".to_owned(), Some("1.2".to_owned()))]
+        );
+        assert_eq!(
+            payload.cached_plugin_upgrades,
+            vec![("os-tailscale".to_owned(), "1.3".to_owned())]
+        );
+    }
+
+    #[test]
+    fn parse_firmware_info_accepts_top_level_version_fields() {
+        let value = json!({"product_version": "25.7", "product_abi": "FreeBSD:14:amd64"});
+        let payload = parse_firmware_info(&value);
+        assert_eq!(payload.product_version.as_deref(), Some("25.7"));
+        assert!(payload.plugins.is_empty());
+    }
+
+    #[test]
+    fn parse_firmware_info_reads_real_cached_changelog_and_core_abi() {
+        let value = json!({
+            "product_version": "26.7.6_3",
+            "product": {"CORE_VERSION": "26.7.6", "CORE_ABI": "26.7"},
+            "changelog": [
+                {"series": "26.7", "version": "26.7.7", "date": "2026-10-13"},
+                {"series": "26.7", "version": "26.7.6", "date": "2026-10-08"},
+                {"invalid": true}
+            ]
+        });
+        let payload = parse_firmware_info(&value);
+        assert_eq!(payload.product_version.as_deref(), Some("26.7.6_3"));
+        assert_eq!(payload.abi.as_deref(), Some("26.7"));
+        assert_eq!(payload.changelog.len(), 2);
+        assert_eq!(payload.changelog[0].series.as_deref(), Some("26.7"));
+        assert_eq!(payload.changelog[0].version, "26.7.7");
+        assert_eq!(payload.changelog[0].date.as_deref(), Some("2026-10-13"));
     }
 
     #[test]

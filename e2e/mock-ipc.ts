@@ -414,10 +414,13 @@ export async function installMockTauri(page: Page): Promise<void> {
       const activeOpnsenseLogs = new Map<number, { onStatus: MockOpnsenseChannel }>()
       const activeOpnsenseTerminals = new Map<string, ActiveOpnsenseTerminal>()
       let nextOpnsenseTerminalId = 0
-      const opnsenseFirmwareVariants = new Map<number, "plugin" | "no-cache">([[2, "no-cache"]])
+      const opnsenseFirmwareVariants = new Map<number, "unknown">([[2, "unknown"]])
       const truncatedOpnsenseProfiles = new Set<number>()
       const opnsenseFingerprint = "MOCK-EDGE-SHA256-KEY"
-      const opnsenseRevision = { id: "config-20261004.xml", timeIso: "2026-10-04T09:15:00Z", description: "Saved before maintenance", filesize: 2048 }
+      const opnsenseRevisions = [
+        { id: "config-20261004.xml", timeIso: "2026-10-04T09:15:00Z", description: "Saved before maintenance", filesize: 2048 },
+        { id: "config-20260930.xml", timeIso: "2026-09-30T09:15:00Z", description: "Baseline", filesize: 1024 },
+      ]
 
       function opnsenseProfile(id: number): MockOpnsenseProfile {
         const profile = opnsenseProfiles.find((item) => item.id === id)
@@ -439,17 +442,20 @@ export async function installMockTauri(page: Page): Promise<void> {
             countersError: null, unmappedRunning: [],
           } },
           system: { ok: true, data: {
-            interfaces: [{ name: "igb0", description: "WAN", enabled: true, link: "up", ipv4: "198.51.100.1", rxBytes: 4096, txBytes: 2048 }],
+            interfaces: [
+              { name: "igb0", description: "WAN", enabled: true, link: "up", ipv4: ["198.51.100.1/24"], ipv6: [], macaddr: "aa:bb:cc:dd:ee:ff", mtu: 1500, media: "1000baseT <full-duplex>", rxBytes: 4096, txBytes: 2048, rxPackets: 123456, txPackets: 78910 },
+              { name: "lagg0", description: "LAN", enabled: true, link: "up", ipv4: ["192.0.2.1/24"], ipv6: [], lagg: { proto: "lacp", members: [{ name: "em0", state: ["attached", "active"], link: "up", media: "10Gbase-SR" }] } },
+            ],
             interfacesTruncated: truncatedOpnsenseProfiles.has(profileId),
             pfStates: { current: 42, max: 10000 },
-            resources: { cpuUsagePercent: 21, memUsedBytes: 268435456, memTotalBytes: 1073741824, uptime: "2 days" },
+            resources: { cpuUsagePercent: 21, memUsedBytes: 268435456, memTotalBytes: 1073741824, uptime: "2 days", loadavg: "0.12, 0.08, 0.06" },
           } },
           vpn: { ok: true, data: {
-            wireguard: { state: "ok", data: { interfaces: [{ name: "wg0", peers: [{ name: "remote office", handshakeAgeSecs: 7200, status: "stale" }] }] } },
-            openvpn: { state: "ok", data: [] },
-            ipsec: { state: "ok", data: [{ name: "branch tunnel", description: "Site-to-site", connected: true }] },
+            wireguard: { state: "ok", data: { interfaces: [{ name: "wg0", peers: [{ name: "remote office", handshakeAgeSecs: 7200, status: "stale", endpoint: "203.0.113.2:51820", transferRxBytes: 8192, transferTxBytes: 4096 }] }] } },
+            openvpn: { state: "ok", data: [{ name: "road-1", kind: "client", connected: true, realAddress: "198.51.100.7:1194", virtualAddress: "10.8.0.2" }] },
+            ipsec: { state: "ok", data: [{ name: "branch tunnel", description: "Site-to-site", connected: true, remoteHost: "203.0.113.10", version: "IKEv2" }] },
             tailscale: opnsenseProfile(profileId).host === "healthy-fw.lab"
-              ? { state: "ok", data: { backendState: "Running", serviceRunning: true, hostname: "healthy-fw", ownIps: ["100.101.102.103"], peers: [{ name: "workstation", ips: ["100.101.102.104"], online: true }] } }
+              ? { state: "ok", data: { backendState: "Running", serviceRunning: true, hostname: "healthy-fw", ownIps: ["100.101.102.103", "fd7a:115c:a1e0::3e01:6f4f"], peers: [{ name: "workstation", ips: ["100.101.102.104"], online: true }, { name: "Tero's MacBook Pro", ips: ["fd7a:115c:a1e0::392c:4b55"], online: false }] } }
               : { state: "unavailable", message: "Plugin unavailable (not installed or API unsupported)" },
           } },
         }
@@ -2119,22 +2125,28 @@ export async function installMockTauri(page: Page): Promise<void> {
             }
             return null
           }
-          case "opnsense_get_update_status": {
+          case "opnsense_check_updates": {
             const profileId = Number(args.profileId)
             opnsenseProfile(profileId)
-            return opnsenseFirmwareVariants.get(profileId) === "no-cache"
-              ? { state: "no-cache", checkedAt: null, installedVersion: "25.7", coreUpgrades: [], pluginUpgrades: [], rebootRequired: false }
-              : { state: "cached-updates", checkedAt: "2026-10-04T08:30:00Z", installedVersion: "25.7", coreUpgrades: [], pluginUpgrades: [{ name: "os-tailscale", oldVersion: "1.2", newVersion: "1.3" }], rebootRequired: false }
+            return opnsenseFirmwareVariants.get(profileId) === "unknown"
+              ? { state: "unknown", message: "No cached release changelog for this series — run an update check in the OPNsense GUI", installedVersion: "25.7.3", abi: "25.7", series: "25.7", latestVersion: null, checkedAt: "2026-10-04T08:30:00Z", changelog: [], plugins: [] }
+              : { state: "update-available", message: null, installedVersion: "25.7.3", abi: "25.7", series: "25.7", latestVersion: "25.7.11", checkedAt: "2026-10-04T08:30:00Z", changelog: [{ version: "25.7.11", date: "2026-10-04" }], plugins: [{ name: "os-tailscale", version: "1.2", cachedUpgradeVersion: "1.3" }, { name: "os-nginx", version: "1.35" }] }
           }
           case "opnsense_list_revisions":
             opnsenseProfile(Number(args.profileId))
-            return [{ ...opnsenseRevision }]
+            return opnsenseRevisions.map((revision) => ({ ...revision }))
           case "opnsense_backup": {
             opnsenseProfile(Number(args.profileId))
-            if (!String(args.passphrase).trim()) throw { kind: "invalid-passphrase", message: "Passphrase is required" }
+            const passphrase = String(args.passphrase)
+            const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(passphrase)).length
+            if (passphrase.length < 12 || classes < 2) throw { kind: "passphrase-weak", message: "Passphrase is too weak" }
             const backupName = String(args.backupName)
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(backupName)) throw { kind: "invalid-name", message: "Invalid backup name" }
-            return { path: `${String(args.destinationDir)}/${backupName}.xml.age`, sourceRevisionId: opnsenseRevision.id, sourceTimeIso: opnsenseRevision.timeIso }
+            const selected = args.revisionId == null
+              ? opnsenseRevisions[0]
+              : opnsenseRevisions.find((revision) => revision.id === args.revisionId)
+            if (selected === undefined) throw { kind: "invalid-revision-id", message: "Revision not found" }
+            return { path: `${String(args.destinationDir)}/${backupName}.xml.age`, sourceRevisionId: selected.id, sourceTimeIso: selected.timeIso }
           }
           case "opnsense_terminal_open": {
             const profileId = Number(args.profileId)

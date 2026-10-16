@@ -266,10 +266,20 @@ pub struct OpnsenseInterfaceDto {
     /// Link state as reported ("up"/"down"), None when not reported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+    /// All IPv4 addresses with CIDR prefix ("10.0.0.1/24").
+    pub ipv4: Vec<String>,
+    /// All IPv6 addresses with CIDR prefix.
+    pub ipv6: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ipv4: Option<String>,
+    pub macaddr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ipv6: Option<String>,
+    pub mtu: Option<i64>,
+    /// Link media/speed, e.g. "1000baseT <full-duplex>".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
+    /// Present on link-aggregation (lagg) parents: protocol + member ports.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lagg: Option<OpnsenseLaggDto>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rx_bytes: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,6 +290,30 @@ pub struct OpnsenseInterfaceDto {
     pub tx_packets: Option<i64>,
 }
 
+/// Link-aggregation details of a lagg parent interface. Member link/speed
+/// are joined from the member ports' own interface rows.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpnsenseLaggDto {
+    /// Aggregation protocol: "lacp" | "failover" | "loadbalance" | ...
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proto: Option<String>,
+    pub members: Vec<OpnsenseLaggMemberDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpnsenseLaggMemberDto {
+    /// Member device name, e.g. "em0".
+    pub name: String,
+    /// ifconfig laggport state flags, e.g. ["attached", "active"].
+    pub state: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
+}
+
 /// PF state table capacity — a firewall health signal.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -288,7 +322,7 @@ pub struct OpnsensePfStatesDto {
     pub max: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpnsenseResourcesDto {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -299,6 +333,9 @@ pub struct OpnsenseResourcesDto {
     pub mem_total_bytes: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uptime: Option<String>,
+    /// Load average string from system_time, e.g. "0.12, 0.08, 0.06".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loadavg: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -384,9 +421,16 @@ pub struct OpnsenseWireguardPeerDto {
     /// Seconds since the latest handshake; None when never handshaked.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handshake_age_secs: Option<i64>,
-    /// "active" | "stale" | "never" | "unknown" — stale is DISTINCT from
-    /// offline.
+    /// "active" | "stale" | "offline" | "never" — stale is DISTINCT from
+    /// offline (handshake older than the timeout, not necessarily down).
     pub status: String,
+    /// Remote endpoint "host:port", None when the peer has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_rx_bytes: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_tx_bytes: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -398,6 +442,18 @@ pub struct OpnsenseOpenvpnSessionDto {
     /// "client" | "server" | "unknown".
     pub kind: String,
     pub connected: bool,
+    /// Client remote address "ip:port".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub real_address: Option<String>,
+    /// Client tunnel address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connected_since: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_received: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_sent: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -407,6 +463,11 @@ pub struct OpnsenseIpsecSessionDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_host: Option<String>,
+    /// IKE version, e.g. "IKEv2".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// Tailscale status with sensitive raw plugin JSON intentionally dropped:
@@ -436,38 +497,58 @@ pub struct OpnsenseTailscalePeerDto {
 }
 
 // ---------------------------------------------------------------------------
-// Firmware (cached status only — the app never triggers a remote check)
+// Firmware: installed version + the firewall's cached, signature-verified
+// release changelog. The app never triggers an update check on the firewall.
 // ---------------------------------------------------------------------------
 
+/// Result of comparing installed firmware with the firewall's cached changelog.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpnsenseFirmwareStatusDto {
-    /// "cached-updates" | "cached-none" | "no-cache" | "unavailable" |
-    /// "error".
+pub struct OpnsenseVersionCheckDto {
+    /// "up-to-date" | "update-available" | "unknown" (missing cache or
+    /// device info) | "error". A cached result may be stale.
     pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-    /// Remote check timestamp from `product.product_check`, when provided.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub checked_at: Option<String>,
-    /// Installed core version from `GET /api/core/firmware/info`, when
-    /// available.
+    /// Installed core version from `GET /api/core/firmware/info`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed_version: Option<String>,
-    /// Core and system-set candidates (all non-`os-*` packages).
-    pub core_upgrades: Vec<OpnsenseUpgradeDto>,
-    pub plugin_upgrades: Vec<OpnsenseUpgradeDto>,
-    pub reboot_required: bool,
+    /// CORE_ABI as reported by the firewall (e.g. "26.7"), for display only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abi: Option<String>,
+    /// Release series derived from the installed version, e.g. "25.7".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub series: Option<String>,
+    /// Latest production version in the cached changelog for this series.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
+    /// RFC 3339 UTC timestamp when this app read the cache (not when the
+    /// firewall fetched it).
+    pub checked_at: String,
+    /// Cached changelog entries newer than the installed version, newest first.
+    pub changelog: Vec<OpnsenseChangelogEntryDto>,
+    /// Installed plugins and any upgrade offered by the firewall's last
+    /// cached check; absence of a cached check is not "up to date".
+    pub plugins: Vec<OpnsensePluginDto>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpnsenseUpgradeDto {
+pub struct OpnsenseChangelogEntryDto {
+    pub version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpnsensePluginDto {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub old_version: Option<String>,
+    pub version: Option<String>,
+    /// New version from the firewall's previous cached check, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_version: Option<String>,
+    pub cached_upgrade_version: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

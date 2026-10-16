@@ -392,11 +392,11 @@ async fn opnsense_list_active(
 }
 
 #[tauri::command]
-async fn opnsense_get_update_status(
-    manager: tauri::State<'_, opnsense::monitor::OpnsenseMonitorManager>,
+async fn opnsense_check_updates(
+    firmware: tauri::State<'_, opnsense::firmware::OpnsenseFirmwareManager>,
     profile_id: i64,
-) -> Result<opnsense::types::OpnsenseFirmwareStatusDto, opnsense::types::OpnsenseManagerError> {
-    manager.get_update_status(profile_id).await
+) -> Result<opnsense::types::OpnsenseVersionCheckDto, opnsense::types::OpnsenseManagerError> {
+    firmware.check(profile_id).await
 }
 
 #[tauri::command]
@@ -782,6 +782,9 @@ pub fn run() {
             app.manage(opnsense::monitor::OpnsenseMonitorManager::new(
                 opnsense_manager.clone(),
             ));
+            app.manage(opnsense::firmware::OpnsenseFirmwareManager::new(
+                opnsense_manager.clone(),
+            ));
             app.manage(opnsense::logs::OpnsenseLogStreamManager::new(
                 opnsense_manager.clone(),
             ));
@@ -854,7 +857,7 @@ pub fn run() {
             opnsense_start,
             opnsense_stop,
             opnsense_list_active,
-            opnsense_get_update_status,
+            opnsense_check_updates,
             opnsense_log_start,
             opnsense_log_stop,
             opnsense::backup::opnsense_list_revisions,

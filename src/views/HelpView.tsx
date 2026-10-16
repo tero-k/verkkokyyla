@@ -186,7 +186,7 @@ export default function HelpView({
             Add a profile per firewall: HTTPS host and port, plus an OPNsense API key/secret
             stored in the operating system keyring — never in the app&apos;s database. The key
             must be restricted to read-only (GET) access: the app only ever reads rule counters,
-            status, VPN state, cached update status, and saved configuration revisions. If an
+            status, VPN state, installed firmware and cached plugin upgrades, and saved revisions. If an
             OPNsense privilege bundles a needed read with write endpoints and no strictly
             read-only right exists, that section stays unavailable and the app says so instead of
             asking for elevated credentials. Backup downloads read already-saved revisions — the
@@ -208,23 +208,24 @@ export default function HelpView({
         </section>
 
         <section className={styles.section}>
-          <h2>OPNsense: firmware status is cached</h2>
+          <h2>OPNsense: firmware and plugin status</h2>
           <p>
-            The Firmware tab reads the firewall&apos;s <em>last cached</em> update check — the
-            button says &quot;Refresh cached status&quot; because triggering an actual check on
-            OPNsense is a write-like operation the read-only API key must not perform. Run
-            &quot;Check for updates&quot; in the OPNsense GUI, then refresh here. When the
-            firewall has no cached check yet, the app says so rather than claiming the system is
-            up to date.
+            The Firmware tab compares the installed core version with the firewall&apos;s cached
+            release changelog; it does not start a check or install updates. A missing or stale
+            cache cannot establish current availability. Installed plugins show upgrade targets
+            only if the firewall&apos;s previous check reported one; an absent target does not prove
+            a plugin is current. Run &quot;Check for updates&quot; in the OPNsense GUI for fresh core
+            and plugin availability.
           </p>
         </section>
 
         <section className={styles.section}>
           <h2>OPNsense: encrypted backups</h2>
           <p>
-            Backups download the latest <em>saved</em> configuration revision — possibly older
-            than unsaved changes on the device — and store it encrypted with your passphrase in
-            the age format (<code>*.xml.age</code>). To restore, decrypt outside the app with{" "}
+            Backups download the selected <em>saved</em> configuration revision (or the latest
+            saved revision by default) — possibly older than unsaved changes on the device — and
+            store it locally with a strong passphrase in age format (<code>*.xml.age</code>).
+            To restore, decrypt outside the app with{" "}
             <code>age -d -o config.xml &lt;file&gt;.xml.age</code> and import the XML in the
             OPNsense GUI. The app never keeps plaintext XML on disk and never restores by itself.
           </p>

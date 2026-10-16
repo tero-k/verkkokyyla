@@ -15,26 +15,21 @@ use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::db::now_rfc3339;
-use crate::opnsense::client::{
-    join_rule_counters, FirmwareStatusPayload, InterfaceInfoPage, OpnsenseApi, OpnsenseError,
-};
+use crate::opnsense::client::{join_rule_counters, InterfaceInfoPage, OpnsenseApi, OpnsenseError};
 use crate::opnsense::manager::OpnsenseManager;
 use crate::opnsense::types::{
-    OpnsenseActiveMonitorDto, OpnsenseFirmwareStatusDto, OpnsenseInterfaceDto,
-    OpnsenseManagerError, OpnsenseRuleDto, OpnsenseRulesSectionDto, OpnsenseSectionDto,
+    OpnsenseActiveMonitorDto, OpnsenseManagerError, OpnsenseRulesSectionDto, OpnsenseSectionDto,
     OpnsenseSectionErrorDto, OpnsenseSnapshotDto, OpnsenseSnapshotSink, OpnsenseStartDto,
-    OpnsenseStatusEvent, OpnsenseStatusSink, OpnsenseSystemSectionDto, OpnsenseUpgradeDto,
-    OpnsenseVpnSectionDto, OpnsenseVpnServiceDto,
+    OpnsenseStatusEvent, OpnsenseStatusSink, OpnsenseSystemSectionDto, OpnsenseVpnSectionDto,
+    OpnsenseVpnServiceDto,
 };
 
 /// Global concurrency cap: at most eight live monitors.
 const MAX_MONITORS: usize = 8;
-const RULES_PAGE_SIZE: u32 = 500;
-const INTERFACES_PAGE_SIZE: u32 = 500;
 /// Hard cap on the rule listing; beyond this the section is flagged
-/// `truncated` instead of paging forever.
+/// `truncated`.
 const RULES_CAP: usize = 10_000;
-/// Prevent unbounded GET paging if a firewall reports an unreasonable total.
+/// Hard cap on the interface listing.
 const INTERFACES_CAP: usize = 10_000;
 
 /// System/VPN cadence.
@@ -209,19 +204,6 @@ impl OpnsenseMonitorManager {
             .map(|&profile_id| OpnsenseActiveMonitorDto { profile_id })
             .collect()
     }
-
-    /// Read the LAST firewall-side update check. Works WITHOUT an active
-    /// monitor; uses GET only and never triggers a remote probe (the POST
-    /// variant of the status endpoint would run a synchronous check).
-    pub async fn get_update_status(
-        &self,
-        profile_id: i64,
-    ) -> Result<OpnsenseFirmwareStatusDto, OpnsenseManagerError> {
-        let profile = self.manager.require_profile(profile_id).await?;
-        let conn = self.manager.connection_for(&profile).await?;
-        let api = (self.manager.api_factory())(conn).await?;
-        Ok(collect_firmware_status(api.as_ref()).await)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -303,44 +285,21 @@ async fn fetch_rules_section(api: &dyn OpnsenseApi) -> OpnsenseSectionDto<Opnsen
     }
 }
 
-/// Paginate `searchRule` up to the reported total (capped at
-/// [`RULES_CAP`]), then join fresh per-UUID counters. A counters failure
-/// (e.g. 403 on `ruleStats`) keeps the rule definitions with a
-/// `counters_error` instead of failing the section.
+/// Fetch ALL rules in one GET (OPNsense ignores GET pagination params),
+/// then join fresh per-UUID counters. A counters failure (e.g. 403 on
+/// `ruleStats`) keeps the rule definitions with a `counters_error`
+/// instead of failing the section.
 async fn fetch_rules(api: &dyn OpnsenseApi) -> Result<OpnsenseRulesSectionDto, OpnsenseError> {
-    let mut rules: Vec<OpnsenseRuleDto> = Vec::new();
-    let mut total: i64 = 0;
+    let page = api.search_rules().await?;
+    let mut rules = page.rules;
+    let total = page.total;
     let mut truncated = false;
-    let mut current: u32 = 1;
-    loop {
-        let page = api.search_rules(current, RULES_PAGE_SIZE).await?;
-        if current > 1
-            && (page.current.is_some_and(|reported| reported != current)
-                || page.rules.first().is_some_and(|first| {
-                    !first.uuid.is_empty() && rules.iter().any(|known| known.uuid == first.uuid)
-                }))
-        {
-            truncated = true;
-            break;
-        }
-        if current == 1 {
-            total = page.total;
-        }
-        let fetched = page.rules.len();
-        rules.extend(page.rules);
-        if rules.len() >= RULES_CAP {
-            truncated = total > RULES_CAP as i64 || rules.len() > RULES_CAP;
-            rules.truncate(RULES_CAP);
-            break;
-        }
-        if rules.len() as i64 >= total {
-            break;
-        }
-        if fetched == 0 {
-            truncated = true;
-            break;
-        }
-        current += 1;
+    if rules.len() >= RULES_CAP {
+        truncated = total > RULES_CAP as i64 || rules.len() > RULES_CAP;
+        rules.truncate(RULES_CAP);
+    } else if (rules.len() as i64) < total {
+        // rows < reported total — the server genuinely withheld rows.
+        truncated = true;
     }
 
     let (counters_error, unmapped_running) = match api.rule_stats().await {
@@ -371,45 +330,19 @@ async fn fetch_system_section(
     }
 }
 
-/// Interfaces (paginated) plus best-effort PF state capacity and system
+/// Interfaces (single GET) plus best-effort PF state capacity and system
 /// resources. Only the interfaces endpoint can fail the whole section; the
 /// others are surfaced as per-field errors.
 async fn fetch_system(api: &dyn OpnsenseApi) -> Result<OpnsenseSystemSectionDto, OpnsenseError> {
-    let mut interfaces: Vec<OpnsenseInterfaceDto> = Vec::new();
-    let mut total: i64 = 0;
+    let page: InterfaceInfoPage = api.interfaces_info().await?;
+    let mut interfaces = page.interfaces;
+    let total = page.total;
     let mut interfaces_truncated = false;
-    let mut current: u32 = 1;
-    loop {
-        let page: InterfaceInfoPage = api.interfaces_info(current, INTERFACES_PAGE_SIZE).await?;
-        if current > 1
-            && (page.current.is_some_and(|reported| reported != current)
-                || page.interfaces.first().is_some_and(|first| {
-                    !first.name.is_empty()
-                        && interfaces.iter().any(|known| known.name == first.name)
-                }))
-        {
-            interfaces_truncated = true;
-            break;
-        }
-        if current == 1 {
-            total = page.total;
-        }
-        let fetched = page.interfaces.len();
-        interfaces.extend(page.interfaces);
-        if interfaces.len() >= INTERFACES_CAP {
-            interfaces_truncated =
-                total > INTERFACES_CAP as i64 || interfaces.len() > INTERFACES_CAP;
-            interfaces.truncate(INTERFACES_CAP);
-            break;
-        }
-        if interfaces.len() as i64 >= total {
-            break;
-        }
-        if fetched == 0 {
-            interfaces_truncated = true;
-            break;
-        }
-        current += 1;
+    if interfaces.len() >= INTERFACES_CAP {
+        interfaces_truncated = total > INTERFACES_CAP as i64 || interfaces.len() > INTERFACES_CAP;
+        interfaces.truncate(INTERFACES_CAP);
+    } else if (interfaces.len() as i64) < total {
+        interfaces_truncated = true;
     }
 
     // Traffic counters merge by EXACT interface name only; a statistics
@@ -429,9 +362,31 @@ async fn fetch_system(api: &dyn OpnsenseApi) -> Result<OpnsenseSystemSectionDto,
         Ok(value) => (Some(value), None),
         Err(err) => (None, Some(OpnsenseSectionErrorDto::from_error(&err))),
     };
-    let (resources, resources_error) = match api.system_resources().await {
-        Ok(value) => (Some(value), None),
-        Err(err) => (None, Some(OpnsenseSectionErrorDto::from_error(&err))),
+
+    // Resources are three independent sources: memory (system_resources),
+    // uptime/load (system_time) and CPU % (a short-lived SSE sample). Each
+    // is best-effort; the section errors only when ALL fail.
+    let memory = api.system_resources().await;
+    let time = api.system_time().await;
+    let cpu = api.cpu_usage_sample().await;
+    let (resources, resources_error) = match (&memory, &time, &cpu) {
+        (Err(mem_err), Err(time_err), Err(cpu_err)) => (
+            None,
+            Some(OpnsenseSectionErrorDto::from_error(&OpnsenseError::Parse(
+                format!("resources: {mem_err}; time: {time_err}; cpu: {cpu_err}"),
+            ))),
+        ),
+        _ => {
+            let mut dto = memory.unwrap_or_default();
+            if let Ok(time) = time {
+                dto.uptime = time.uptime;
+                dto.loadavg = time.loadavg;
+            }
+            if let Ok(cpu) = cpu {
+                dto.cpu_usage_percent = Some(cpu);
+            }
+            (Some(dto), None)
+        }
     };
     Ok(OpnsenseSystemSectionDto {
         interfaces,
@@ -476,114 +431,8 @@ async fn fetch_vpn_section(api: &dyn OpnsenseApi) -> OpnsenseSectionDto<Opnsense
 }
 
 // ---------------------------------------------------------------------------
-// Firmware (cached status only — never triggers a remote check)
+// Tests
 // ---------------------------------------------------------------------------
-
-/// `GET /api/core/firmware/status` reads the cached result of the last
-/// firewall-side check; `GET /api/core/firmware/info` best-effort fills in
-/// the installed version. NEVER retries with POST (that would run a
-/// synchronous probe).
-async fn collect_firmware_status(api: &dyn OpnsenseApi) -> OpnsenseFirmwareStatusDto {
-    // The installed version rides along even when the cached status itself
-    // is unavailable with the read-only key.
-    let installed_version = api.firmware_info().await.ok().flatten();
-    let payload = match api.firmware_status().await {
-        Ok(payload) => payload,
-        Err(err) => {
-            return if firmware_status_unavailable(&err) {
-                OpnsenseFirmwareStatusDto {
-                    state: "unavailable".to_owned(),
-                    message: Some(
-                        "Cached update status unavailable with read-only API access".to_owned(),
-                    ),
-                    checked_at: None,
-                    installed_version,
-                    core_upgrades: Vec::new(),
-                    plugin_upgrades: Vec::new(),
-                    reboot_required: false,
-                }
-            } else {
-                OpnsenseFirmwareStatusDto {
-                    state: "error".to_owned(),
-                    message: Some(err.to_string()),
-                    checked_at: None,
-                    installed_version,
-                    core_upgrades: Vec::new(),
-                    plugin_upgrades: Vec::new(),
-                    reboot_required: false,
-                }
-            };
-        }
-    };
-    map_firmware_status(payload, installed_version)
-}
-
-/// GET status rejected (403/404/405) — read-only keys cannot read the
-/// cached check on this version. No POST retry.
-fn firmware_status_unavailable(err: &OpnsenseError) -> bool {
-    match err {
-        OpnsenseError::Forbidden => true,
-        OpnsenseError::NotFound(_) => true,
-        OpnsenseError::Http { status, .. } => matches!(*status, 403..=405),
-        _ => false,
-    }
-}
-
-fn map_firmware_status(
-    payload: FirmwareStatusPayload,
-    installed_version: Option<String>,
-) -> OpnsenseFirmwareStatusDto {
-    let checked_at = payload.checked_at.clone();
-    let (state, message) = match payload.status.as_deref() {
-        Some("update") | Some("upgrade") => ("cached-updates", payload.status_msg.clone()),
-        Some("none") if payload.has_cached_check => ("cached-none", payload.status_msg.clone()),
-        // `none` without a non-null product.product_check means there is no
-        // cached check at all, even if no timestamp was provided.
-        Some("none") | None => (
-            "no-cache",
-            Some(
-                "No cached update check — run Check for updates in OPNsense, then refresh here."
-                    .to_owned(),
-            ),
-        ),
-        Some("error") => (
-            "error",
-            Some(
-                payload
-                    .status_msg
-                    .clone()
-                    .unwrap_or_else(|| "Firmware status check failed".to_owned()),
-            ),
-        ),
-        Some(other) => (
-            "error",
-            Some(format!("Unexpected firmware status: {other}")),
-        ),
-    };
-    let mut core_upgrades = Vec::new();
-    let mut plugin_upgrades = Vec::new();
-    for (name, old_version, new_version) in payload.upgrades {
-        let upgrade = OpnsenseUpgradeDto {
-            name: name.clone(),
-            old_version,
-            new_version,
-        };
-        if name.starts_with("os-") {
-            plugin_upgrades.push(upgrade);
-        } else {
-            core_upgrades.push(upgrade);
-        }
-    }
-    OpnsenseFirmwareStatusDto {
-        state: state.to_owned(),
-        message,
-        checked_at,
-        installed_version,
-        core_upgrades,
-        plugin_upgrades,
-        reboot_required: payload.reboot_required,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -598,11 +447,14 @@ mod tests {
     use tokio::sync::Notify;
 
     use crate::db::Database;
-    use crate::opnsense::client::{OpnsenseConnection, PfRuleId, RuleSearchPage, RuleStat};
+    use crate::opnsense::client::{
+        FirmwareInfoPayload, OpnsenseConnection, PfRuleId, RuleSearchPage, RuleStat,
+        SystemTimePayload,
+    };
     use crate::opnsense::types::{
-        CreateOpnsenseProfileRequest, OpnsensePfStatesDto, OpnsenseResourcesDto,
-        OpnsenseStatusEvent, OpnsenseVpnSectionDto, OpnsenseWireguardInterfaceDto,
-        OpnsenseWireguardStatusDto,
+        CreateOpnsenseProfileRequest, OpnsenseInterfaceDto, OpnsensePfStatesDto,
+        OpnsenseResourcesDto, OpnsenseRuleDto, OpnsenseStatusEvent, OpnsenseVpnSectionDto,
+        OpnsenseWireguardInterfaceDto, OpnsenseWireguardStatusDto,
     };
     use crate::secrets::MemoryStore;
 
@@ -633,35 +485,42 @@ mod tests {
     }
 
     /// Scripted fake: static results per endpoint (cloned per call), with
-    /// call recording for pagination assertions.
+    /// a call counter for refresh-cadence assertions.
     struct FakeApi {
-        rules_pages: Vec<RuleSearchPage>,
-        rule_page_requests: RequestMutex<Vec<u32>>,
+        rules: Result<RuleSearchPage, OpnsenseError>,
+        rule_requests: RequestMutex<usize>,
         rule_stats: Result<Vec<(String, RuleStat)>, OpnsenseError>,
         rule_ids: Result<Vec<PfRuleId>, OpnsenseError>,
-        interface_pages: Vec<InterfaceInfoPage>,
+        interfaces: Result<InterfaceInfoPage, OpnsenseError>,
         interface_entered: Option<Arc<Notify>>,
         interface_gate: Option<Arc<Notify>>,
         interface_stats: Result<Vec<OpnsenseInterfaceDto>, OpnsenseError>,
         pf_states: Result<OpnsensePfStatesDto, OpnsenseError>,
         resources: Result<OpnsenseResourcesDto, OpnsenseError>,
+        system_time: Result<SystemTimePayload, OpnsenseError>,
+        cpu_sample: Result<f64, OpnsenseError>,
         wireguard: Result<OpnsenseWireguardStatusDto, OpnsenseError>,
         openvpn: Result<Vec<super::super::types::OpnsenseOpenvpnSessionDto>, OpnsenseError>,
         ipsec: Result<Vec<super::super::types::OpnsenseIpsecSessionDto>, OpnsenseError>,
         tailscale: Result<super::super::types::OpnsenseTailscaleStatusDto, OpnsenseError>,
         tailscale_service: Result<Option<bool>, OpnsenseError>,
-        firmware_status: Result<FirmwareStatusPayload, OpnsenseError>,
-        firmware_info: Result<Option<String>, OpnsenseError>,
+        firmware_info: Result<FirmwareInfoPayload, OpnsenseError>,
     }
 
     impl Default for FakeApi {
         fn default() -> Self {
             Self {
-                rules_pages: Vec::new(),
-                rule_page_requests: RequestMutex::new(Vec::new()),
+                rules: Ok(RuleSearchPage {
+                    rules: Vec::new(),
+                    total: 0,
+                }),
+                rule_requests: RequestMutex::new(0),
                 rule_stats: Ok(Vec::new()),
                 rule_ids: Ok(Vec::new()),
-                interface_pages: Vec::new(),
+                interfaces: Ok(InterfaceInfoPage {
+                    interfaces: Vec::new(),
+                    total: 0,
+                }),
                 interface_entered: None,
                 interface_gate: None,
                 interface_stats: Ok(Vec::new()),
@@ -669,12 +528,9 @@ mod tests {
                     current: None,
                     max: None,
                 }),
-                resources: Ok(OpnsenseResourcesDto {
-                    cpu_usage_percent: None,
-                    mem_used_bytes: None,
-                    mem_total_bytes: None,
-                    uptime: None,
-                }),
+                resources: Ok(OpnsenseResourcesDto::default()),
+                system_time: Ok(SystemTimePayload::default()),
+                cpu_sample: Ok(0.0),
                 wireguard: Ok(OpnsenseWireguardStatusDto {
                     interfaces: Vec::new(),
                 }),
@@ -688,8 +544,7 @@ mod tests {
                     peers: Vec::new(),
                 }),
                 tailscale_service: Ok(None),
-                firmware_status: Ok(FirmwareStatusPayload::default()),
-                firmware_info: Ok(None),
+                firmware_info: Ok(FirmwareInfoPayload::default()),
             }
         }
     }
@@ -700,23 +555,9 @@ mod tests {
             Ok(())
         }
 
-        async fn search_rules(
-            &self,
-            current: u32,
-            _row_count: u32,
-        ) -> Result<RuleSearchPage, OpnsenseError> {
-            self.rule_page_requests.lock().await.push(current);
-            let idx = current.saturating_sub(1) as usize;
-            let page = self.rules_pages.get(idx).map(|p| RuleSearchPage {
-                rules: p.rules.clone(),
-                total: p.total,
-                current: p.current,
-            });
-            Ok(page.unwrap_or(RuleSearchPage {
-                rules: Vec::new(),
-                total: 0,
-                current: Some(current),
-            }))
+        async fn search_rules(&self) -> Result<RuleSearchPage, OpnsenseError> {
+            *self.rule_requests.lock().await += 1;
+            self.rules.clone()
         }
 
         async fn rule_stats(&self) -> Result<Vec<(String, RuleStat)>, OpnsenseError> {
@@ -727,28 +568,14 @@ mod tests {
             self.rule_ids.clone()
         }
 
-        async fn interfaces_info(
-            &self,
-            current: u32,
-            _row_count: u32,
-        ) -> Result<InterfaceInfoPage, OpnsenseError> {
+        async fn interfaces_info(&self) -> Result<InterfaceInfoPage, OpnsenseError> {
             if let Some(entered) = &self.interface_entered {
                 entered.notify_one();
             }
             if let Some(gate) = &self.interface_gate {
                 gate.notified().await;
             }
-            let idx = current.saturating_sub(1) as usize;
-            let page = self.interface_pages.get(idx).map(|p| InterfaceInfoPage {
-                interfaces: p.interfaces.clone(),
-                total: p.total,
-                current: p.current,
-            });
-            Ok(page.unwrap_or(InterfaceInfoPage {
-                interfaces: Vec::new(),
-                total: 0,
-                current: Some(current),
-            }))
+            self.interfaces.clone()
         }
 
         async fn interface_statistics(&self) -> Result<Vec<OpnsenseInterfaceDto>, OpnsenseError> {
@@ -761,6 +588,14 @@ mod tests {
 
         async fn system_resources(&self) -> Result<OpnsenseResourcesDto, OpnsenseError> {
             self.resources.clone()
+        }
+
+        async fn system_time(&self) -> Result<SystemTimePayload, OpnsenseError> {
+            self.system_time.clone()
+        }
+
+        async fn cpu_usage_sample(&self) -> Result<f64, OpnsenseError> {
+            self.cpu_sample.clone()
         }
 
         async fn wireguard_show(&self) -> Result<OpnsenseWireguardStatusDto, OpnsenseError> {
@@ -789,11 +624,7 @@ mod tests {
             self.tailscale_service.clone()
         }
 
-        async fn firmware_status(&self) -> Result<FirmwareStatusPayload, OpnsenseError> {
-            self.firmware_status.clone()
-        }
-
-        async fn firmware_info(&self) -> Result<Option<String>, OpnsenseError> {
+        async fn firmware_info(&self) -> Result<FirmwareInfoPayload, OpnsenseError> {
             self.firmware_info.clone()
         }
 
@@ -903,20 +734,16 @@ mod tests {
     // ---- Rules section ---------------------------------------------------
 
     #[tokio::test]
-    async fn rules_section_paginates_and_joins_counters_by_uuid() {
+    async fn rules_section_fetches_all_and_joins_counters_by_uuid() {
         let api = Arc::new(FakeApi {
-            rules_pages: vec![
-                RuleSearchPage {
-                    rules: vec![rule("uuid-a", "allow lan"), rule("uuid-b", "block bad")],
-                    total: 3,
-                    current: Some(1),
-                },
-                RuleSearchPage {
-                    rules: vec![rule("uuid-c", "allow voip")],
-                    total: 3,
-                    current: Some(2),
-                },
-            ],
+            rules: Ok(RuleSearchPage {
+                rules: vec![
+                    rule("uuid-a", "allow lan"),
+                    rule("uuid-b", "block bad"),
+                    rule("uuid-c", "allow voip"),
+                ],
+                total: 3,
+            }),
             rule_stats: Ok(vec![
                 ("uuid-a".to_owned(), stat(12)),
                 ("uuid-b".to_owned(), stat(0)),
@@ -926,11 +753,7 @@ mod tests {
 
         let section = fetch_rules(api.as_ref()).await.expect("rules section");
 
-        assert_eq!(
-            *api.rule_page_requests.lock().await,
-            vec![1, 2],
-            "both pages must be requested"
-        );
+        assert_eq!(*api.rule_requests.lock().await, 1, "single GET, no paging");
         assert_eq!(section.rules.len(), 3);
         assert!(!section.truncated);
         assert_eq!(section.total, 3);
@@ -942,61 +765,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_only_rules_stop_when_firewall_ignores_page_number() {
-        let first = RuleSearchPage {
-            rules: vec![rule("uuid-a", "allow lan"), rule("uuid-b", "block wan")],
-            total: 3,
-            current: Some(1),
-        };
+    async fn rules_section_flags_truncation_when_rows_missing() {
         let api = Arc::new(FakeApi {
-            rules_pages: vec![
-                RuleSearchPage {
-                    rules: first.rules.clone(),
-                    total: first.total,
-                    current: first.current,
-                },
-                first,
-            ],
+            rules: Ok(RuleSearchPage {
+                rules: vec![rule("uuid-a", "allow lan"), rule("uuid-b", "block wan")],
+                total: 3,
+            }),
             ..Default::default()
         });
         let section = fetch_rules(api.as_ref()).await.expect("rules section");
-        assert_eq!(
-            section.rules.len(),
-            2,
-            "page one must not be appended twice"
-        );
-        assert!(section.truncated, "unread rules must be reported");
+        assert_eq!(section.rules.len(), 2);
+        assert!(section.truncated, "withheld rows must be reported");
         assert_eq!(section.total, 3);
-        assert_eq!(*api.rule_page_requests.lock().await, vec![1, 2]);
     }
 
     #[tokio::test]
-    async fn get_only_interfaces_stop_when_firewall_ignores_page_number() {
+    async fn interfaces_section_flags_truncation_when_rows_missing() {
         let iface = OpnsenseInterfaceDto {
             name: "igb0".to_owned(),
             description: None,
             enabled: true,
             link: Some("up".to_owned()),
-            ipv4: None,
-            ipv6: None,
+            ipv4: Vec::new(),
+            ipv6: Vec::new(),
+            macaddr: None,
+            mtu: None,
+            media: None,
+            lagg: None,
             rx_bytes: None,
             tx_bytes: None,
             rx_packets: None,
             tx_packets: None,
         };
         let api = Arc::new(FakeApi {
-            interface_pages: vec![
-                InterfaceInfoPage {
-                    interfaces: vec![iface.clone()],
-                    total: 2,
-                    current: Some(1),
-                },
-                InterfaceInfoPage {
-                    interfaces: vec![iface],
-                    total: 2,
-                    current: Some(1),
-                },
-            ],
+            interfaces: Ok(InterfaceInfoPage {
+                interfaces: vec![iface],
+                total: 2,
+            }),
             ..Default::default()
         });
         let section = fetch_system(api.as_ref()).await.expect("system section");
@@ -1006,19 +811,13 @@ mod tests {
 
     #[tokio::test]
     async fn rules_section_flags_truncation_at_ten_thousand() {
-        let mut pages = Vec::new();
-        for index in 0..21 {
-            let count = if index < 20 { 500 } else { 1 };
-            pages.push(RuleSearchPage {
-                rules: (0..count)
-                    .map(|n| rule(&format!("uuid-{index}-{n}"), "bulk"))
+        let api = Arc::new(FakeApi {
+            rules: Ok(RuleSearchPage {
+                rules: (0..10_001)
+                    .map(|n| rule(&format!("uuid-{n}"), "bulk"))
                     .collect(),
                 total: 10_001,
-                current: Some(index + 1),
-            });
-        }
-        let api = Arc::new(FakeApi {
-            rules_pages: pages,
+            }),
             ..Default::default()
         });
 
@@ -1027,17 +826,16 @@ mod tests {
         assert_eq!(section.rules.len(), RULES_CAP);
         assert!(section.truncated, "cap cut must be flagged visible");
         assert_eq!(section.total, 10_001);
-        assert_eq!(api.rule_page_requests.lock().await.len(), 20);
+        assert_eq!(*api.rule_requests.lock().await, 1);
     }
 
     #[tokio::test]
     async fn rules_section_keeps_rules_when_counters_are_forbidden() {
         let api = Arc::new(FakeApi {
-            rules_pages: vec![RuleSearchPage {
+            rules: Ok(RuleSearchPage {
                 rules: vec![rule("uuid-a", "allow lan")],
                 total: 1,
-                current: Some(1),
-            }],
+            }),
             rule_stats: Err(OpnsenseError::Forbidden),
             ..Default::default()
         });
@@ -1085,137 +883,6 @@ mod tests {
         assert_eq!(wireguard.data.unwrap().interfaces.len(), 1);
         assert_eq!(tailscale.state, "unavailable");
         assert!(tailscale.data.is_none());
-    }
-
-    // ---- Firmware matrix ---------------------------------------------------
-
-    async fn firmware_case(
-        name: &str,
-        status: Result<FirmwareStatusPayload, OpnsenseError>,
-        info: Result<Option<String>, OpnsenseError>,
-    ) -> OpnsenseFirmwareStatusDto {
-        let dir = TempDir::new(name);
-        let api = Arc::new(FakeApi {
-            firmware_status: status,
-            firmware_info: info,
-            ..Default::default()
-        });
-        let manager = manager_for(&dir, api).await;
-        let id = profile(&manager, "fw").await;
-        OpnsenseMonitorManager::new(manager)
-            .get_update_status(id)
-            .await
-            .expect("update status")
-    }
-
-    #[tokio::test]
-    async fn firmware_cached_updates_split_core_and_plugin_upgrades() {
-        let dto = firmware_case(
-            "cached-updates",
-            Ok(FirmwareStatusPayload {
-                status: Some("upgrade".to_owned()),
-                status_msg: Some("updates available".to_owned()),
-                has_cached_check: true,
-                checked_at: Some("2026-10-01T12:00:00Z".to_owned()),
-                reboot_required: true,
-                upgrades: vec![
-                    (
-                        "opnsense".to_owned(),
-                        Some("25.7".to_owned()),
-                        Some("26.1".to_owned()),
-                    ),
-                    (
-                        "opnsense-kernel".to_owned(),
-                        Some("25.7".to_owned()),
-                        Some("26.1".to_owned()),
-                    ),
-                    (
-                        "os-tailscale".to_owned(),
-                        Some("1.0".to_owned()),
-                        Some("1.1".to_owned()),
-                    ),
-                ],
-            }),
-            Ok(Some("25.7".to_owned())),
-        )
-        .await;
-
-        assert_eq!(dto.state, "cached-updates");
-        assert_eq!(dto.checked_at.as_deref(), Some("2026-10-01T12:00:00Z"));
-        assert_eq!(dto.installed_version.as_deref(), Some("25.7"));
-        assert_eq!(dto.core_upgrades.len(), 2);
-        assert_eq!(dto.core_upgrades[0].name, "opnsense");
-        assert_eq!(dto.core_upgrades[0].new_version.as_deref(), Some("26.1"));
-        assert_eq!(dto.core_upgrades[1].name, "opnsense-kernel");
-        assert_eq!(dto.plugin_upgrades.len(), 1);
-        assert_eq!(dto.plugin_upgrades[0].name, "os-tailscale");
-        assert!(dto.reboot_required);
-    }
-
-    #[tokio::test]
-    async fn firmware_no_cache_when_status_none_without_check_timestamp() {
-        let dto = firmware_case(
-            "no-cache",
-            Ok(FirmwareStatusPayload {
-                status: Some("none".to_owned()),
-                status_msg: None,
-                has_cached_check: false,
-                checked_at: None,
-                reboot_required: false,
-                upgrades: Vec::new(),
-            }),
-            Ok(Some("25.7".to_owned())),
-        )
-        .await;
-
-        assert_eq!(dto.state, "no-cache");
-        assert!(
-            dto.message
-                .unwrap_or_default()
-                .contains("run Check for updates in OPNsense"),
-            "must tell the user to run the check on the firewall"
-        );
-        assert!(dto.checked_at.is_none());
-        assert_eq!(dto.installed_version.as_deref(), Some("25.7"));
-    }
-
-    #[tokio::test]
-    async fn firmware_cached_none_when_last_check_found_nothing() {
-        let dto = firmware_case(
-            "cached-none",
-            Ok(FirmwareStatusPayload {
-                status: Some("none".to_owned()),
-                status_msg: Some("nothing to do".to_owned()),
-                has_cached_check: true,
-                checked_at: None,
-                reboot_required: false,
-                upgrades: Vec::new(),
-            }),
-            Ok(None),
-        )
-        .await;
-
-        assert_eq!(dto.state, "cached-none");
-        assert_eq!(dto.checked_at, None);
-        assert!(dto.core_upgrades.is_empty());
-        assert!(dto.plugin_upgrades.is_empty());
-    }
-
-    #[tokio::test]
-    async fn firmware_forbidden_status_is_unavailable_but_installed_version_rides() {
-        let dto = firmware_case(
-            "forbidden",
-            Err(OpnsenseError::Forbidden),
-            Ok(Some("25.7".to_owned())),
-        )
-        .await;
-
-        assert_eq!(dto.state, "unavailable");
-        assert_eq!(
-            dto.message.as_deref(),
-            Some("Cached update status unavailable with read-only API access")
-        );
-        assert_eq!(dto.installed_version.as_deref(), Some("25.7"));
     }
 
     // ---- Monitor lifecycle -------------------------------------------------
@@ -1355,7 +1022,7 @@ mod tests {
         }
         // Ticks 0..3 fetch rules on ticks 0 and 3. Intervening snapshots
         // omit unchanged rules instead of re-serializing the table.
-        assert_eq!(api.rule_page_requests.lock().await.len(), 2);
+        assert_eq!(*api.rule_requests.lock().await, 2);
         assert!(seen[0].rules.as_ref().is_some_and(|rules| rules.ok));
         assert!(seen[1].rules.is_none());
         assert!(seen[2].rules.is_none());

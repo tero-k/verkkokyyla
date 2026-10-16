@@ -1,4 +1,4 @@
-//! Encrypted backup of the LATEST SAVED OPNsense configuration revision.
+//! Encrypted backup of an existing saved OPNsense configuration revision.
 //!
 //! Both device calls are read-only HTTP GET (`/api/core/backup/backups/this`
 //! lists already-stored revisions; `/api/core/backup/download/this/<id>`
@@ -58,6 +58,15 @@ pub enum OpnsenseBackupError {
     #[error("backup passphrase must not be blank")]
     PassphraseBlank,
 
+    /// The passphrase failed the strength rule (see
+    /// [`validate_passphrase`]). Unencrypted downloads are not offered at
+    /// all, so a weak passphrase would be the only protection failure mode.
+    #[error(
+        "weak backup passphrase: use at least 12 characters with a mix of \
+         letters, digits or symbols"
+    )]
+    PassphraseWeak,
+
     /// The firewall reported no saved configuration revisions.
     #[error("no saved configuration revision on the firewall")]
     NoRevisions,
@@ -97,6 +106,7 @@ impl OpnsenseBackupError {
             OpnsenseBackupError::OutputExists(_) => "OutputExists",
             OpnsenseBackupError::LocalWrite { .. } => "LocalWrite",
             OpnsenseBackupError::PassphraseBlank => "PassphraseBlank",
+            OpnsenseBackupError::PassphraseWeak => "PassphraseWeak",
             OpnsenseBackupError::NoRevisions => "NoRevisions",
             OpnsenseBackupError::InvalidRevisionId(_) => "InvalidRevisionId",
             OpnsenseBackupError::InvalidConfig(_) => "InvalidConfig",
@@ -140,6 +150,27 @@ impl Serialize for OpnsenseBackupError {
 fn validate_backup_name(name: &str) -> Result<(), OpnsenseBackupError> {
     crate::backup_filename::validate_backup_name(name)
         .map_err(|err| OpnsenseBackupError::InvalidName(err.0))
+}
+
+/// Passphrase policy: at least 12 characters covering at least two
+/// character classes (lower/upper/digit/symbol). Blank and weak secrets
+/// are rejected before any device call; the frontend mirrors this rule in
+/// `OpnsenseView.tsx` (`passphraseStrength`).
+fn validate_passphrase(passphrase: &str) -> Result<(), OpnsenseBackupError> {
+    if passphrase.trim().is_empty() {
+        return Err(OpnsenseBackupError::PassphraseBlank);
+    }
+    let classes = [
+        passphrase.chars().any(|c| c.is_ascii_lowercase()),
+        passphrase.chars().any(|c| c.is_ascii_uppercase()),
+        passphrase.chars().any(|c| c.is_ascii_digit()),
+        passphrase.chars().any(|c| !c.is_alphanumeric()),
+    ];
+    let class_count = classes.iter().filter(|present| **present).count();
+    if passphrase.chars().count() < 12 || class_count < 2 {
+        return Err(OpnsenseBackupError::PassphraseWeak);
+    }
+    Ok(())
 }
 
 /// A revision id must be a single `config-*.xml` filename: no path
@@ -299,8 +330,9 @@ impl OpnsenseBackupManager {
         Ok(revisions)
     }
 
-    /// Download the LATEST saved configuration revision and store it
-    /// encrypted (`<backup_name>.xml.age`) in `destination_dir`.
+    /// Download a saved configuration revision and store it encrypted
+    /// (`<backup_name>.xml.age`) in `destination_dir`. `revision_id` picks
+    /// a specific saved revision; `None` takes the LATEST saved one.
     ///
     /// All local validation (passphrase, name, destination) happens BEFORE
     /// any device call. The app only reads existing remote revisions; it
@@ -311,11 +343,15 @@ impl OpnsenseBackupManager {
         destination_dir: &str,
         backup_name: &str,
         passphrase: &str,
+        revision_id: Option<&str>,
     ) -> Result<OpnsenseBackupResultDto, OpnsenseBackupError> {
-        if passphrase.trim().is_empty() {
-            return Err(OpnsenseBackupError::PassphraseBlank);
-        }
+        validate_passphrase(passphrase)?;
         validate_backup_name(backup_name)?;
+        if let Some(id) = revision_id {
+            if !valid_revision_id(id) {
+                return Err(OpnsenseBackupError::InvalidRevisionId(id.to_owned()));
+            }
+        }
         let destination = PathBuf::from(destination_dir);
         if !destination.is_dir() {
             return Err(OpnsenseBackupError::DestinationInvalid(format!(
@@ -331,17 +367,23 @@ impl OpnsenseBackupManager {
             return Err(OpnsenseBackupError::NoRevisions);
         }
         sort_newest_first(&mut revisions);
-        let latest = &revisions[0];
-        if !valid_revision_id(&latest.id) {
-            return Err(OpnsenseBackupError::InvalidRevisionId(latest.id.clone()));
+        let source = match revision_id {
+            Some(id) => revisions
+                .iter()
+                .find(|rev| rev.id == id)
+                .ok_or_else(|| OpnsenseBackupError::InvalidRevisionId(id.to_owned()))?,
+            None => &revisions[0],
+        };
+        if !valid_revision_id(&source.id) {
+            return Err(OpnsenseBackupError::InvalidRevisionId(source.id.clone()));
         }
-        let bytes = api.download_revision(&latest.id).await?;
+        let bytes = api.download_revision(&source.id).await?;
         validate_config_xml(&bytes)?;
 
         // Encrypt off the async runtime; the passphrase is moved in,
         // dropped when the task ends, and never stored anywhere.
-        let revision_id = latest.id.clone();
-        let source_time_iso = latest.time_iso.clone();
+        let revision_id = source.id.clone();
+        let source_time_iso = source.time_iso.clone();
         let path_string = output_path.display().to_string();
         let passphrase = passphrase.to_owned();
         tokio::task::spawn_blocking(move || encrypt_to_file(&output_path, &bytes, &passphrase))
@@ -398,10 +440,11 @@ pub async fn opnsense_list_revisions(
         .await
 }
 
-/// `opnsense_backup(profile_id, destination_dir, backup_name, passphrase)` —
-/// download the LATEST SAVED revision (read-only GET) and store it
-/// encrypted as `<backup_name>.xml.age` in the user-picked existing
-/// directory. The passphrase is used for this one encryption and never
+/// `opnsense_backup(profile_id, destination_dir, backup_name, passphrase,
+/// revision_id?)` — download a saved revision (the LATEST when
+/// `revision_id` is None) via read-only GET and store it encrypted as
+/// `<backup_name>.xml.age` in the user-picked existing directory. The
+/// passphrase is strength-checked, used for this one encryption and never
 /// stored; the result says the source is a saved revision, possibly older
 /// than unsaved changes on the device.
 #[tauri::command]
@@ -411,9 +454,16 @@ pub async fn opnsense_backup(
     destination_dir: String,
     backup_name: String,
     passphrase: String,
+    revision_id: Option<String>,
 ) -> Result<OpnsenseBackupResultDto, OpnsenseBackupError> {
     OpnsenseBackupManager::new(&manager)
-        .backup(profile_id, &destination_dir, &backup_name, &passphrase)
+        .backup(
+            profile_id,
+            &destination_dir,
+            &backup_name,
+            &passphrase,
+            revision_id.as_deref(),
+        )
         .await
 }
 
@@ -429,7 +479,8 @@ mod tests {
 
     use crate::db::Database;
     use crate::opnsense::client::{
-        FirmwareStatusPayload, InterfaceInfoPage, PfRuleId, RuleSearchPage, RuleStat, SseByteStream,
+        FirmwareInfoPayload, InterfaceInfoPage, PfRuleId, RuleSearchPage, RuleStat, SseByteStream,
+        SystemTimePayload,
     };
     use crate::opnsense::types::{
         CreateOpnsenseProfileRequest, OpnsenseIpsecSessionDto, OpnsenseOpenvpnSessionDto,
@@ -524,11 +575,7 @@ mod tests {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
-        async fn search_rules(
-            &self,
-            _current: u32,
-            _row_count: u32,
-        ) -> Result<RuleSearchPage, OpnsenseError> {
+        async fn search_rules(&self) -> Result<RuleSearchPage, OpnsenseError> {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
@@ -540,11 +587,7 @@ mod tests {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
-        async fn interfaces_info(
-            &self,
-            _current: u32,
-            _row_count: u32,
-        ) -> Result<InterfaceInfoPage, OpnsenseError> {
+        async fn interfaces_info(&self) -> Result<InterfaceInfoPage, OpnsenseError> {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
@@ -559,6 +602,14 @@ mod tests {
         }
 
         async fn system_resources(&self) -> Result<OpnsenseResourcesDto, OpnsenseError> {
+            unimplemented!("FakeApi only serves backup endpoints")
+        }
+
+        async fn system_time(&self) -> Result<SystemTimePayload, OpnsenseError> {
+            unimplemented!("FakeApi only serves backup endpoints")
+        }
+
+        async fn cpu_usage_sample(&self) -> Result<f64, OpnsenseError> {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
@@ -582,11 +633,7 @@ mod tests {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
-        async fn firmware_status(&self) -> Result<FirmwareStatusPayload, OpnsenseError> {
-            unimplemented!("FakeApi only serves backup endpoints")
-        }
-
-        async fn firmware_info(&self) -> Result<Option<String>, OpnsenseError> {
+        async fn firmware_info(&self) -> Result<FirmwareInfoPayload, OpnsenseError> {
             unimplemented!("FakeApi only serves backup endpoints")
         }
 
@@ -675,6 +722,7 @@ mod tests {
                 out.to_str().unwrap(),
                 "fw-backup",
                 "correct horse",
+                None,
             )
             .await
             .expect("backup");
@@ -704,13 +752,24 @@ mod tests {
         let backups = OpnsenseBackupManager::new(&manager);
 
         let err = backups
-            .backup(profile_id, &out_str, "fw-backup", "   ")
+            .backup(profile_id, &out_str, "fw-backup", "   ", None)
             .await
             .expect_err("blank passphrase must fail");
         assert!(matches!(err, OpnsenseBackupError::PassphraseBlank));
 
+        for weak in ["pw", "abcdefghijkl", "123456789012"] {
+            let err = backups
+                .backup(profile_id, &out_str, "fw-backup", weak, None)
+                .await
+                .expect_err("weak passphrase must fail");
+            assert!(
+                matches!(err, OpnsenseBackupError::PassphraseWeak),
+                "{weak:?}: got {err:?}"
+            );
+        }
+
         let err = backups
-            .backup(profile_id, &out_str, "bad name!", "pw")
+            .backup(profile_id, &out_str, "bad name!", "correct horse", None)
             .await
             .expect_err("invalid name must fail");
         assert!(matches!(err, OpnsenseBackupError::InvalidName(_)));
@@ -720,7 +779,8 @@ mod tests {
                 profile_id,
                 &dir.0.join("no-such-dir").to_string_lossy(),
                 "fw-backup",
-                "pw",
+                "correct horse",
+                None,
             )
             .await
             .expect_err("missing destination must fail");
@@ -748,7 +808,13 @@ mod tests {
         std::fs::write(&output, b"pre-existing").expect("pre-create output");
 
         let err = OpnsenseBackupManager::new(&manager)
-            .backup(profile_id, out.to_str().unwrap(), "fw-backup", "pw")
+            .backup(
+                profile_id,
+                out.to_str().unwrap(),
+                "fw-backup",
+                "correct horse",
+                None,
+            )
             .await
             .expect_err("existing output must fail");
 
@@ -767,7 +833,13 @@ mod tests {
         let out = dir.subdir("out");
 
         let err = OpnsenseBackupManager::new(&manager)
-            .backup(9999, out.to_str().unwrap(), "fw-backup", "pw")
+            .backup(
+                9999,
+                out.to_str().unwrap(),
+                "fw-backup",
+                "correct horse",
+                None,
+            )
             .await
             .expect_err("unknown profile must fail");
         assert!(matches!(err, OpnsenseBackupError::ProfileNotFound(9999)));
@@ -796,7 +868,13 @@ mod tests {
             let out = dir.subdir("out");
 
             let err = OpnsenseBackupManager::new(&manager)
-                .backup(profile_id, out.to_str().unwrap(), "fw-backup", "pw")
+                .backup(
+                    profile_id,
+                    out.to_str().unwrap(),
+                    "fw-backup",
+                    "correct horse",
+                    None,
+                )
                 .await
                 .expect_err("invalid config must fail");
             assert!(
@@ -826,7 +904,13 @@ mod tests {
             let out = dir.subdir("out");
 
             let err = OpnsenseBackupManager::new(&manager)
-                .backup(profile_id, out.to_str().unwrap(), "fw-backup", "pw")
+                .backup(
+                    profile_id,
+                    out.to_str().unwrap(),
+                    "fw-backup",
+                    "correct horse",
+                    None,
+                )
                 .await
                 .expect_err("bad revision id must fail");
             assert!(
@@ -849,11 +933,59 @@ mod tests {
         let out = dir.subdir("out");
 
         let err = OpnsenseBackupManager::new(&manager)
-            .backup(profile_id, out.to_str().unwrap(), "fw-backup", "pw")
+            .backup(
+                profile_id,
+                out.to_str().unwrap(),
+                "fw-backup",
+                "correct horse",
+                None,
+            )
             .await
             .expect_err("empty revision list must fail");
         assert!(matches!(err, OpnsenseBackupError::NoRevisions));
         assert!(dir.entries("out").is_empty());
+    }
+
+    #[tokio::test]
+    async fn backup_downloads_the_selected_revision() {
+        let api = Arc::new(FakeApi::new(two_revisions(), XML.as_bytes().to_vec()));
+        let (dir, manager) = manager_for(Arc::clone(&api)).await;
+        let profile_id = profile(&manager).await;
+        manager
+            .set_credentials(profile_id, "key", "secret")
+            .await
+            .expect("credentials");
+        let out = dir.subdir("out");
+
+        let result = OpnsenseBackupManager::new(&manager)
+            .backup(
+                profile_id,
+                out.to_str().unwrap(),
+                "fw-backup",
+                "correct horse",
+                Some("config-1735689600.xml"),
+            )
+            .await
+            .expect("backup");
+        assert_eq!(result.source_revision_id, "config-1735689600.xml");
+        assert_eq!(
+            result.source_time_iso.as_deref(),
+            Some("2025-01-01T00:00:00Z")
+        );
+        let plaintext = decrypt_age(Path::new(&result.path), "correct horse");
+        assert_eq!(plaintext, XML.as_bytes());
+
+        let err = OpnsenseBackupManager::new(&manager)
+            .backup(
+                profile_id,
+                out.to_str().unwrap(),
+                "fw-backup-2",
+                "correct horse",
+                Some("config-9999999999.xml"),
+            )
+            .await
+            .expect_err("unknown revision must fail");
+        assert!(matches!(err, OpnsenseBackupError::InvalidRevisionId(_)));
     }
 
     #[tokio::test]
