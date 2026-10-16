@@ -1,5 +1,5 @@
 // Visual QA spec for the Claude Design reskin: captures populated views in
-// both themes to .omo/evidence (mirrors the f5-visual.spec.ts precedent).
+// both themes to test-results/visual-evidence (mirrors the f5-visual.spec.ts precedent).
 import { expect, test, type Page } from "@playwright/test"
 import { mkdirSync } from "node:fs"
 import path from "node:path"
@@ -7,7 +7,7 @@ import { installMockTauri } from "./mock-ipc"
 
 test.use({ viewport: { width: 1280, height: 800 } })
 
-const evidenceDir = path.join(process.cwd(), ".omo", "evidence")
+const evidenceDir = path.join(process.cwd(), "test-results", "visual-evidence")
 
 function shot(fileName: string): string {
   mkdirSync(evidenceDir, { recursive: true })

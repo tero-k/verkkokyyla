@@ -1,6 +1,6 @@
 //! MTU session manager: owns the single active run, the stop channel, and
 //! SQLite persistence. Mirrors `trace/manager.rs`.
-//! See `.omo/plans/mtu-discovery.md` milestone 2.
+//! See `.omp/plans/mtu-discovery.md` milestone 2.
 
 use std::net::IpAddr;
 use std::sync::Arc;

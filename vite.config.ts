@@ -13,7 +13,7 @@ export default defineConfig({
     watch: {
       // The Rust target dir is written/locked by cargo during `tauri dev`;
       // watching it crashes Vite on Windows with EBUSY.
-      ignored: ["**/src-tauri/**", "**/.omo/**", "**/.codegraph/**"],
+      ignored: ["**/src-tauri/**", "**/.omp/**", "**/.codegraph/**"],
     },
   },
   test: {

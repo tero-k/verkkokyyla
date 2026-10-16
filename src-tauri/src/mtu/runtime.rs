@@ -1,5 +1,5 @@
 //! MTU run runtime: drives the search controller against a probe engine,
-//! streams events, and persists probes. See `.omo/plans/mtu-discovery.md`
+//! streams events, and persists probes. See `.omp/plans/mtu-discovery.md`
 //! milestone 2.
 
 use std::sync::Arc;

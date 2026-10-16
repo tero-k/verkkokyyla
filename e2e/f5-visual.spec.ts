@@ -5,7 +5,7 @@ import { installMockTauri } from "./mock-ipc"
 
 test.use({ viewport: { width: 1024, height: 768 } })
 
-const evidenceDir = path.join(process.cwd(), ".omo", "evidence")
+const evidenceDir = path.join(process.cwd(), "test-results", "visual-evidence")
 type MikrotikTab = "Profiles" | "Backups" | "System" | "Interfaces" | "VLANs"
 
 function evidencePath(fileName: string): string {

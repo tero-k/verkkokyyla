@@ -8,8 +8,12 @@ src-tauri/target/
 src-tauri/gen/
 
 # agent/tooling state (kept out of git)
-.omo/
 .codegraph/
+
+# secrets and machine-local overrides (never commit)
+.env
+.env.*
+*.local.*
 
 # test artifacts
 test-results/
