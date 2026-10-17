@@ -9,6 +9,8 @@ src-tauri/gen/
 
 # agent/tooling state (kept out of git)
 .codegraph/
+.omp/*
+!.omp/plans/
 
 # secrets and machine-local overrides (never commit)
 .env
