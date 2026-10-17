@@ -7,11 +7,10 @@ on:
       - '**.md'
       - 'docs/**'
       - 'LICENSE'
+  # No paths-ignore on PRs: required checks must report on every pull
+  # request, and a skipped workflow leaves docs-only PRs permanently
+  # blocked by the branch ruleset.
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
 
 jobs:
   lint-rust:
