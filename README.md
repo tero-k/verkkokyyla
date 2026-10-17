@@ -29,10 +29,15 @@ runtime, preinstalled on up-to-date Windows 10/11), macOS (dmg, or the raw
 `.app` tarball, signed and notarized), and Linux (deb/rpm, or the portable
 AppImage). Or build from source; see [Development](#development).
 
+On startup the app can show a notice when a newer stable release exists; the
+notice links to the Releases page and never downloads or installs anything on
+its own. It can be turned off under Help → Updates.
+
 ## Screenshots
 
 | | |
 |---|---|
+| ![OPNsense firewall rules grouped by interface with hit counters](docs/screenshots/opnsense-rules-dark.png) | ![OPNsense cached firmware status showing an available update (light theme)](docs/screenshots/opnsense-firmware-light.png) |
 | ![MikroTik monitoring](docs/screenshots/mikrotik-monitoring-dark.png) | ![MikroTik live logs](docs/screenshots/mikrotik-logs-dark.png) |
 | ![DNS lookup](docs/screenshots/dns-lookup-dark.png) | ![DNS diagnostics (light theme)](docs/screenshots/dns-diagnostics-light.png) |
 
@@ -42,14 +47,24 @@ AppImage). Or build from source; see [Development](#development).
   history. The engine is chosen automatically per platform.
 - **Traceroute**: the OS-native traceroute with hops streaming in live, kept
   in history like ping sessions.
-- **Web Benchmark**: download-speed test against a URL with live progress and
-  final stats.
-- **Network scanner**: discovers hosts on the local network.
+- **Web Benchmark**: three modes against a URL. **Download** fetches a
+  single file with live progress and final stats; **Page load** fetches a
+  full page with its resources and shows a per-request waterfall;
+  **Throughput** runs a repeatable detailed benchmark. HTTP settings
+  (protocol version, timeouts, redirects, compression) are adjustable.
+- **Network scanner**: discovers hosts on the local network. Pick the
+  interface and subnet to scan; an optional TCP fallback complements ARP for
+  hosts that don't answer it. A top-25 TCP port probe is available behind an
+  explicit consent warning, results can be saved, and **Export CSV** writes
+  through the native save dialog.
 - **MTU Discovery**: finds the path MTU with Don't-Fragment ICMP probes
   (bracketing steps, then binary search) and falls back to TCP PLPMTUD probing
   on Linux when ICMP is filtered.
-- **DNS Toolkit**: resolver diagnostics with an evidence chain for pinning
-  down where resolution breaks.
+- **DNS Toolkit**: five tabs. **Lookup** queries A/AAAA/MX/NS/SOA/TXT records
+  against a chosen resolver; **Benchmark** races resolvers with Quick, Stress,
+  and Cache-bust presets; **Diagnostics** builds an evidence chain for pinning
+  down where resolution breaks; **Email** checks SPF, DMARC, and DKIM (with
+  custom selectors); **History** reopens saved runs.
 - **MikroTik**: see below.
 - **OPNsense**: read-only rule counters, firewall logs, interfaces/VPN,
   firmware and cached plugin updates, saved-revision backups, SSH terminal.
@@ -90,28 +105,43 @@ known-hosts entry.
 
 ## OPNsense
 
-- **Profiles & credentials**: one profile per firewall (host, HTTPS port).
-  Access uses an API key/secret pair stored as a single OS keyring entry; the
-  app database keeps only connection metadata. The app only ever sends GET
-  requests, so a read-only key is enough.
-- **Monitoring**: connect a profile for firewall rule hit counters grouped by
-  interface, PF state-table usage, system resources, and interface status
-  including link aggregation. VPN status covers WireGuard, OpenVPN, and IPsec
-  tunnels plus the Tailscale plugin when installed.
-- **Firewall logs**: live log stream from the firewall, filterable to allowed
-  or blocked traffic, with the same keep-alive behavior as MikroTik streams.
+- **Profiles & credentials**: one profile per firewall. Enter the host as a
+  DNS name or IP without a scheme, the HTTPS port, and a separately
+  configurable SSH port for the terminal. Access uses a read-only API
+  key/secret pair stored as a single OS keyring entry; the app database keeps
+  only connection metadata, and the app only ever sends GET requests.
+  **Test connection** on a profile separates "the firewall is reachable" from
+  "the API key is authorized" before you commit to monitoring. Accepting
+  self-signed certificates is an explicit per-profile option, not the
+  default.
+- **Monitoring**: pick a profile and press **Connect** — each connected
+  firewall appears as a chip in the device strip and can be disconnected
+  independently. **Overview** shows system resources and PF state-table
+  usage; **Firewall rules** groups hit counters by interface; **Interfaces &
+  VPN** covers link aggregation (LAGG) plus WireGuard, OpenVPN, and IPsec
+  tunnels and the Tailscale plugin when installed. If a section refresh
+  fails, the last good data is kept and marked stale rather than zeroed, and
+  lists are marked incomplete when OPNsense ignores GET pagination instead of
+  silently implying complete results.
+- **Firewall logs**: a live log stream with its own connect/disconnect,
+  filterable by All/Allowed/Blocked and free text. Only traffic matched by
+  rules with logging enabled appears.
 - **Firmware & plugins**: the firmware card compares the installed version
   with the firewall's cached release changelog — the app never starts an
   update check on the firewall, so a missing or stale cache cannot prove
   current availability. Installed plugins show cached upgrade targets when
   available; verify them in the OPNsense GUI.
-- **Backups**: download any saved configuration revision. The file is
-  encrypted locally as `*.xml.age` before it touches disk and the plaintext is
-  never persisted. Restore with `age -d -o config.xml <file>.xml.age`, then
-  import in the OPNsense GUI.
-- **Terminal**: interactive SSH shell with explicit SHA-256 host-key
-  verification on first connect. The terminal uses a separate interactive
-  user login — API credentials never authenticate SSH.
+- **Backups**: download any saved configuration revision. Choose a
+  destination directory, pick the revision, and enter a strong passphrase;
+  the file is encrypted locally as `*.xml.age` before it touches disk and the
+  plaintext is never persisted. Restore with
+  `age -d -o config.xml <file>.xml.age`, then import in the OPNsense GUI.
+- **Terminal**: an interactive SSH shell with its own login, entirely
+  separate from the read-only HTTP API — a dedicated OPNsense user and
+  password authenticate SSH, never the API key. The first connection shows
+  the firewall's SHA-256 host-key fingerprint and requires explicit
+  verification; the verified key is pinned and a changed key is rejected
+  until you deliberately forget the pin.
 
 **Requirements:** OPNsense with an API key (System → Access → Users → API
 keys). Read-only privileges are sufficient for every feature; the SSH service
