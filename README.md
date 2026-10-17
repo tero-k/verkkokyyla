@@ -90,16 +90,32 @@ known-hosts entry.
 
 ## OPNsense
 
-Add a firewall profile with an HTTPS API key limited to GET access. Monitor
-rule hit counters grouped by interface, PF state usage, link aggregation, and
-WireGuard/OpenVPN/IPsec/Tailscale status; stream and filter allowed/blocked
-firewall logs. Firmware checks compare the installed version with the
-firewall's cached release changelog without starting an update check; missing
-or stale cache cannot prove current availability. Plugin upgrade targets also
-come from the firewall's previous check; verify them in the OPNsense GUI.
-Backups download a selected *saved* configuration revision, encrypt it locally
-as `*.xml.age`, and never persist plaintext. The separate SSH terminal
-requires explicit host-key verification.
+- **Profiles & credentials**: one profile per firewall (host, HTTPS port).
+  Access uses an API key/secret pair stored as a single OS keyring entry; the
+  app database keeps only connection metadata. The app only ever sends GET
+  requests, so a read-only key is enough.
+- **Monitoring**: connect a profile for firewall rule hit counters grouped by
+  interface, PF state-table usage, system resources, and interface status
+  including link aggregation. VPN status covers WireGuard, OpenVPN, and IPsec
+  tunnels plus the Tailscale plugin when installed.
+- **Firewall logs**: live log stream from the firewall, filterable to allowed
+  or blocked traffic, with the same keep-alive behavior as MikroTik streams.
+- **Firmware & plugins**: the firmware card compares the installed version
+  with the firewall's cached release changelog — the app never starts an
+  update check on the firewall, so a missing or stale cache cannot prove
+  current availability. Installed plugins show cached upgrade targets when
+  available; verify them in the OPNsense GUI.
+- **Backups**: download any saved configuration revision. The file is
+  encrypted locally as `*.xml.age` before it touches disk and the plaintext is
+  never persisted. Restore with `age -d -o config.xml <file>.xml.age`, then
+  import in the OPNsense GUI.
+- **Terminal**: interactive SSH shell with explicit SHA-256 host-key
+  verification on first connect. The terminal uses a separate interactive
+  user login — API credentials never authenticate SSH.
+
+**Requirements:** OPNsense with an API key (System → Access → Users → API
+keys). Read-only privileges are sufficient for every feature; the SSH service
+must be enabled for the terminal.
 
 ## Development
 
