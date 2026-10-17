@@ -55,6 +55,9 @@ jobs:
           # not recognize them and would print the p12 in later env dumps.
           echo "::add-mask::$(base64 -i /tmp/cert-legacy.p12)"
           echo "APPLE_CERTIFICATE=$(base64 -i /tmp/cert-legacy.p12)" >> "$GITHUB_ENV"
+          # Same password protects the legacy p12; the secret value itself is
+          # already masked by GitHub.
+          echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
       # Fail fast (before the 10-minute build) with enough detail to fix
       # signing issues: what the p12 contains and whether macOS accepts the
       # original and re-encoded variants as codesigning identities.
@@ -104,8 +107,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS signing + notarization. tauri-action's contract uses APPLE_*
           # names; the repo stores the certificate under MACOS_* names.
-          APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          # APPLE_CERTIFICATE/_PASSWORD deliberately NOT set here: step env
+          # would override the re-encoded legacy p12 the re-encode step put in
+          # GITHUB_ENV, and macOS rejects the modern p12 ("MAC verification
+          # failed"). With no step env, the legacy override flows through.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
