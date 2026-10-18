@@ -97,10 +97,13 @@ async fn hung_fake_hits_watchdog_with_short_limits() {
 async fn absolute_ceiling_ends_a_long_running_fake() {
     let dir = unique_temp_dir("trace-os-ceiling");
     std::fs::create_dir_all(&dir).expect("temp dir");
+    // The fake pauses ~5 s between hops (ping -n 6): the first hop must
+    // arrive well within the 3 s ceiling even on a loaded CI runner, and the
+    // ceiling must still kill the child long before the pause ends.
     let script = write_cmd_script(
         &dir,
         "trace.cmd",
-        "echo  1    ^<1 ms    ^<1 ms    ^<1 ms  192.168.1.1\r\nping 127.0.0.1 -n 3 >nul\r\necho  2    ^<1 ms    ^<1 ms    ^<1 ms  192.168.1.2",
+        "echo  1    ^<1 ms    ^<1 ms    ^<1 ms  192.168.1.1\r\nping 127.0.0.1 -n 6 >nul\r\necho  2    ^<1 ms    ^<1 ms    ^<1 ms  192.168.1.2",
     );
     let engine = crate::engine::TracertWin::with_program(
         PathBuf::from("cmd.exe"),
@@ -109,7 +112,7 @@ async fn absolute_ceiling_ends_a_long_running_fake() {
     )
     .with_limits(TraceLimits::new(
         Duration::from_secs(5),
-        Duration::from_millis(500),
+        Duration::from_secs(3),
     ));
     let mut stream = engine.start().expect("stream");
 
