@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs**: refreshed the README and in-app Help for the 0.2.0 OPNsense
+  release. The README now describes the OPNsense profile workflow (no-scheme
+  host, HTTPS/SSH ports, Test connection, device-strip switching) and the
+  Web Benchmark, Network scanner, and DNS Toolkit feature sets in full, and
+  explains that the optional startup release notice never installs updates.
+  Help sections for those tools and all OPNsense tabs now match the actual
+  UI. All five README screenshots were regenerated with the current
+  navigation, and two OPNsense captures (firewall rules, cached firmware
+  status) were added.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

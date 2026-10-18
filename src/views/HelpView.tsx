@@ -48,6 +48,10 @@ export default function HelpView({
             ))}
           </ul>
           <p>The theme switcher at the bottom of the sidebar toggles Light, Dark, and OS.</p>
+          <p>
+            At narrow window widths, wide tables get a horizontal slider below them so every
+            column stays reachable; it only appears when a table actually overflows.
+          </p>
         </section>
 
         <section className={styles.section}>
@@ -67,7 +71,10 @@ export default function HelpView({
             When a newer stable release exists, a notice appears at the top of
             the window with a link to the release page — the app never
             downloads or installs updates on its own. Prereleases are never
-            announced.
+            announced. Dismissing the notice hides that release, but a later
+            stable release shows a new notice. The checkbox above turns the
+            startup check off entirely; it never blocks downloading an
+            installer manually.
             {appVersion ? ` Running version v${appVersion}.` : ""}
           </p>
         </section>
@@ -92,7 +99,13 @@ export default function HelpView({
         <section className={styles.section}>
           <h2>Web Benchmark</h2>
           <p>
-            Downloads a URL and measures throughput with live progress and final stats. Use it to
+            Measures HTTP throughput against a URL in three modes, chosen with the
+            Download / Page load / Throughput selector. <strong>Download</strong> fetches a
+            single file with live progress and final stats. <strong>Page load</strong> fetches
+            a full page plus its resources and draws a per-request waterfall showing when each
+            resource started, how long it took, and how fast it arrived.{" "}
+            <strong>Throughput</strong> runs a repeatable detailed benchmark. The HTTP settings
+            panel tunes protocol version, timeouts, redirects, and compression. Use it to
             compare links or verify that a path actually delivers its rated speed.
           </p>
         </section>
@@ -100,7 +113,12 @@ export default function HelpView({
         <section className={styles.section}>
           <h2>Network scanner</h2>
           <p>
-            Scans the local network and lists discovered hosts. Handy for finding a device&apos;s
+            Scans the local network and lists discovered hosts. Pick the network interface and
+            the subnet to scan. Discovery uses ARP by default; an optional ARP + TCP fallback
+            also probes hosts that stay silent on ARP. Enabling the top-25 TCP port probe shows
+            a consent warning first, since port scans can trip network monitors and IDS tools.
+            Results can be saved and reopened later, and <strong>Export CSV</strong> writes the
+            host list through the native save dialog. Handy for finding a device&apos;s
             address before adding it as a ping target or MikroTik profile.
           </p>
         </section>
@@ -117,8 +135,14 @@ export default function HelpView({
         <section className={styles.section}>
           <h2>DNS Toolkit</h2>
           <p>
-            Runs DNS diagnostics against resolvers and shows the evidence chain, so you can tell
-            whether a resolution problem is local, upstream, or at the authoritative server.
+            Five tabs around a configurable resolver. <strong>Lookup</strong> queries a domain
+            for the selected record types (A, AAAA, MX, NS, SOA, TXT) against a resolver you
+            set. <strong>Benchmark</strong> races resolvers with Quick, Stress, and Cache-bust
+            presets to compare latency and caching behavior. <strong>Diagnostics</strong> runs
+            a check series and shows the evidence chain, so you can tell whether a resolution
+            problem is local, upstream, or at the authoritative server. <strong>Email</strong>{" "}
+            validates SPF and DMARC and probes DKIM with your own selector list.{" "}
+            <strong>History</strong> lists saved runs for reopening.
           </p>
         </section>
 
@@ -183,10 +207,16 @@ export default function HelpView({
         <section className={styles.section}>
           <h2>OPNsense: profiles &amp; read-only API key</h2>
           <p>
-            Add a profile per firewall: HTTPS host and port, plus an OPNsense API key/secret
-            stored in the operating system keyring — never in the app&apos;s database. The key
-            must be restricted to read-only (GET) access: the app only ever reads rule counters,
-            status, VPN state, installed firmware and cached plugin upgrades, and saved revisions. If an
+            Add a profile per firewall: the host as a DNS name or IP without a scheme, the HTTPS
+            port, a separately configurable SSH port for the terminal, plus an OPNsense API
+            key/secret stored in the operating system keyring — never in the app&apos;s
+            database. Use <strong>Test connection</strong> to distinguish &quot;the firewall is
+            reachable&quot; from &quot;the API key is authorized&quot; before connecting. When
+            editing a profile, leaving the key and secret blank keeps the stored credentials;
+            changing the host or SSH port clears the pinned SSH host key so it is verified again.
+            The key must be restricted to read-only (GET) access: the app only ever reads rule
+            counters, status, VPN state, installed firmware and cached plugin upgrades, and
+            saved revisions. If an
             OPNsense privilege bundles a needed read with write endpoints and no strictly
             read-only right exists, that section stays unavailable and the app says so instead of
             asking for elevated credentials. Backup downloads read already-saved revisions — the
@@ -197,20 +227,29 @@ export default function HelpView({
         <section className={styles.section}>
           <h2>OPNsense: monitoring, rules &amp; logs</h2>
           <p>
-            Connect a profile to start a live monitor: firewall rule hit counters, interface and
-            PF state capacity, resources, and VPN/Tailscale status update on their own cadence.
-            Each section reports success or failure independently — a failed section keeps its
-            last good data with a stale timestamp instead of showing zeros. Rule counters are
+            Select a profile and press Connect to start a live monitor; connected firewalls show
+            as chips in the device strip, and switching the profile or chip switches the active
+            firewall. <strong>Overview</strong> reports system resources and PF state-table
+            usage, <strong>Firewall rules</strong> groups hit counters by interface, and{" "}
+            <strong>Interfaces &amp; VPN</strong> covers link aggregation plus WireGuard,
+            OpenVPN, IPsec, and the Tailscale plugin when installed. Each section reports
+            success or failure independently — a failed section keeps its
+            last good data with a stale timestamp instead of showing zeros. When OPNsense
+            ignores GET pagination the affected list is marked incomplete rather than silently
+            implying complete results; this read-only monitor will not use POST to fetch more.
+            Rule counters are
             reported by OPNsense and reset on reload; older versions may omit legacy rules. The
-            Firewall logs tab streams pass/block decisions live, but only traffic matched by
-            rules with logging enabled appears.
+            Firewall logs tab has its own Connect/Disconnect and streams pass/block decisions
+            live, with All/Allowed/Blocked action filters and a text search over the visible
+            fields — but only traffic matched by rules with logging enabled appears.
           </p>
         </section>
 
         <section className={styles.section}>
           <h2>OPNsense: firmware and plugin status</h2>
           <p>
-            The Firmware tab compares the installed core version with the firewall&apos;s cached
+            The Firmware tab&apos;s <strong>Read cached status</strong> compares the installed
+            core version with the firewall&apos;s cached
             release changelog; it does not start a check or install updates. A missing or stale
             cache cannot establish current availability. Installed plugins show upgrade targets
             only if the firewall&apos;s previous check reported one; an absent target does not prove
@@ -223,8 +262,12 @@ export default function HelpView({
           <h2>OPNsense: encrypted backups</h2>
           <p>
             Backups download the selected <em>saved</em> configuration revision (or the latest
-            saved revision by default) — possibly older than unsaved changes on the device — and
-            store it locally with a strong passphrase in age format (<code>*.xml.age</code>).
+            saved revision by default) — possibly older than unsaved changes on the device.
+            Pick the destination with <strong>Choose directory</strong>, select the revision
+            from the saved-revision list, and enter a passphrase of at least 12 characters
+            spanning two of lowercase, uppercase, digit, and symbol classes. The file is
+            encrypted locally in age format (<code>*.xml.age</code>) before it touches disk, and
+            the passphrase is cleared from the form after each attempt, successful or not.
             To restore, decrypt outside the app with{" "}
             <code>age -d -o config.xml &lt;file&gt;.xml.age</code> and import the XML in the
             OPNsense GUI. The app never keeps plaintext XML on disk and never restores by itself.
