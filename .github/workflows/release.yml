@@ -102,7 +102,7 @@ jobs:
       # Pinned to v0: v1 removed the built-in macOS certificate import, so the
       # bundler could not resolve a signing identity and the macOS build
       # failed. Revisit v1 only with a workflow-managed keychain import.
-      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS signing + notarization. tauri-action's contract uses APPLE_*
