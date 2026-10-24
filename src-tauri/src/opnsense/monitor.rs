@@ -784,6 +784,7 @@ mod tests {
         let iface = OpnsenseInterfaceDto {
             name: "igb0".to_owned(),
             description: None,
+            identifier: None,
             enabled: true,
             link: Some("up".to_owned()),
             ipv4: Vec::new(),

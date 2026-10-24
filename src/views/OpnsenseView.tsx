@@ -5,6 +5,8 @@ import { HorizontalScrollArea } from "../components/ui/HorizontalScrollArea"
 import { SshTerminalPanel, terminalAccentFor, type SshTerminalAdapter } from "../components/SshTerminalPanel"
 import { TerminalSwitchWarning } from "../components/TerminalSwitchWarning"
 import { ConfirmDialog } from "../components/ConfirmDialog"
+import { OpnsenseTrafficGraphs } from "../components/OpnsenseTrafficGraphs"
+import { trafficSourceKey, type OpnsenseTrafficSource } from "../lib/opnsenseTraffic"
 import { useOpnsense, type OpnsenseDeviceState, type OpnsenseSectionView, type RunOpnsenseBackupRequest } from "../hooks/useOpnsense"
 import { useOpnsenseLogs, type OpnsenseLogTab } from "../hooks/useOpnsenseLogs"
 import {
@@ -387,37 +389,67 @@ function OverviewTab({ device }: { readonly device: OpnsenseDeviceState | null }
 // Firewall rules tab
 // ---------------------------------------------------------------------------
 
-/** Rules grouped by the interface token list. Tokens normalize to lowercase
-    for the key ("WAN" and "wan" land together; "lan,opt1" stays one group);
-    the first-seen original casing becomes the label. Empty interface sorts
-    last as "Floating / all interfaces". */
+type InterfaceDisplay = {
+  readonly label: string
+  readonly order: number
+}
+
 type RuleGroup = {
   readonly key: string
   readonly label: string
+  readonly order: number
   readonly rules: readonly OpnsenseRuleDto[]
 }
 
-function groupRules(rules: readonly OpnsenseRuleDto[]): RuleGroup[] {
-  const groups = new Map<string, { label: string; rules: OpnsenseRuleDto[] }>()
+const EMPTY_INTERFACES: readonly OpnsenseInterfaceDto[] = []
+
+function interfaceDisplays(interfaces: readonly OpnsenseInterfaceDto[]): ReadonlyMap<string, InterfaceDisplay> {
+  const displays = new Map<string, InterfaceDisplay>()
+  interfaces.forEach((iface, order) => {
+    const identifier = iface.identifier?.trim()
+    if (!identifier) return
+    displays.set(identifier.toLowerCase(), {
+      label: iface.description?.trim() || iface.name.trim() || identifier,
+      order,
+    })
+  })
+  return displays
+}
+
+function ruleInterfaceLabel(interfaceList: string, displays: ReadonlyMap<string, InterfaceDisplay>): string {
+  const trimmed = interfaceList.trim()
+  if (trimmed === "") return "Floating / all interfaces"
+  return trimmed.split(",").map((token) => {
+    const normalized = token.trim()
+    return displays.get(normalized.toLowerCase())?.label ?? normalized
+  }).join(", ")
+}
+
+/** Rules remain grouped by their complete interface list. Known interfaces
+    follow firewall order; unknown tokens and Floating rules sort last. */
+function groupRules(rules: readonly OpnsenseRuleDto[], displays: ReadonlyMap<string, InterfaceDisplay>): RuleGroup[] {
+  const groups = new Map<string, { label: string; order: number; rules: OpnsenseRuleDto[] }>()
   for (const rule of rules) {
     const trimmed = rule.interface.trim()
-    const key =
-      trimmed === ""
-        ? ""
-        : trimmed.split(",").map((token) => token.trim().toLowerCase()).join(",")
+    const tokens = trimmed === "" ? [] : trimmed.split(",").map((token) => token.trim().toLowerCase())
+    const key = tokens.join(",")
     let group = groups.get(key)
     if (group === undefined) {
-      group = { label: trimmed === "" ? "Floating / all interfaces" : trimmed, rules: [] }
+      const order = tokens.reduce(
+        (minimum, token) => Math.min(minimum, displays.get(token)?.order ?? Number.MAX_SAFE_INTEGER),
+        Number.MAX_SAFE_INTEGER,
+      )
+      group = { label: ruleInterfaceLabel(trimmed, displays), order, rules: [] }
       groups.set(key, group)
     }
     group.rules.push(rule)
   }
   return [...groups.entries()]
-    .map(([key, group]) => ({ key, label: group.label, rules: group.rules }))
+    .map(([key, group]) => ({ key, ...group }))
     .sort((a, b) => {
       if (a.key === "") return 1
       if (b.key === "") return -1
-      return a.label.localeCompare(b.label)
+      return a.order - b.order || a.label.localeCompare(b.label)
     })
 }
 
@@ -443,7 +475,7 @@ function RuleGroupTable({ group }: { readonly group: RuleGroup }) {
           {group.rules.map((rule) => (
             <tr key={rule.uuid} className={rule.enabled ? undefined : styles.rowDisabled} data-testid="opnsense-rule-row">
               <td><span className={`${styles.badge} ${actionBadgeClass(rule.action)}`}>{rule.action}</span></td>
-              <td>{rule.interface}</td>
+              <td>{group.label}</td>
               <td>{rule.description || "—"}</td>
               <td className={styles.mono}>{rule.source}</td>
               <td className={styles.mono}>{rule.destination}</td>
@@ -464,7 +496,24 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
   const view = device?.rules ?? null
   const placeholder = sectionPlaceholder(view, "Connect to collect firewall rules.")
   const data = view?.data ?? null
-  const groups = useMemo(() => (data !== null ? groupRules(data.rules) : []), [data])
+  const interfaces = device?.system?.data?.interfaces ?? EMPTY_INTERFACES
+  const displays = useMemo(() => interfaceDisplays(interfaces), [interfaces])
+  const [query, setQuery] = useState("")
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredRules = useMemo(() => {
+    if (data === null) return []
+    if (normalizedQuery === "") return data.rules
+    return data.rules.filter((rule) => [
+      rule.action,
+      rule.interface,
+      ruleInterfaceLabel(rule.interface, displays),
+      rule.description,
+      rule.source,
+      rule.destination,
+      rule.protocol,
+    ].some((value) => value.toLowerCase().includes(normalizedQuery)))
+  }, [data, displays, normalizedQuery])
+  const groups = useMemo(() => groupRules(filteredRules, displays), [displays, filteredRules])
   const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string>>(new Set())
 
   const toggleGroup = useCallback((key: string) => {
@@ -493,16 +542,26 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
               Hit counters unavailable: {data.countersError.message} — rule definitions are shown without counters.
             </p>
           ) : null}
-          {groups.length > 0 ? (
-            <div className={styles.toolbarRow}>
-              <Button variant="secondary" onClick={() => setCollapsedKeys(new Set(groups.map((group) => group.key)))}>
-                Collapse all
-              </Button>
-              <Button variant="secondary" onClick={() => setCollapsedKeys(new Set())}>
-                Expand all
-              </Button>
-            </div>
-          ) : null}
+          <div className={styles.toolbarRow}>
+            {groups.length > 0 ? (
+              <>
+                <Button variant="secondary" onClick={() => setCollapsedKeys(new Set(groups.map((group) => group.key)))}>
+                  Collapse all
+                </Button>
+                <Button variant="secondary" onClick={() => setCollapsedKeys(new Set())}>
+                  Expand all
+                </Button>
+              </>
+            ) : null}
+            <input
+              type="search"
+              className={styles.search}
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Search all rules"
+              aria-label="Filter firewall rules"
+            />
+          </div>
           {groups.map((group) => {
             const collapsed = collapsedKeys.has(group.key)
             let hitsSum: number | null = null
@@ -531,6 +590,14 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
               </section>
             )
           })}
+          {data.rules.length > 0 && filteredRules.length === 0 ? (
+            <p className={styles.empty}>No rules match the current search.</p>
+          ) : null}
+          {normalizedQuery !== "" && filteredRules.length > 0 ? (
+            <p className={styles.hint}>
+              {filteredRules.length} of {data.rules.length} loaded rules match the search.
+            </p>
+          ) : null}
           {data.rules.length === 0 ? <p className={styles.empty}>No rules reported.</p> : null}
           <p className={styles.hint}>
             {data.rules.length === data.total
@@ -686,13 +753,37 @@ function LogsTab({ profileId }: { readonly profileId: number | null }) {
 // Interfaces & VPN tab
 // ---------------------------------------------------------------------------
 
-function InterfaceTable({ interfaces }: { readonly interfaces: readonly OpnsenseInterfaceDto[] }) {
+function TrafficToggle({ source, selected, label, onToggle }: {
+  readonly source: OpnsenseTrafficSource
+  readonly selected: boolean
+  readonly label: string
+  readonly onToggle: (source: OpnsenseTrafficSource) => void
+}) {
+  return (
+    <Button
+      small
+      variant={selected ? "outline-accent" : "secondary"}
+      aria-pressed={selected}
+      aria-label={`${selected ? "Remove" : "Add"} ${label} ${selected ? "from" : "to"} graph`}
+      onClick={() => onToggle(source)}
+    >
+      {selected ? "Enabled" : "Disabled"}
+    </Button>
+  )
+}
+
+function InterfaceTable({ interfaces, selectedSources, onToggle }: {
+  readonly interfaces: readonly OpnsenseInterfaceDto[]
+  readonly selectedSources: readonly OpnsenseTrafficSource[]
+  readonly onToggle: (source: OpnsenseTrafficSource) => void
+}) {
   if (interfaces.length === 0) return <p className={styles.hint}>No interfaces reported.</p>
   return (
     <HorizontalScrollArea label="Network interfaces" className={styles.scroller}>
       <table className={`${styles.table} ${styles.ifaceTable}`} aria-label="Network interfaces">
         <thead>
           <tr>
+            <th scope="col">Graph</th>
             <th scope="col">Name</th>
             <th scope="col">Description</th>
             <th scope="col">Link</th>
@@ -710,6 +801,14 @@ function InterfaceTable({ interfaces }: { readonly interfaces: readonly Opnsense
         <tbody>
           {interfaces.map((item) => (
             <tr key={item.name} className={item.enabled ? undefined : styles.rowDisabled}>
+              <td>
+                <TrafficToggle
+                  source={{ kind: "interface", name: item.name }}
+                  selected={selectedSources.some((source) => trafficSourceKey(source) === trafficSourceKey({ kind: "interface", name: item.name }))}
+                  label={item.name}
+                  onToggle={onToggle}
+                />
+              </td>
               <td className={styles.mono}>
                 {item.name}
                 {item.lagg != null ? (
@@ -788,7 +887,10 @@ function VpnServiceCard<T>({ title, service, children }: {
   )
 }
 
-function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
+function VpnTab({ device, onToggleTraffic }: {
+  readonly device: OpnsenseDeviceState | null
+  readonly onToggleTraffic: (profileId: number, source: OpnsenseTrafficSource) => void
+}) {
   const system = device?.system ?? null
   const vpn = device?.vpn ?? null
   const interfaces = system?.data?.interfaces ?? []
@@ -804,7 +906,14 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
           monitor will not use POST to fetch more.
         </p>
       ) : null}
-      {interfaces.length > 0 ? <InterfaceTable interfaces={interfaces} /> : null}
+      {interfaces.length > 0 ? (
+        <InterfaceTable
+          interfaces={interfaces}
+          selectedSources={device?.traffic.selected ?? []}
+          onToggle={(source) => device !== null && onToggleTraffic(device.profileId, source)}
+        />
+      ) : null}
+      {device !== null ? <OpnsenseTrafficGraphs history={device.traffic} /> : null}
       {sectionPlaceholder(vpn, "Connect to collect VPN status.")}
       {sectionRefreshNotice(vpn)}
       {vpnData !== null ? (
@@ -820,17 +929,26 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                         <p className={styles.hint}>No peers.</p>
                       ) : (
                         <ul className={styles.upgradeList}>
-                          {wgInterface.peers.map((peer) => (
-                            <li key={peer.name}>
-                              <span>{peer.name}</span> <WireguardPeerStatus peer={peer} />
-                              {peer.endpoint != null ? <span className={styles.hint}> — {peer.endpoint}</span> : null}
-                              {(peer.transferRxBytes != null || peer.transferTxBytes != null) ? (
-                                <span className={styles.hint}>
-                                  {" "}↓ {formatBytes(peer.transferRxBytes)} ↑ {formatBytes(peer.transferTxBytes)}
-                                </span>
-                              ) : null}
-                            </li>
-                          ))}
+                          {wgInterface.peers.map((peer) => {
+                            const source: OpnsenseTrafficSource = { kind: "wireguard", interfaceName: wgInterface.name, name: peer.name }
+                            return (
+                              <li key={peer.name}>
+                                <TrafficToggle
+                                  source={source}
+                                  selected={device?.traffic.selected.some((candidate) => trafficSourceKey(candidate) === trafficSourceKey(source)) ?? false}
+                                  label={`WireGuard ${wgInterface.name} / ${peer.name}`}
+                                  onToggle={(source) => device !== null && onToggleTraffic(device.profileId, source)}
+                                />{" "}
+                                <span>{peer.name}</span> <WireguardPeerStatus peer={peer} />
+                                {peer.endpoint != null ? <span className={styles.hint}> — {peer.endpoint}</span> : null}
+                                {(peer.transferRxBytes != null || peer.transferTxBytes != null) ? (
+                                  <span className={styles.hint}>
+                                    {" "}↓ {formatBytes(peer.transferRxBytes)} ↑ {formatBytes(peer.transferTxBytes)}
+                                  </span>
+                                ) : null}
+                              </li>
+                            )
+                          })}
                         </ul>
                       )}
                     </div>
@@ -844,19 +962,28 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
             {(sessions) => (
               sessions.length === 0 ? <p className={styles.hint}>No sessions.</p> : (
                 <ul className={styles.upgradeList}>
-                  {sessions.map((session) => (
-                    <li key={session.name}>
-                      <span className={`${styles.badge} ${session.connected ? styles.badgeOk : styles.badgeMuted}`}>
-                        {session.connected ? "connected" : "down"}
-                      </span>{" "}
-                      <span>{session.name}</span>
-                      {session.description != null ? <span className={styles.hint}> — {session.description}</span> : null}
-                      <span className={styles.hint}> ({session.kind})</span>
-                      {session.realAddress != null ? <span className={styles.hint}> · from {session.realAddress}</span> : null}
-                      {session.virtualAddress != null ? <span className={styles.hint}> · tunnel {session.virtualAddress}</span> : null}
-                      {session.connectedSince != null ? <span className={styles.hint}> · since {session.connectedSince}</span> : null}
-                    </li>
-                  ))}
+                  {sessions.map((session) => {
+                    const source: OpnsenseTrafficSource = { kind: "openvpn", name: session.name }
+                    return (
+                      <li key={session.name}>
+                        <TrafficToggle
+                          source={source}
+                          selected={device?.traffic.selected.some((candidate) => trafficSourceKey(candidate) === trafficSourceKey(source)) ?? false}
+                          label={`OpenVPN ${session.name}`}
+                          onToggle={(source) => device !== null && onToggleTraffic(device.profileId, source)}
+                        />{" "}
+                        <span className={`${styles.badge} ${session.connected ? styles.badgeOk : styles.badgeMuted}`}>
+                          {session.connected ? "connected" : "down"}
+                        </span>{" "}
+                        <span>{session.name}</span>
+                        {session.description != null ? <span className={styles.hint}> — {session.description}</span> : null}
+                        <span className={styles.hint}> ({session.kind})</span>
+                        {session.realAddress != null ? <span className={styles.hint}> · from {session.realAddress}</span> : null}
+                        {session.virtualAddress != null ? <span className={styles.hint}> · tunnel {session.virtualAddress}</span> : null}
+                        {session.connectedSince != null ? <span className={styles.hint}> · since {session.connectedSince}</span> : null}
+                      </li>
+                    )
+                  })}
                 </ul>
               )
             )}
@@ -1531,7 +1658,7 @@ export default function OpnsenseView() {
       </section>
 
       <section className={styles.tabPanel} id="opnsense-panel-vpn" role="tabpanel" aria-labelledby="opnsense-tab-vpn" hidden={activeTab !== "vpn"}>
-        <VpnTab device={selectedDevice} />
+        <VpnTab device={selectedDevice} onToggleTraffic={opnsense.toggleTrafficSource} />
       </section>
 
       <section className={styles.tabPanel} id="opnsense-panel-firmware" role="tabpanel" aria-labelledby="opnsense-tab-firmware" hidden={activeTab !== "firmware"}>

@@ -5,9 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-24
+
+### Added
+
+- **OPNsense traffic charts**: select multiple interfaces, WireGuard peers,
+  and OpenVPN sessions on the Interfaces & VPN tab to graph their live
+  receive/transmit bit rates. Histories are bounded to one hour at the
+  normal five-second refresh, remain independent per connected firewall,
+  and show unknown points rather than stale rates after failed refreshes.
+  Enabled/Disabled toggles change only local graph selection, never firewall
+  configuration.
 
 ### Changed
+
+- **OPNsense firewall rules**: interface groups now use firewall-provided
+  identifiers, display names, and interface order, including Floating rules.
+  Added one case-insensitive search across all groups and visible rule fields,
+  with matching counts and empty-state feedback.
 
 - **Docs**: refreshed the README and in-app Help for the 0.2.0 OPNsense
   release. The README now describes the OPNsense profile workflow (no-scheme
@@ -121,6 +136,7 @@ First public release.
 - In-app **Help** view, sidebar navigation with `Ctrl 1`–`Ctrl 8` shortcuts,
   and Light/Dark/OS themes.
 
+[0.3.0]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.3.0
 [0.2.0]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.2.0
 [0.1.5]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.5
 [0.1.4]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.4

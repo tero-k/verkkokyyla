@@ -261,6 +261,8 @@ pub struct OpnsenseSystemSectionDto {
 pub struct OpnsenseInterfaceDto {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub enabled: bool,
     /// Link state as reported ("up"/"down"), None when not reported.

@@ -318,10 +318,10 @@
   overflow-wrap: break-word;
 }
 
-/* The interface table has 12 columns; give it a natural width and let the
+/* The interface table has 13 columns; give it a natural width and let the
    scroller scroll horizontally instead of crushing every column. */
 .ifaceTable {
-  min-width: 1400px;
+  min-width: 1470px;
 }
 
 .table tbody tr:last-child td {
