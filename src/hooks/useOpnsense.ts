@@ -32,6 +32,14 @@ import {
   type OpnsenseVpnSectionDto,
   type UpdateOpnsenseProfileRequest,
 } from "../lib/types"
+import {
+  appendOpnsenseTrafficSnapshot,
+  createOpnsenseTrafficHistory,
+  opnsenseTrafficCounters,
+  toggleOpnsenseTrafficSource,
+  type OpnsenseTrafficHistory,
+  type OpnsenseTrafficSource,
+} from "../lib/opnsenseTraffic"
 
 export type RunOpnsenseBackupRequest = {
   readonly profileId: number
@@ -63,6 +71,7 @@ export type OpnsenseDeviceState = {
   readonly rules: OpnsenseSectionView<OpnsenseRulesSectionDto>
   readonly system: OpnsenseSectionView<OpnsenseSystemSectionDto>
   readonly vpn: OpnsenseSectionView<OpnsenseVpnSectionDto>
+  readonly traffic: OpnsenseTrafficHistory
   /** Lifecycle failure reported on the status channel. */
   readonly statusError: string
 }
@@ -73,6 +82,7 @@ type MutableDevice = {
   rules: OpnsenseSectionView<OpnsenseRulesSectionDto>
   system: OpnsenseSectionView<OpnsenseSystemSectionDto>
   vpn: OpnsenseSectionView<OpnsenseVpnSectionDto>
+  traffic: OpnsenseTrafficHistory
   statusError: string
   pending: OpnsenseSnapshotDto[]
   flushing: boolean
@@ -89,6 +99,7 @@ function emptyDevice(): MutableDevice {
     rules: emptySection(),
     system: emptySection(),
     vpn: emptySection(),
+    traffic: createOpnsenseTrafficHistory(),
     statusError: "",
     pending: [],
     flushing: false,
@@ -121,6 +132,7 @@ function deviceStateOf(profileId: number, device: MutableDevice): OpnsenseDevice
     rules: device.rules,
     system: device.system,
     vpn: device.vpn,
+    traffic: device.traffic,
     statusError: device.statusError,
   }
 }
@@ -211,6 +223,7 @@ export function useOpnsense() {
   }, [])
 
   const applySnapshot = useCallback((device: MutableDevice, snapshot: OpnsenseSnapshotDto) => {
+    device.traffic = appendOpnsenseTrafficSnapshot(device.traffic, snapshot)
     if (snapshot.rules !== undefined) device.rules = mergeSection(device.rules, snapshot.rules, snapshot.at)
     device.system = mergeSection(device.system, snapshot.system, snapshot.at)
     device.vpn = mergeSection(device.vpn, snapshot.vpn, snapshot.at)
@@ -254,6 +267,23 @@ export function useOpnsense() {
           device.attached = false
           break
       }
+      publish(profileId)
+    },
+    [publish],
+  )
+
+  const toggleTrafficSource = useCallback(
+    (profileId: number, source: OpnsenseTrafficSource) => {
+      const device = deviceRefs.current.get(profileId)
+      if (device === undefined) return
+      const freshSystem = !device.system.stale && device.system.updatedAt !== null
+        ? device.system.data
+        : null
+      const freshVpn = !device.vpn.stale && device.vpn.updatedAt !== null ? device.vpn.data : null
+      const counters = opnsenseTrafficCounters(source, freshSystem, freshVpn)
+      const updatedAt = source.kind === "interface" ? device.system.updatedAt : device.vpn.updatedAt
+      device.traffic = toggleOpnsenseTrafficSource(device.traffic, source,
+        counters === null || updatedAt === null ? null : { at: updatedAt, ...counters })
       publish(profileId)
     },
     [publish],
@@ -497,6 +527,7 @@ export function useOpnsense() {
     start,
     stop,
     reconnect,
+    toggleTrafficSource,
     refreshProfiles,
     createProfile,
     updateProfile,

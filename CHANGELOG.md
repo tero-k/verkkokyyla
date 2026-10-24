@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **OPNsense traffic charts**: select multiple interfaces, WireGuard peers,
+  and OpenVPN sessions on the Interfaces & VPN tab to graph their live
+  receive/transmit bit rates. Histories are bounded to one hour at the
+  normal five-second refresh, remain independent per connected firewall,
+  and show unknown points rather than stale rates after failed refreshes.
+
 ### Changed
 
 - **OPNsense firewall rules**: interface groups now use firewall-provided

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test"
+import type { OpnsenseSnapshotDto } from "../src/lib/types"
 import { installMockTauri } from "./mock-ipc"
 
 async function openOpnsense(page: Page): Promise<void> {
@@ -376,4 +377,133 @@ test("profile switch never displays another firewall's rules or log buffer", asy
   await tab(page, "Firewall logs")
   await expect(logs).toContainText("Edge firewall blocked ingress")
   await expect(logs).not.toContainText("Healthy firewall blocked ingress")
+})
+
+function trafficLegendItem(panel: Locator, legend: string, source: string): Locator {
+  return panel.getByLabel(legend, { exact: true }).getByText(source, { exact: true }).locator("..")
+}
+
+test("OPNsense interface and VPN traffic charts", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await openOpnsense(page)
+  await connectMonitor(page)
+  let vpn = await tab(page, "Interfaces & VPN")
+  await expect(vpn.getByText("Add an interface to graph")).toBeVisible()
+  await expect(vpn.getByText("Add a VPN peer or session to graph")).toBeVisible()
+
+  async function emitTick(profileId: number, tick: number, failed = false): Promise<void> {
+    await page.evaluate(({ profileId, tick, failed }) => {
+      const base = window.__TAURI_MOCK_OPNSENSE_SNAPSHOT__(profileId)
+      const system = base.system.data!
+      const vpn = base.vpn.data!
+      const snapshot: OpnsenseSnapshotDto = {
+        ...base,
+        at: new Date(Date.parse(base.at) + tick * 5000).toISOString(),
+        system: failed
+          ? { ok: false, error: { kind: "http", message: "Mock system refresh failed" } }
+          : { ok: true, data: { ...system, interfaces: system.interfaces.map((item, index) => ({
+            ...item,
+            rxBytes: (item.rxBytes ?? 0) + tick * 1000 * (index + 1),
+            txBytes: (item.txBytes ?? 0) + tick * 500 * (index + 1),
+          })) } },
+        vpn: { ok: true, data: {
+          ...vpn,
+          wireguard: failed
+            ? { state: "unavailable", message: "Mock WireGuard service unavailable" }
+            : { state: "ok", data: { interfaces: vpn.wireguard.data!.interfaces.map((item) => ({
+              ...item,
+              peers: item.peers.map((peer) => ({
+                ...peer,
+                transferRxBytes: (peer.transferRxBytes ?? 0) + tick * 2000,
+                transferTxBytes: (peer.transferTxBytes ?? 0) + tick * 1000,
+              })),
+            })) } },
+          openvpn: { state: "ok", data: vpn.openvpn.data!.map((session) => ({
+            ...session,
+            bytesReceived: (session.bytesReceived ?? 0) + tick * 3000,
+            bytesSent: (session.bytesSent ?? 0) + tick * 1500,
+          })) },
+        } },
+      }
+      window.__TAURI_MOCK_SEND_OPNSENSE_SNAPSHOT__(profileId, snapshot)
+    }, { profileId, tick, failed })
+  }
+
+  for (const name of [
+    "Add igb0 to graph",
+    "Add lagg0 to graph",
+    "Add WireGuard wg0 / remote office to graph",
+    "Add OpenVPN road-1 to graph",
+  ]) {
+    await vpn.getByRole("button", { name, exact: true }).click()
+    await expect(vpn.getByRole("button", { name: name.replace("Add", "Remove").replace("to graph", "from graph"), exact: true }))
+      .toHaveAttribute("aria-pressed", "true")
+  }
+  await emitTick(1, 1)
+  await emitTick(1, 2)
+
+  await expect(vpn.getByTestId("opnsense-interface-graph")).toBeVisible()
+  await expect(vpn.getByTestId("opnsense-vpn-graph")).toBeVisible()
+  await expect(vpn.getByTestId("opnsense-interface-graph").locator("canvas").first()).toBeVisible()
+  await expect(vpn.getByTestId("opnsense-vpn-graph").locator("canvas").first()).toBeVisible()
+  await expect(vpn.getByText("Waiting for another fresh sample")).toHaveCount(0)
+  const igb0 = trafficLegendItem(vpn, "Interface traffic legend", "igb0")
+  const lagg0 = trafficLegendItem(vpn, "Interface traffic legend", "lagg0")
+  const wireguard = trafficLegendItem(vpn, "VPN traffic legend", "WireGuard wg0 / remote office")
+  const openvpn = trafficLegendItem(vpn, "VPN traffic legend", "OpenVPN road-1")
+  for (const item of [igb0, lagg0, wireguard, openvpn]) {
+    await expect(item).toContainText(/RX: [1-9]/)
+    await expect(item).toContainText(/TX: [1-9]/)
+  }
+  const interfacePanel = vpn.getByRole("heading", { name: "Interface traffic", exact: true }).locator("..")
+  const vpnPanel = vpn.getByRole("heading", { name: "VPN traffic", exact: true }).locator("..")
+  await interfacePanel.screenshot({ path: test.info().outputPath("opnsense-interface-1024.png") })
+  await vpnPanel.screenshot({ path: test.info().outputPath("opnsense-vpn-1024.png") })
+  await vpn.evaluate((element) => { element.scrollTop = 0 })
+  await page.screenshot({ path: test.info().outputPath("opnsense-traffic-1024.png"), fullPage: true })
+  await page.setViewportSize({ width: 760, height: 650 })
+  await expect(vpn.getByRole("slider", { name: "Scroll Network interfaces horizontally" })).toBeVisible()
+  await interfacePanel.screenshot({ path: test.info().outputPath("opnsense-interface-760.png") })
+  await vpnPanel.screenshot({ path: test.info().outputPath("opnsense-vpn-760.png") })
+  await expect(vpn.getByTestId("opnsense-vpn-graph").locator("canvas").first()).toBeVisible()
+  await vpn.evaluate((element) => { element.scrollTop = 0 })
+  await page.screenshot({ path: test.info().outputPath("opnsense-traffic-760.png"), fullPage: true })
+  if (process.env.PWDEBUG) await page.pause()
+
+  await vpn.getByRole("button", { name: "Remove igb0 from graph", exact: true }).click()
+  await expect(vpn.getByLabel("Interface traffic legend").getByText("igb0", { exact: true })).toHaveCount(0)
+  await expect(lagg0).toBeVisible()
+
+  await page.locator("#opnsense-profile").selectOption("2")
+  await connectMonitor(page)
+  vpn = await tab(page, "Interfaces & VPN")
+  await vpn.getByRole("button", { name: "Add igb0 to graph", exact: true }).click()
+  await expect(trafficLegendItem(vpn, "Interface traffic legend", "igb0")).toBeVisible()
+  await expect(vpn.getByLabel("Interface traffic legend").getByText("lagg0", { exact: true })).toHaveCount(0)
+
+  await page.locator("#opnsense-profile").selectOption("1")
+  vpn = await tab(page, "Interfaces & VPN")
+  await expect(lagg0).toBeVisible()
+  await expect(vpn.getByLabel("Interface traffic legend").getByText("igb0", { exact: true })).toHaveCount(0)
+  await expect(wireguard).toBeVisible()
+  await page.locator("#opnsense-profile").selectOption("2")
+  vpn = await tab(page, "Interfaces & VPN")
+  await expect(trafficLegendItem(vpn, "Interface traffic legend", "igb0")).toBeVisible()
+  await expect(vpn.getByLabel("Interface traffic legend").getByText("lagg0", { exact: true })).toHaveCount(0)
+
+  await page.locator("#opnsense-profile").selectOption("1")
+  vpn = await tab(page, "Interfaces & VPN")
+  await emitTick(1, 3, true)
+  await expect(lagg0).toContainText("RX: —")
+  await expect(lagg0).toContainText("TX: —")
+  await expect(wireguard).toContainText("RX: —")
+  await expect(wireguard).toContainText("TX: —")
+  await expect(openvpn).toContainText(/RX: [1-9]/)
+  await expect(vpn).toContainText("Latest refresh failed: Mock system refresh failed")
+  await expect(vpn.getByTestId("opnsense-vpn-wireguard")).toContainText("Mock WireGuard service unavailable")
+
+  await tab(page, "Overview")
+  vpn = await tab(page, "Interfaces & VPN")
+  await expect(vpn.getByTestId("opnsense-interface-graph").locator("canvas").first()).toBeVisible()
+  await expect(vpn.getByTestId("opnsense-vpn-graph").locator("canvas").first()).toBeVisible()
 })

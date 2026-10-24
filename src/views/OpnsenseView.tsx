@@ -5,6 +5,8 @@ import { HorizontalScrollArea } from "../components/ui/HorizontalScrollArea"
 import { SshTerminalPanel, terminalAccentFor, type SshTerminalAdapter } from "../components/SshTerminalPanel"
 import { TerminalSwitchWarning } from "../components/TerminalSwitchWarning"
 import { ConfirmDialog } from "../components/ConfirmDialog"
+import { OpnsenseTrafficGraphs } from "../components/OpnsenseTrafficGraphs"
+import { trafficSourceKey, type OpnsenseTrafficSource } from "../lib/opnsenseTraffic"
 import { useOpnsense, type OpnsenseDeviceState, type OpnsenseSectionView, type RunOpnsenseBackupRequest } from "../hooks/useOpnsense"
 import { useOpnsenseLogs, type OpnsenseLogTab } from "../hooks/useOpnsenseLogs"
 import {
@@ -751,13 +753,37 @@ function LogsTab({ profileId }: { readonly profileId: number | null }) {
 // Interfaces & VPN tab
 // ---------------------------------------------------------------------------
 
-function InterfaceTable({ interfaces }: { readonly interfaces: readonly OpnsenseInterfaceDto[] }) {
+function TrafficToggle({ source, selected, label, onToggle }: {
+  readonly source: OpnsenseTrafficSource
+  readonly selected: boolean
+  readonly label: string
+  readonly onToggle: (source: OpnsenseTrafficSource) => void
+}) {
+  return (
+    <Button
+      small
+      variant={selected ? "outline-accent" : "secondary"}
+      aria-pressed={selected}
+      aria-label={`${selected ? "Remove" : "Add"} ${label} ${selected ? "from" : "to"} graph`}
+      onClick={() => onToggle(source)}
+    >
+      Graph
+    </Button>
+  )
+}
+
+function InterfaceTable({ interfaces, selectedSources, onToggle }: {
+  readonly interfaces: readonly OpnsenseInterfaceDto[]
+  readonly selectedSources: readonly OpnsenseTrafficSource[]
+  readonly onToggle: (source: OpnsenseTrafficSource) => void
+}) {
   if (interfaces.length === 0) return <p className={styles.hint}>No interfaces reported.</p>
   return (
     <HorizontalScrollArea label="Network interfaces" className={styles.scroller}>
       <table className={`${styles.table} ${styles.ifaceTable}`} aria-label="Network interfaces">
         <thead>
           <tr>
+            <th scope="col">Graph</th>
             <th scope="col">Name</th>
             <th scope="col">Description</th>
             <th scope="col">Link</th>
@@ -775,6 +801,14 @@ function InterfaceTable({ interfaces }: { readonly interfaces: readonly Opnsense
         <tbody>
           {interfaces.map((item) => (
             <tr key={item.name} className={item.enabled ? undefined : styles.rowDisabled}>
+              <td>
+                <TrafficToggle
+                  source={{ kind: "interface", name: item.name }}
+                  selected={selectedSources.some((source) => trafficSourceKey(source) === trafficSourceKey({ kind: "interface", name: item.name }))}
+                  label={item.name}
+                  onToggle={onToggle}
+                />
+              </td>
               <td className={styles.mono}>
                 {item.name}
                 {item.lagg != null ? (
@@ -853,7 +887,10 @@ function VpnServiceCard<T>({ title, service, children }: {
   )
 }
 
-function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
+function VpnTab({ device, onToggleTraffic }: {
+  readonly device: OpnsenseDeviceState | null
+  readonly onToggleTraffic: (profileId: number, source: OpnsenseTrafficSource) => void
+}) {
   const system = device?.system ?? null
   const vpn = device?.vpn ?? null
   const interfaces = system?.data?.interfaces ?? []
@@ -869,7 +906,14 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
           monitor will not use POST to fetch more.
         </p>
       ) : null}
-      {interfaces.length > 0 ? <InterfaceTable interfaces={interfaces} /> : null}
+      {interfaces.length > 0 ? (
+        <InterfaceTable
+          interfaces={interfaces}
+          selectedSources={device?.traffic.selected ?? []}
+          onToggle={(source) => device !== null && onToggleTraffic(device.profileId, source)}
+        />
+      ) : null}
+      {device !== null ? <OpnsenseTrafficGraphs history={device.traffic} /> : null}
       {sectionPlaceholder(vpn, "Connect to collect VPN status.")}
       {sectionRefreshNotice(vpn)}
       {vpnData !== null ? (
@@ -885,17 +929,26 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
                         <p className={styles.hint}>No peers.</p>
                       ) : (
                         <ul className={styles.upgradeList}>
-                          {wgInterface.peers.map((peer) => (
-                            <li key={peer.name}>
-                              <span>{peer.name}</span> <WireguardPeerStatus peer={peer} />
-                              {peer.endpoint != null ? <span className={styles.hint}> — {peer.endpoint}</span> : null}
-                              {(peer.transferRxBytes != null || peer.transferTxBytes != null) ? (
-                                <span className={styles.hint}>
-                                  {" "}↓ {formatBytes(peer.transferRxBytes)} ↑ {formatBytes(peer.transferTxBytes)}
-                                </span>
-                              ) : null}
-                            </li>
-                          ))}
+                          {wgInterface.peers.map((peer) => {
+                            const source: OpnsenseTrafficSource = { kind: "wireguard", interfaceName: wgInterface.name, name: peer.name }
+                            return (
+                              <li key={peer.name}>
+                                <TrafficToggle
+                                  source={source}
+                                  selected={device?.traffic.selected.some((candidate) => trafficSourceKey(candidate) === trafficSourceKey(source)) ?? false}
+                                  label={`WireGuard ${wgInterface.name} / ${peer.name}`}
+                                  onToggle={(source) => device !== null && onToggleTraffic(device.profileId, source)}
+                                />{" "}
+                                <span>{peer.name}</span> <WireguardPeerStatus peer={peer} />
+                                {peer.endpoint != null ? <span className={styles.hint}> — {peer.endpoint}</span> : null}
+                                {(peer.transferRxBytes != null || peer.transferTxBytes != null) ? (
+                                  <span className={styles.hint}>
+                                    {" "}↓ {formatBytes(peer.transferRxBytes)} ↑ {formatBytes(peer.transferTxBytes)}
+                                  </span>
+                                ) : null}
+                              </li>
+                            )
+                          })}
                         </ul>
                       )}
                     </div>
@@ -909,19 +962,28 @@ function VpnTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
             {(sessions) => (
               sessions.length === 0 ? <p className={styles.hint}>No sessions.</p> : (
                 <ul className={styles.upgradeList}>
-                  {sessions.map((session) => (
-                    <li key={session.name}>
-                      <span className={`${styles.badge} ${session.connected ? styles.badgeOk : styles.badgeMuted}`}>
-                        {session.connected ? "connected" : "down"}
-                      </span>{" "}
-                      <span>{session.name}</span>
-                      {session.description != null ? <span className={styles.hint}> — {session.description}</span> : null}
-                      <span className={styles.hint}> ({session.kind})</span>
-                      {session.realAddress != null ? <span className={styles.hint}> · from {session.realAddress}</span> : null}
-                      {session.virtualAddress != null ? <span className={styles.hint}> · tunnel {session.virtualAddress}</span> : null}
-                      {session.connectedSince != null ? <span className={styles.hint}> · since {session.connectedSince}</span> : null}
-                    </li>
-                  ))}
+                  {sessions.map((session) => {
+                    const source: OpnsenseTrafficSource = { kind: "openvpn", name: session.name }
+                    return (
+                      <li key={session.name}>
+                        <TrafficToggle
+                          source={source}
+                          selected={device?.traffic.selected.some((candidate) => trafficSourceKey(candidate) === trafficSourceKey(source)) ?? false}
+                          label={`OpenVPN ${session.name}`}
+                          onToggle={(source) => device !== null && onToggleTraffic(device.profileId, source)}
+                        />{" "}
+                        <span className={`${styles.badge} ${session.connected ? styles.badgeOk : styles.badgeMuted}`}>
+                          {session.connected ? "connected" : "down"}
+                        </span>{" "}
+                        <span>{session.name}</span>
+                        {session.description != null ? <span className={styles.hint}> — {session.description}</span> : null}
+                        <span className={styles.hint}> ({session.kind})</span>
+                        {session.realAddress != null ? <span className={styles.hint}> · from {session.realAddress}</span> : null}
+                        {session.virtualAddress != null ? <span className={styles.hint}> · tunnel {session.virtualAddress}</span> : null}
+                        {session.connectedSince != null ? <span className={styles.hint}> · since {session.connectedSince}</span> : null}
+                      </li>
+                    )
+                  })}
                 </ul>
               )
             )}
@@ -1596,7 +1658,7 @@ export default function OpnsenseView() {
       </section>
 
       <section className={styles.tabPanel} id="opnsense-panel-vpn" role="tabpanel" aria-labelledby="opnsense-tab-vpn" hidden={activeTab !== "vpn"}>
-        <VpnTab device={selectedDevice} />
+        <VpnTab device={selectedDevice} onToggleTraffic={opnsense.toggleTrafficSource} />
       </section>
 
       <section className={styles.tabPanel} id="opnsense-panel-firmware" role="tabpanel" aria-labelledby="opnsense-tab-firmware" hidden={activeTab !== "firmware"}>

@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import type { OpnsenseSnapshotDto } from "../src/lib/types"
 
 export type MockProbeEvent = {
   seq: number
@@ -428,7 +429,7 @@ export async function installMockTauri(page: Page): Promise<void> {
         return profile
       }
 
-      function opnsenseSnapshot(profileId: number) {
+      function opnsenseSnapshot(profileId: number): OpnsenseSnapshotDto {
         return {
           profileId,
           at: new Date().toISOString(),
@@ -445,7 +446,7 @@ export async function installMockTauri(page: Page): Promise<void> {
           system: { ok: true, data: {
             interfaces: [
               { name: "igb0", identifier: "wan", description: "WAN", enabled: true, link: "up", ipv4: ["198.51.100.1/24"], ipv6: [], macaddr: "aa:bb:cc:dd:ee:ff", mtu: 1500, media: "1000baseT <full-duplex>", rxBytes: 4096, txBytes: 2048, rxPackets: 123456, txPackets: 78910 },
-              { name: "lagg0", identifier: "opt1", description: "KOTI", enabled: true, link: "up", ipv4: ["192.0.2.1/24"], ipv6: [], lagg: { proto: "lacp", members: [{ name: "em0", state: ["attached", "active"], link: "up", media: "10Gbase-SR" }] } },
+              { name: "lagg0", identifier: "opt1", description: "KOTI", enabled: true, link: "up", ipv4: ["192.0.2.1/24"], ipv6: [], rxBytes: 16384, txBytes: 8192, lagg: { proto: "lacp", members: [{ name: "em0", state: ["attached", "active"], link: "up", media: "10Gbase-SR" }] } },
             ],
             interfacesTruncated: truncatedOpnsenseProfiles.has(profileId),
             pfStates: { current: 42, max: 10000 },
@@ -453,7 +454,7 @@ export async function installMockTauri(page: Page): Promise<void> {
           } },
           vpn: { ok: true, data: {
             wireguard: { state: "ok", data: { interfaces: [{ name: "wg0", peers: [{ name: "remote office", handshakeAgeSecs: 7200, status: "stale", endpoint: "203.0.113.2:51820", transferRxBytes: 8192, transferTxBytes: 4096 }] }] } },
-            openvpn: { state: "ok", data: [{ name: "road-1", kind: "client", connected: true, realAddress: "198.51.100.7:1194", virtualAddress: "10.8.0.2" }] },
+            openvpn: { state: "ok", data: [{ name: "road-1", kind: "client", connected: true, realAddress: "198.51.100.7:1194", virtualAddress: "10.8.0.2", bytesReceived: 6144, bytesSent: 3072 }] },
             ipsec: { state: "ok", data: [{ name: "branch tunnel", description: "Site-to-site", connected: true, remoteHost: "203.0.113.10", version: "IKEv2" }] },
             tailscale: opnsenseProfile(profileId).host === "healthy-fw.lab"
               ? { state: "ok", data: { backendState: "Running", serviceRunning: true, hostname: "healthy-fw", ownIps: ["100.101.102.103", "fd7a:115c:a1e0::3e01:6f4f"], peers: [{ name: "workstation", ips: ["100.101.102.104"], online: true }, { name: "Tero's MacBook Pro", ips: ["fd7a:115c:a1e0::392c:4b55"], online: false }] } }
@@ -2254,6 +2255,14 @@ export async function installMockTauri(page: Page): Promise<void> {
         else truncatedOpnsenseProfiles.delete(profileId)
       }
 
+      window.__TAURI_MOCK_OPNSENSE_SNAPSHOT__ = (profileId) => opnsenseSnapshot(profileId)
+
+      window.__TAURI_MOCK_SEND_OPNSENSE_SNAPSHOT__ = (profileId, snapshot) => {
+        const active = activeOpnsense.get(profileId)
+        if (active === undefined) throw new Error(`OPNsense profile ${profileId} is not active`)
+        sendChannel(active.onSnapshot, snapshot)
+      }
+
       window.__TAURI_MOCK_SET_UPDATE_CHECK_RESULT__ = (result) => {
         updateCheckResult = result
       }
@@ -2275,6 +2284,8 @@ declare global {
     __TAURI_MOCK_SET_FALLBACK__: (enabled: boolean) => void
     __TAURI_MOCK_SET_DIALOG_CONFIRM__: (enabled: boolean) => void
     __TAURI_MOCK_SET_OPNSENSE_TRUNCATED__: (profileId: number, enabled: boolean) => void
+    __TAURI_MOCK_OPNSENSE_SNAPSHOT__: (profileId: number) => OpnsenseSnapshotDto
+    __TAURI_MOCK_SEND_OPNSENSE_SNAPSHOT__: (profileId: number, snapshot: OpnsenseSnapshotDto) => void
     __TAURI_MOCK_SET_MIKROTIK_TEST_401__: (enabled: boolean) => void
     __TAURI_MOCK_SET_MIKROTIK_ROUTERBOARD__: (enabled: boolean) => void
     __TAURI_MOCK_SET_MIKROTIK_VERSION_VARIANT__: (variant: string) => void
