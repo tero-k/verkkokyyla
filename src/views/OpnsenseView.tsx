@@ -767,7 +767,7 @@ function TrafficToggle({ source, selected, label, onToggle }: {
       aria-label={`${selected ? "Remove" : "Add"} ${label} ${selected ? "from" : "to"} graph`}
       onClick={() => onToggle(source)}
     >
-      Graph
+      {selected ? "Enabled" : "Disabled"}
     </Button>
   )
 }

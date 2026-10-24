@@ -435,9 +435,12 @@ test("OPNsense interface and VPN traffic charts", async ({ page }) => {
     "Add WireGuard wg0 / remote office to graph",
     "Add OpenVPN road-1 to graph",
   ]) {
-    await vpn.getByRole("button", { name, exact: true }).click()
-    await expect(vpn.getByRole("button", { name: name.replace("Add", "Remove").replace("to graph", "from graph"), exact: true }))
-      .toHaveAttribute("aria-pressed", "true")
+    const button = vpn.getByRole("button", { name, exact: true })
+    await expect(button).toHaveText("Disabled")
+    await button.click()
+    const enabledButton = vpn.getByRole("button", { name: name.replace("Add", "Remove").replace("to graph", "from graph"), exact: true })
+    await expect(enabledButton).toHaveText("Enabled")
+    await expect(enabledButton).toHaveAttribute("aria-pressed", "true")
   }
   await emitTick(1, 1)
   await emitTick(1, 2)
