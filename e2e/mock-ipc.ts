@@ -434,17 +434,18 @@ export async function installMockTauri(page: Page): Promise<void> {
           at: new Date().toISOString(),
           rules: { ok: true, data: {
             rules: [
-              { uuid: "rule-pass", action: "pass", interface: "lan", description: `Permit ${opnsenseProfile(profileId).name}`, source: "192.0.2.0/24", destination: "any", protocol: "tcp", enabled: true, packets: 12, evaluations: 18, bytes: 960, states: 2 },
+              { uuid: "rule-pass", action: "pass", interface: "opt1", description: `Permit ${opnsenseProfile(profileId).name}`, source: "192.0.2.0/24", destination: "any", protocol: "tcp", enabled: true, packets: 12, evaluations: 18, bytes: 960, states: 2 },
               { uuid: "rule-block", action: "block", interface: "wan", description: `Block ${opnsenseProfile(profileId).name}`, source: "any", destination: "192.0.2.10", protocol: "udp", enabled: true, packets: 0, evaluations: 4, bytes: 0, states: 0 },
+              { uuid: "rule-floating", action: "pass", interface: "", description: "Floating management", source: "192.0.2.20", destination: "192.0.2.1", protocol: "tcp", enabled: true, packets: 3, evaluations: 3, bytes: 240, states: 1 },
             ],
-            total: truncatedOpnsenseProfiles.has(profileId) ? 3 : 2,
+            total: truncatedOpnsenseProfiles.has(profileId) ? 4 : 3,
             truncated: truncatedOpnsenseProfiles.has(profileId),
             countersError: null, unmappedRunning: [],
           } },
           system: { ok: true, data: {
             interfaces: [
-              { name: "igb0", description: "WAN", enabled: true, link: "up", ipv4: ["198.51.100.1/24"], ipv6: [], macaddr: "aa:bb:cc:dd:ee:ff", mtu: 1500, media: "1000baseT <full-duplex>", rxBytes: 4096, txBytes: 2048, rxPackets: 123456, txPackets: 78910 },
-              { name: "lagg0", description: "LAN", enabled: true, link: "up", ipv4: ["192.0.2.1/24"], ipv6: [], lagg: { proto: "lacp", members: [{ name: "em0", state: ["attached", "active"], link: "up", media: "10Gbase-SR" }] } },
+              { name: "igb0", identifier: "wan", description: "WAN", enabled: true, link: "up", ipv4: ["198.51.100.1/24"], ipv6: [], macaddr: "aa:bb:cc:dd:ee:ff", mtu: 1500, media: "1000baseT <full-duplex>", rxBytes: 4096, txBytes: 2048, rxPackets: 123456, txPackets: 78910 },
+              { name: "lagg0", identifier: "opt1", description: "KOTI", enabled: true, link: "up", ipv4: ["192.0.2.1/24"], ipv6: [], lagg: { proto: "lacp", members: [{ name: "em0", state: ["attached", "active"], link: "up", media: "10Gbase-SR" }] } },
             ],
             interfacesTruncated: truncatedOpnsenseProfiles.has(profileId),
             pfStates: { current: 42, max: 10000 },

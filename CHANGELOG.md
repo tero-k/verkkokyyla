@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **OPNsense firewall rules**: interface groups now use firewall-provided
+  identifiers, display names, and interface order, including Floating rules.
+  Added one case-insensitive search across all groups and visible rule fields,
+  with matching counts and empty-state feedback.
+
 - **Docs**: refreshed the README and in-app Help for the 0.2.0 OPNsense
   release. The README now describes the OPNsense profile workflow (no-scheme
   host, HTTPS/SSH ports, Test connection, device-strip switching) and the

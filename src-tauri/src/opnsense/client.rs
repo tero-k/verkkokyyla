@@ -772,6 +772,7 @@ fn parse_interface_row(row: &Value) -> OpnsenseInterfaceDto {
         });
     OpnsenseInterfaceDto {
         name,
+        identifier: str_field(row, &["identifier"]),
         description: str_field(row, &["description", "descr"]),
         enabled: field(row, &["enabled"]).and_then(opt_bool).unwrap_or(true),
         link: str_field(row, &["link", "status"]).map(|s| s.to_ascii_lowercase()),
@@ -869,6 +870,7 @@ fn parse_interface_statistics(value: &Value) -> Vec<OpnsenseInterfaceDto> {
             .entry(name)
             .or_insert_with_key(|name| OpnsenseInterfaceDto {
                 name: name.clone(),
+                identifier: None,
                 description: None,
                 enabled: true,
                 link: None,
@@ -1305,6 +1307,7 @@ mod tests {
         });
         let iface = parse_interface_row(&row);
         assert_eq!(iface.name, "igb0");
+        assert_eq!(iface.identifier.as_deref(), Some("wan"));
         assert_eq!(iface.link.as_deref(), Some("up"));
         assert_eq!(
             iface.ipv4,

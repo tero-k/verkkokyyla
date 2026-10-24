@@ -387,37 +387,67 @@ function OverviewTab({ device }: { readonly device: OpnsenseDeviceState | null }
 // Firewall rules tab
 // ---------------------------------------------------------------------------
 
-/** Rules grouped by the interface token list. Tokens normalize to lowercase
-    for the key ("WAN" and "wan" land together; "lan,opt1" stays one group);
-    the first-seen original casing becomes the label. Empty interface sorts
-    last as "Floating / all interfaces". */
+type InterfaceDisplay = {
+  readonly label: string
+  readonly order: number
+}
+
 type RuleGroup = {
   readonly key: string
   readonly label: string
+  readonly order: number
   readonly rules: readonly OpnsenseRuleDto[]
 }
 
-function groupRules(rules: readonly OpnsenseRuleDto[]): RuleGroup[] {
-  const groups = new Map<string, { label: string; rules: OpnsenseRuleDto[] }>()
+const EMPTY_INTERFACES: readonly OpnsenseInterfaceDto[] = []
+
+function interfaceDisplays(interfaces: readonly OpnsenseInterfaceDto[]): ReadonlyMap<string, InterfaceDisplay> {
+  const displays = new Map<string, InterfaceDisplay>()
+  interfaces.forEach((iface, order) => {
+    const identifier = iface.identifier?.trim()
+    if (!identifier) return
+    displays.set(identifier.toLowerCase(), {
+      label: iface.description?.trim() || iface.name.trim() || identifier,
+      order,
+    })
+  })
+  return displays
+}
+
+function ruleInterfaceLabel(interfaceList: string, displays: ReadonlyMap<string, InterfaceDisplay>): string {
+  const trimmed = interfaceList.trim()
+  if (trimmed === "") return "Floating / all interfaces"
+  return trimmed.split(",").map((token) => {
+    const normalized = token.trim()
+    return displays.get(normalized.toLowerCase())?.label ?? normalized
+  }).join(", ")
+}
+
+/** Rules remain grouped by their complete interface list. Known interfaces
+    follow firewall order; unknown tokens and Floating rules sort last. */
+function groupRules(rules: readonly OpnsenseRuleDto[], displays: ReadonlyMap<string, InterfaceDisplay>): RuleGroup[] {
+  const groups = new Map<string, { label: string; order: number; rules: OpnsenseRuleDto[] }>()
   for (const rule of rules) {
     const trimmed = rule.interface.trim()
-    const key =
-      trimmed === ""
-        ? ""
-        : trimmed.split(",").map((token) => token.trim().toLowerCase()).join(",")
+    const tokens = trimmed === "" ? [] : trimmed.split(",").map((token) => token.trim().toLowerCase())
+    const key = tokens.join(",")
     let group = groups.get(key)
     if (group === undefined) {
-      group = { label: trimmed === "" ? "Floating / all interfaces" : trimmed, rules: [] }
+      const order = tokens.reduce(
+        (minimum, token) => Math.min(minimum, displays.get(token)?.order ?? Number.MAX_SAFE_INTEGER),
+        Number.MAX_SAFE_INTEGER,
+      )
+      group = { label: ruleInterfaceLabel(trimmed, displays), order, rules: [] }
       groups.set(key, group)
     }
     group.rules.push(rule)
   }
   return [...groups.entries()]
-    .map(([key, group]) => ({ key, label: group.label, rules: group.rules }))
+    .map(([key, group]) => ({ key, ...group }))
     .sort((a, b) => {
       if (a.key === "") return 1
       if (b.key === "") return -1
-      return a.label.localeCompare(b.label)
+      return a.order - b.order || a.label.localeCompare(b.label)
     })
 }
 
@@ -443,7 +473,7 @@ function RuleGroupTable({ group }: { readonly group: RuleGroup }) {
           {group.rules.map((rule) => (
             <tr key={rule.uuid} className={rule.enabled ? undefined : styles.rowDisabled} data-testid="opnsense-rule-row">
               <td><span className={`${styles.badge} ${actionBadgeClass(rule.action)}`}>{rule.action}</span></td>
-              <td>{rule.interface}</td>
+              <td>{group.label}</td>
               <td>{rule.description || "—"}</td>
               <td className={styles.mono}>{rule.source}</td>
               <td className={styles.mono}>{rule.destination}</td>
@@ -464,7 +494,24 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
   const view = device?.rules ?? null
   const placeholder = sectionPlaceholder(view, "Connect to collect firewall rules.")
   const data = view?.data ?? null
-  const groups = useMemo(() => (data !== null ? groupRules(data.rules) : []), [data])
+  const interfaces = device?.system?.data?.interfaces ?? EMPTY_INTERFACES
+  const displays = useMemo(() => interfaceDisplays(interfaces), [interfaces])
+  const [query, setQuery] = useState("")
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredRules = useMemo(() => {
+    if (data === null) return []
+    if (normalizedQuery === "") return data.rules
+    return data.rules.filter((rule) => [
+      rule.action,
+      rule.interface,
+      ruleInterfaceLabel(rule.interface, displays),
+      rule.description,
+      rule.source,
+      rule.destination,
+      rule.protocol,
+    ].some((value) => value.toLowerCase().includes(normalizedQuery)))
+  }, [data, displays, normalizedQuery])
+  const groups = useMemo(() => groupRules(filteredRules, displays), [displays, filteredRules])
   const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string>>(new Set())
 
   const toggleGroup = useCallback((key: string) => {
@@ -493,16 +540,26 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
               Hit counters unavailable: {data.countersError.message} — rule definitions are shown without counters.
             </p>
           ) : null}
-          {groups.length > 0 ? (
-            <div className={styles.toolbarRow}>
-              <Button variant="secondary" onClick={() => setCollapsedKeys(new Set(groups.map((group) => group.key)))}>
-                Collapse all
-              </Button>
-              <Button variant="secondary" onClick={() => setCollapsedKeys(new Set())}>
-                Expand all
-              </Button>
-            </div>
-          ) : null}
+          <div className={styles.toolbarRow}>
+            {groups.length > 0 ? (
+              <>
+                <Button variant="secondary" onClick={() => setCollapsedKeys(new Set(groups.map((group) => group.key)))}>
+                  Collapse all
+                </Button>
+                <Button variant="secondary" onClick={() => setCollapsedKeys(new Set())}>
+                  Expand all
+                </Button>
+              </>
+            ) : null}
+            <input
+              type="search"
+              className={styles.search}
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Search all rules"
+              aria-label="Filter firewall rules"
+            />
+          </div>
           {groups.map((group) => {
             const collapsed = collapsedKeys.has(group.key)
             let hitsSum: number | null = null
@@ -531,6 +588,14 @@ function RulesTab({ device }: { readonly device: OpnsenseDeviceState | null }) {
               </section>
             )
           })}
+          {data.rules.length > 0 && filteredRules.length === 0 ? (
+            <p className={styles.empty}>No rules match the current search.</p>
+          ) : null}
+          {normalizedQuery !== "" && filteredRules.length > 0 ? (
+            <p className={styles.hint}>
+              {filteredRules.length} of {data.rules.length} loaded rules match the search.
+            </p>
+          ) : null}
           {data.rules.length === 0 ? <p className={styles.empty}>No rules reported.</p> : null}
           <p className={styles.hint}>
             {data.rules.length === data.total

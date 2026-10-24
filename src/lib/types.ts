@@ -1270,6 +1270,7 @@ export type OpnsenseRulesSectionDto = {
 
 export type OpnsenseInterfaceDto = {
   readonly name: string
+  readonly identifier?: string | null
   readonly description?: string | null
   readonly enabled: boolean
   /** Link state as reported ("up"/"down"), null when not reported. */

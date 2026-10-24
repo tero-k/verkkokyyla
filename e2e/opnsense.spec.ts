@@ -19,7 +19,7 @@ async function connectMonitor(page: Page): Promise<void> {
   await page.getByTestId("opnsense-view").getByRole("button", { name: "Connect", exact: true }).first().click()
   await expect(page.getByTestId("opnsense-device-strip")).toBeVisible()
   await tab(page, "Firewall rules")
-  await expect(page.getByTestId("opnsense-rule-row")).toHaveCount(2)
+  await expect(page.getByTestId("opnsense-rule-row")).toHaveCount(3)
 }
 
 test("OPNsense sections follow the operational order", async ({ page }) => {
@@ -51,18 +51,56 @@ test("Devices profile creation, API connection and packet hit counters", async (
   await page.locator("#opnsense-profile").selectOption("3")
   await connectMonitor(page)
   const rows = page.getByTestId("opnsense-rule-row")
-  await expect(page.getByRole("table", { name: "Firewall rules — lan" }).getByRole("columnheader", { name: "Hits (packets)" })).toBeVisible()
+  await expect(page.getByRole("table", { name: "Firewall rules — KOTI" }).getByRole("columnheader", { name: "Hits (packets)" })).toBeVisible()
   await expect(rows.filter({ hasText: "Permit Branch firewall" }).locator("td").nth(6)).toHaveText("12")
   await expect(rows.filter({ hasText: "Block Branch firewall" }).locator("td").nth(6)).toHaveText("0")
   await expect(page.getByTestId("opnsense-rules")).toContainText("older versions may omit legacy rules")
   const groups = page.getByTestId("opnsense-rule-group")
-  await expect(groups).toHaveCount(2)
-  await expect(groups.first()).toContainText("lan")
+  await expect(groups).toHaveCount(3)
+  await expect(groups.first()).toContainText("WAN")
   await groups.first().click()
   await expect(groups.first()).toHaveAttribute("aria-expanded", "false")
-  await expect(rows).toHaveCount(1)
-  await groups.first().click()
   await expect(rows).toHaveCount(2)
+  await groups.first().click()
+  await expect(rows).toHaveCount(3)
+})
+
+test("firewall rules use dynamic interface groups and one global search", async ({ page }) => {
+  await openOpnsense(page)
+  await connectMonitor(page)
+  const rules = page.getByTestId("opnsense-rules")
+  const search = rules.getByRole("searchbox", { name: "Filter firewall rules" })
+
+  await expect(rules.getByTestId("opnsense-rule-group")).toHaveText([/WAN/, /KOTI/, /Floating \/ all interfaces/])
+
+  await search.fill("Permit Edge firewall")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(1)
+  await expect(rules.getByTestId("opnsense-rule-group")).toHaveCount(1)
+  await expect(rules.getByTestId("opnsense-rule-group")).toContainText("KOTI")
+  await expect(rules).toContainText("1 of 3 loaded rules match the search")
+
+  await search.fill("192.0.2.10")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(1)
+  await expect(rules.getByTestId("opnsense-rule-group")).toHaveCount(1)
+  await expect(rules.getByTestId("opnsense-rule-group")).toContainText("WAN")
+
+  await search.fill("KOTI")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(1)
+  await expect(rules.getByTestId("opnsense-rule-group")).toContainText("KOTI")
+
+  await search.fill("Floating management")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(1)
+  await expect(rules.getByTestId("opnsense-rule-group")).toContainText("Floating / all interfaces")
+
+  await search.fill("not-present")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(0)
+  await expect(rules.getByTestId("opnsense-rule-group")).toHaveCount(0)
+  await expect(rules).toContainText("No rules match the current search")
+  await expect(search).toBeVisible()
+
+  await search.fill("")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(3)
+  await expect(rules.getByTestId("opnsense-rule-group")).toHaveCount(3)
 })
 
 test("read-only GET pagination limits are visible instead of duplicating rule or interface rows", async ({ page }) => {
@@ -70,8 +108,8 @@ test("read-only GET pagination limits are visible instead of duplicating rule or
   await page.evaluate(() => window.__TAURI_MOCK_SET_OPNSENSE_TRUNCATED__(1, true))
   await connectMonitor(page)
   const rules = page.getByTestId("opnsense-rules")
-  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(2)
-  await expect(rules.getByRole("alert")).toContainText("showing 2 of 3")
+  await expect(rules.getByTestId("opnsense-rule-row")).toHaveCount(3)
+  await expect(rules.getByRole("alert")).toContainText("showing 3 of 4")
   await expect(rules.getByRole("alert")).toContainText("read-only key cannot use POST")
   const vpn = await tab(page, "Interfaces & VPN")
   await expect(vpn.getByRole("alert")).toContainText("Interface list incomplete")
@@ -159,7 +197,7 @@ test("wide OPNsense tables expose a usable horizontal control on narrow windows"
   }
 
   let panel = await tab(page, "Firewall rules")
-  await scrollToLastColumn(panel, "Firewall rules — lan", "Firewall rules — lan", "States")
+  await scrollToLastColumn(panel, "Firewall rules — KOTI", "Firewall rules — KOTI", "States")
 
   panel = await tab(page, "Firewall logs")
   await panel.getByRole("button", { name: "Connect", exact: true }).click()
