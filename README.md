@@ -40,6 +40,7 @@ its own. It can be turned off under Help → Updates.
 | ![OPNsense firewall rules grouped by interface with hit counters](docs/screenshots/opnsense-rules-dark.png) | ![OPNsense cached firmware status showing an available update (light theme)](docs/screenshots/opnsense-firmware-light.png) |
 | ![MikroTik monitoring](docs/screenshots/mikrotik-monitoring-dark.png) | ![MikroTik live logs](docs/screenshots/mikrotik-logs-dark.png) |
 | ![DNS lookup](docs/screenshots/dns-lookup-dark.png) | ![DNS diagnostics (light theme)](docs/screenshots/dns-diagnostics-light.png) |
+| ![OPNsense multi-interface RX/TX traffic chart](docs/screenshots/opnsense-interface-traffic-light.png) | ![OPNsense WireGuard and OpenVPN RX/TX traffic chart](docs/screenshots/opnsense-vpn-traffic-light.png) |
 
 ## Tools
 
