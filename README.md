@@ -66,8 +66,9 @@ its own. It can be turned off under Help → Updates.
   down where resolution breaks; **Email** checks SPF, DMARC, and DKIM (with
   custom selectors); **History** reopens saved runs.
 - **MikroTik**: see below.
-- **OPNsense**: read-only rule counters, firewall logs, interfaces/VPN,
-  firmware and cached plugin updates, saved-revision backups, SSH terminal.
+- **OPNsense**: read-only rule counters and search, firewall logs,
+  interfaces/VPN with live traffic charts, firmware and cached plugin
+  updates, saved-revision backups, SSH terminal.
 
 Navigation: sidebar groups (Measure / Discover / Devices / Guide) with
 `Ctrl 1`–`Ctrl 9` shortcuts; Light/Dark/OS theme switcher at the bottom.
@@ -117,12 +118,22 @@ known-hosts entry.
 - **Monitoring**: pick a profile and press **Connect** — each connected
   firewall appears as a chip in the device strip and can be disconnected
   independently. **Overview** shows system resources and PF state-table
-  usage; **Firewall rules** groups hit counters by interface; **Interfaces &
-  VPN** covers link aggregation (LAGG) plus WireGuard, OpenVPN, and IPsec
-  tunnels and the Tailscale plugin when installed. If a section refresh
-  fails, the last good data is kept and marked stale rather than zeroed, and
-  lists are marked incomplete when OPNsense ignores GET pagination instead of
-  silently implying complete results.
+  usage. If a section refresh fails, the last good data is kept and marked
+  stale rather than zeroed, and lists are marked incomplete when OPNsense
+  ignores GET pagination instead of silently implying complete results.
+- **Firewall rules**: hit counters use the firewall's interface identifiers,
+  display names, and order, including **Floating / all interfaces**.
+  **Search all rules** case-insensitively filters every group and visible
+  rule field, with matching counts and explicit empty-result feedback.
+- **Interfaces, VPN & traffic**: link aggregation (LAGG) plus WireGuard,
+  OpenVPN, and IPsec tunnels and the Tailscale plugin when installed. Graph
+  toggles on interfaces, WireGuard peers, and OpenVPN sessions add multiple
+  RX/TX bit/s traces to the **Interface traffic** and **VPN traffic** panels.
+  **Disabled/Enabled** describes local graph selection only; it never changes
+  firewall configuration. Each connected firewall has an independent in-memory
+  history of up to 720 samples (about one hour at the normal five-second
+  refresh), cleared by disconnect/reconnect. Legends show `—` rather than a
+  stale rate when fresh counters are unavailable.
 - **Firewall logs**: a live log stream with its own connect/disconnect,
   filterable by All/Allowed/Blocked and free text. Only traffic matched by
   rules with logging enabled appears.

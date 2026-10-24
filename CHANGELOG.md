@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receive/transmit bit rates. Histories are bounded to one hour at the
   normal five-second refresh, remain independent per connected firewall,
   and show unknown points rather than stale rates after failed refreshes.
+  Enabled/Disabled toggles change only local graph selection, never firewall
+  configuration.
 
 ### Changed
 

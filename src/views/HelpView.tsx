@@ -230,18 +230,38 @@ export default function HelpView({
             Select a profile and press Connect to start a live monitor; connected firewalls show
             as chips in the device strip, and switching the profile or chip switches the active
             firewall. <strong>Overview</strong> reports system resources and PF state-table
-            usage, <strong>Firewall rules</strong> groups hit counters by interface, and{" "}
+            usage. <strong>Firewall rules</strong> groups hit counters using the firewall&apos;s
+            interface identifiers, display names, and order, including{" "}
+            <strong>Floating / all interfaces</strong>. <strong>Search all rules</strong>{" "}
+            case-insensitively filters every group and visible rule field, reports how many
+            loaded rules match, and keeps an explicit empty result message.{" "}
             <strong>Interfaces &amp; VPN</strong> covers link aggregation plus WireGuard,
             OpenVPN, IPsec, and the Tailscale plugin when installed. Each section reports
             success or failure independently — a failed section keeps its
             last good data with a stale timestamp instead of showing zeros. When OPNsense
             ignores GET pagination the affected list is marked incomplete rather than silently
             implying complete results; this read-only monitor will not use POST to fetch more.
-            Rule counters are
-            reported by OPNsense and reset on reload; older versions may omit legacy rules. The
-            Firewall logs tab has its own Connect/Disconnect and streams pass/block decisions
-            live, with All/Allowed/Blocked action filters and a text search over the visible
-            fields — but only traffic matched by rules with logging enabled appears.
+            Rule counters are reported by OPNsense and reset on reload; older versions may omit
+            legacy rules. The Firewall logs tab has its own Connect/Disconnect and streams
+            pass/block decisions live, with All/Allowed/Blocked action filters and a text search
+            over the visible fields — but only traffic matched by rules with logging enabled appears.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>OPNsense: interface &amp; VPN traffic</h2>
+          <p>
+            On <strong>Interfaces &amp; VPN</strong>, use the <strong>Graph</strong> toggle on any
+            reported interface, WireGuard peer, or OpenVPN session. <strong>Disabled</strong> and{" "}
+            <strong>Enabled</strong> describe whether that source is included in its local chart;
+            the button never changes the firewall&apos;s interface or VPN configuration. Select
+            multiple sources to compare receive/transmit rates in the <strong>Interface traffic</strong>{" "}
+            and <strong>VPN traffic</strong> panels: RX is solid, TX is dashed, and each legend
+            shows the latest bit/s. Histories are independent per connected firewall, held only
+            in memory for up to 720 samples (about one hour at the normal five-second refresh),
+            and cleared by disconnect/reconnect. A new trace waits for two fresh counter samples;
+            unavailable counters and failed refreshes show <strong>—</strong> instead of plotting
+            a stale rate.
           </p>
         </section>
 
