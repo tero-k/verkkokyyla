@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Windows release binaries are now built and Certum-signed locally. GitHub
+  Actions creates draft releases with only macOS/Linux artifacts; the local
+  Windows release script adds signed assets before publication.
+
 ### Security
 
 - Updated Rust network/TLS dependencies and frontend build/test tooling to

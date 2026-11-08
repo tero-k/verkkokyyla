@@ -58,6 +58,25 @@ the network engines, but they are not required for a PR.
 - Update the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) for
   user-facing changes.
 
+## Releases (maintainers)
+
+1. Update all three version fields and move the changelog's `Unreleased`
+   entries into the new version section.
+2. Tag `v<x.y.z>` on a clean `main` and push the tag. GitHub Actions builds
+   macOS/Linux artifacts and creates a draft release. Windows release builds
+   are deliberately local-only; Windows CI tests still run normally.
+3. On the Windows release machine, install the Certum certificate, authenticate
+   `gh`, and wait for the draft's macOS/Linux assets. Then run:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1 -Tag v<x.y.z>
+   ```
+
+   The script builds and signs Windows locally, verifies the main executable
+   and both installers, uploads NSIS/MSI and the standalone signed-exe ZIP,
+   and publishes the draft. Signing settings live in
+   `src-tauri/tauri.windows.release.conf.json`.
+
 ## Reporting bugs
 
 Open an issue with the bug report template: what you did, what you expected,

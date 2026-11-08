@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows-latest, macos-latest, ubuntu-22.04]
+        platform: [macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -131,27 +131,10 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Verkkokyylä v__VERSION__"
           releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
       - name: Remove macOS signing keychain
         if: ${{ always() && runner.os == 'macOS' }}
         run: |
           security delete-keychain "$RUNNER_TEMP/tauri-signing.keychain" || true
           rm -f /tmp/cert-modern.p12 /tmp/cert-legacy.p12 /tmp/cert.pem
-      # Tauri has no "portable exe" bundle target; the raw binary is
-      # self-contained apart from the WebView2 runtime (preinstalled on
-      # up-to-date Windows 10/11). Zip it and attach it to the release.
-      - name: Package standalone Windows exe
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          Compress-Archive -Path "src-tauri/target/release/verkkokyyla.exe" -DestinationPath "verkkokyyla_${version}_x64-standalone.zip"
-      - name: Attach standalone exe to the release
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          gh release upload "${{ github.ref_name }}" "verkkokyyla_${version}_x64-standalone.zip" --clobber
