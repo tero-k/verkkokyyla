@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-11-08
+
+### Changed
+
+- Windows release binaries are now built and Certum-signed locally. GitHub
+  Actions creates draft releases with only macOS/Linux artifacts; the local
+  Windows release script adds signed assets before publication.
 
 ### Security
 
@@ -143,6 +149,7 @@ First public release.
 - In-app **Help** view, sidebar navigation with `Ctrl 1`–`Ctrl 8` shortcuts,
   and Light/Dark/OS themes.
 
+[0.3.1]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.3.1
 [0.3.0]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.3.0
 [0.2.0]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.2.0
 [0.1.5]: https://github.com/tero-k/verkkokyyla/releases/tag/v0.1.5

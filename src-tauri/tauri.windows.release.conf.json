@@ -1,0 +1,22 @@
+{
+  "bundle": {
+    "windows": {
+      "signCommand": {
+        "cmd": "C:\\Tools\\SignTool\\Microsoft.Windows.SDK.BuildTools\\bin\\10.0.28000.0\\x64\\signtool.exe",
+        "args": [
+          "sign",
+          "/sha1",
+          "9daba9f4910b0e59918895fab80bbad3d758b12e",
+          "/tr",
+          "http://time.certum.pl",
+          "/td",
+          "sha256",
+          "/fd",
+          "sha256",
+          "/v",
+          "%1"
+        ]
+      }
+    }
+  }
+}
