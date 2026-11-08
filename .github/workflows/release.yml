@@ -34,7 +34,7 @@ jobs:
       # macOS Security's PKCS#12 import rejects modern PBES2/AES-256 p12
       # files ("MAC verification failed") while OpenSSL reads them fine.
       # Re-encode to the classic Triple-DES/SHA-1 format `security import`
-      # accepts, and override APPLE_CERTIFICATE for the tauri-action step.
+      # accepts, and export it for the Tauri bundler.
       - name: Re-encode certificate for macOS security import
         if: runner.os == 'macOS'
         env:
@@ -79,6 +79,25 @@ jobs:
             security find-identity -v -p codesigning "/tmp/diag-$variant.keychain" || true
             security delete-keychain "/tmp/diag-$variant.keychain" || true
           done
+      # tauri-action v1 no longer imports APPLE_CERTIFICATE. Create an
+      # ephemeral keychain and authorize codesign without prompting.
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain_path="$RUNNER_TEMP/tauri-signing.keychain"
+          keychain_password="$(openssl rand -hex 32)"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import /tmp/cert-legacy.p12 -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$keychain_password" "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path" | grep -Eq '[1-9][0-9]* valid identities found'
       # Pull this version's section out of CHANGELOG.md for the release body.
       - name: Extract release notes from CHANGELOG
         id: notes
@@ -99,18 +118,12 @@ jobs:
             cat notes.md
             echo "__NOTES_EOF__"
           } >> "$GITHUB_OUTPUT"
-      # Pinned to v0: v1 removed the built-in macOS certificate import, so the
-      # bundler could not resolve a signing identity and the macOS build
-      # failed. Revisit v1 only with a workflow-managed keychain import.
-      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # action-v0.6.2
+      # Uses the workflow-managed macOS keychain created above.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing + notarization. tauri-action's contract uses APPLE_*
-          # names; the repo stores the certificate under MACOS_* names.
-          # APPLE_CERTIFICATE/_PASSWORD deliberately NOT set here: step env
-          # would override the re-encoded legacy p12 the re-encode step put in
-          # GITHUB_ENV, and macOS rejects the modern p12 ("MAC verification
-          # failed"). With no step env, the legacy override flows through.
+          # macOS notarization credentials; the signing certificate is
+          # already available in the temporary signing keychain.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -120,6 +133,11 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
+      - name: Remove macOS signing keychain
+        if: ${{ always() && runner.os == 'macOS' }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/tauri-signing.keychain" || true
+          rm -f /tmp/cert-modern.p12 /tmp/cert-legacy.p12 /tmp/cert.pem
       # Tauri has no "portable exe" bundle target; the raw binary is
       # self-contained apart from the WebView2 runtime (preinstalled on
       # up-to-date Windows 10/11). Zip it and attach it to the release.
