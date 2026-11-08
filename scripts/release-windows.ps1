@@ -99,7 +99,7 @@ try {
     }
 
     # The standalone ZIP contains the same signed main executable verified above.
-    $standaloneZip = Join-Path $repoRoot "${productName}_${version}_x64-standalone.zip"
+    $standaloneZip = Join-Path $releaseDir "${productName}_${version}_x64-standalone.zip"
     Compress-Archive -LiteralPath $mainBinary -DestinationPath $standaloneZip -Force
 
     $assets = @($nsisInstaller, $msiInstaller, $standaloneZip)
