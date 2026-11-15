@@ -66,33 +66,6 @@ async fn open_pool(path: &Path) -> Result<SqlitePool, DbError> {
     Ok(SqlitePool::connect_with(options).await?)
 }
 
-/// Migration failures that mean the file can never match this binary's
-/// schema — as opposed to transient errors (locked DB, I/O) where wiping the
-/// user's history would be wrong.
-fn is_unrecoverable_drift(err: &sqlx::migrate::MigrateError) -> bool {
-    use sqlx::migrate::MigrateError;
-    matches!(
-        err,
-        MigrateError::VersionMismatch(_)
-            | MigrateError::VersionNotPresent(_)
-            | MigrateError::VersionTooOld(..)
-            | MigrateError::VersionTooNew(..)
-    )
-}
-
-/// `verkkokyyla.db` → `verkkokyyla.db.bak-<unix secs>` next to the original.
-fn backup_db_path(path: &Path) -> PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "db".to_owned());
-    path.with_file_name(format!("{name}.bak-{stamp}"))
-}
-
 /// Row shape for inserting / reading probes (persistence shape; the session
 /// layer maps `ProbeOutcome` onto this).
 #[derive(Debug, Clone, PartialEq)]
@@ -508,11 +481,10 @@ impl Database {
     /// directories as needed, and runs embedded migrations. Opening an
     /// already-migrated database is a no-op.
     ///
-    /// If the file was written by a build whose embedded migrations no longer
-    /// match (a migration edited after being applied, a downgrade, or
-    /// line-ending drift changing checksums), the schema can never converge.
-    /// Rather than crash at startup, the file is moved to a timestamped
-    /// backup and a fresh database is created.
+    /// If an applied migration's checksum differs from this build (for
+    /// example because release builds used different line endings), repairs
+    /// only the migration metadata and retries. The database itself is never
+    /// moved aside or recreated, so profiles and history survive upgrades.
     pub async fn connect(path: &Path) -> Result<Self, DbError> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -520,23 +492,23 @@ impl Database {
             }
         }
         let pool = open_pool(path).await?;
-        match sqlx::migrate!("./migrations").run(&pool).await {
-            Ok(()) => Ok(Self { pool }),
-            Err(err) if is_unrecoverable_drift(&err) => {
-                // Windows refuses to rename an open SQLite file.
-                pool.close().await;
-                let backup = backup_db_path(path);
-                std::fs::rename(path, &backup)?;
-                for suffix in ["-wal", "-shm"] {
-                    let mut sidecar = path.as_os_str().to_owned();
-                    sidecar.push(suffix);
-                    let _ = std::fs::remove_file(sidecar);
+        let migrator = sqlx::migrate!("./migrations");
+        loop {
+            match migrator.run(&pool).await {
+                Ok(()) => return Ok(Self { pool }),
+                Err(err @ sqlx::migrate::MigrateError::VersionMismatch(version)) => {
+                    let migration = migrator
+                        .iter()
+                        .find(|migration| migration.version == version)
+                        .ok_or(DbError::Migrate(err))?;
+                    sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = ?")
+                        .bind(migration.checksum.as_ref())
+                        .bind(version)
+                        .execute(&pool)
+                        .await?;
                 }
-                let pool = open_pool(path).await?;
-                sqlx::migrate!("./migrations").run(&pool).await?;
-                Ok(Self { pool })
+                Err(err) => return Err(DbError::Migrate(err)),
             }
-            Err(err) => Err(DbError::Migrate(err)),
         }
     }
 
@@ -2132,39 +2104,52 @@ mod tests {
         row.try_get("n").expect("read count")
     }
 
-    // Given a database whose recorded migration checksum no longer matches
-    // the embedded migration (e.g. written by a build with different line
-    // endings), When connecting, Then the file is moved to a backup and a
-    // fresh, working database takes its place instead of an error.
+    // Given device profiles in a database whose recorded migration checksum
+    // differs from the embedded migration, When connecting, Then the original
+    // rows remain intact instead of being replaced by an empty database.
     #[tokio::test]
-    async fn connect_recovers_from_migration_checksum_drift() {
-        let dir = TestDir::new("drift-recovery");
+    async fn connect_preserves_device_profiles_across_migration_checksum_drift() {
+        let dir = TestDir::new("drift-preserves-profiles");
         let path = dir.db_file();
 
         let db = Database::connect(&path).await.expect("initial connect");
-        sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = 1")
-            .bind(vec![0u8; 32])
+        let mikrotik = db
+            .create_mikrotik_profile(&sample_mikrotik_profile("router"))
+            .await
+            .expect("create MikroTik profile");
+        let opnsense = db
+            .create_opnsense_profile(&NewOpnsenseProfile {
+                name: "firewall".to_owned(),
+                host: "firewall.lan".to_owned(),
+                port: 443,
+                allow_invalid_certs: false,
+                ssh_port: 22,
+                created_at: now_rfc3339(),
+            })
+            .await
+            .expect("create OPNsense profile");
+        sqlx::query("UPDATE _sqlx_migrations SET checksum = ?")
+            .bind(vec![0u8; 48])
             .execute(&db.pool)
             .await
             .expect("tamper checksum");
         db.pool.close().await;
 
         let recovered = Database::connect(&path).await.expect("recovered connect");
-        assert!(recovered.list_sessions().await.expect("list").is_empty());
-        recovered.pool.close().await;
-
-        // The original file was moved aside, not deleted.
-        let backups: Vec<_> = std::fs::read_dir(path.parent().expect("parent"))
-            .expect("read dir")
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with("test.db.bak-")
-            })
-            .collect();
-        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            recovered
+                .load_mikrotik_profile(mikrotik.id)
+                .await
+                .expect("load MikroTik profile"),
+            Some(mikrotik)
+        );
+        assert_eq!(
+            recovered
+                .load_opnsense_profile(opnsense.id)
+                .await
+                .expect("load OPNsense profile"),
+            Some(opnsense)
+        );
     }
 
     #[tokio::test]
