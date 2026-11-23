@@ -37,7 +37,7 @@ russh = { version = "0.63", default-features = false, features = ["ring", "rsa",
 russh-sftp = "2.4"
 surge-ping = "0.9"
 socket2 = "0.6"
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
+sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "migrate"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "query", "stream", "gzip", "brotli", "deflate", "http2"] }
 futures-util = "0.3"
 tokio-util = "0.7"
