@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use rand::distributions::{Distribution, Uniform};
+use rand::distr::{Distribution, Uniform};
 use serde::{Deserialize, Serialize};
 
 use crate::dns::client::ResolverEndpointDto;
@@ -60,8 +60,8 @@ pub struct NameExistenceDto {
 
 /// Build a lowercase DNS-safe random label of the requested length.
 fn random_label(len: usize) -> String {
-    let mut rng = rand::thread_rng();
-    let dist = Uniform::new_inclusive(b'a', b'z');
+    let mut rng = rand::rng();
+    let dist = Uniform::new_inclusive(b'a', b'z').expect("lowercase ASCII range is non-empty");
     dist.sample_iter(&mut rng)
         .take(len)
         .map(|b| b as char)

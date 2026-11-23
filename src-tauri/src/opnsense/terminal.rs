@@ -25,7 +25,7 @@ use std::sync::Arc;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use parking_lot::Mutex as SyncMutex;
-use rand::RngCore;
+use rand::Rng;
 use russh::client::Msg as ClientMsg;
 use russh::keys::{HashAlg, PublicKeyOrCertificate};
 use russh::{ChannelMsg, ChannelWriteHalf};
@@ -175,7 +175,7 @@ fn accepted_fingerprint(outcome: &Arc<SyncMutex<Option<HostKeyOutcome>>>) -> Opt
 /// cleanup can never remove a slot opened after an earlier close.
 fn new_terminal_id() -> String {
     let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let mut id = String::with_capacity(32);
     for byte in bytes {
         id.push_str(&format!("{byte:02x}"));

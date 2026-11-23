@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rand::RngCore;
+use rand::Rng;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
 use thiserror::Error;
@@ -1831,7 +1831,7 @@ fn mikrotik_snapshot_from_row(
 
 fn new_mikrotik_secret_key() -> String {
     let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let mut key = String::with_capacity(32);
     for byte in bytes {
         key.push_str(&format!("{byte:02x}"));
@@ -1843,7 +1843,7 @@ fn new_mikrotik_secret_key() -> String {
 /// collide with a MikroTik entry or be mistaken for one.
 fn new_opnsense_secret_key() -> String {
     let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let mut key = String::with_capacity(32 + "opnsense::api".len());
     key.push_str("opnsense:");
     for byte in bytes {

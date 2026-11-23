@@ -1,6 +1,7 @@
-use rand::distributions::{Distribution, WeightedIndex};
+use rand::distr::weighted::WeightedIndex;
+use rand::distr::Distribution;
 use rand::rngs::StdRng;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 const TOP1000_TXT: &str = include_str!("top1000.txt");
@@ -25,7 +26,7 @@ impl QueryMix {
             Self::PopularWeighted => popular_name(popular_rng),
             Self::UniqueLabels { base } => unique_name(base, unique_rng),
             Self::Mixed { ratio } => {
-                if popular_rng.gen::<f64>() < *ratio {
+                if popular_rng.random::<f64>() < *ratio {
                     popular_name(popular_rng)
                 } else {
                     unique_name("mock.test", unique_rng)
@@ -56,7 +57,8 @@ fn popular_name(rng: &mut StdRng) -> String {
 }
 
 fn unique_name(base: &str, rng: &mut StdRng) -> String {
-    let dist = rand::distributions::Uniform::new_inclusive(b'a', b'z');
+    let dist = rand::distr::Uniform::new_inclusive(b'a', b'z')
+        .expect("lowercase ASCII range is non-empty");
     let label: String = dist.sample_iter(rng).take(12).map(|b| b as char).collect();
     format!("{label}.{base}")
 }
