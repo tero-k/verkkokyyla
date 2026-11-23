@@ -62,7 +62,7 @@ impl MikrotikClient {
     /// Build a fresh client for a profile. `allow_invalid_certs` maps to
     /// reqwest's `danger_accept_invalid_certs`.
     pub fn new(conn: &MikrotikConnection) -> Result<Self, MikrotikError> {
-        let client = reqwest::Client::builder()
+        let client = crate::http_client::client_builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(DEFAULT_REQUEST_TIMEOUT)
             .danger_accept_invalid_certs(conn.allow_invalid_certs)

@@ -52,7 +52,7 @@ pub struct CachedChangelogFetcher {
 
 impl CachedChangelogFetcher {
     pub fn new() -> Result<Self, ChangelogError> {
-        let client = reqwest::Client::builder()
+        let client = crate::http_client::client_builder()
             .timeout(CHANGELOG_TIMEOUT)
             .build()
             .map_err(|err| ChangelogError::Fetch(err.to_string()))?;

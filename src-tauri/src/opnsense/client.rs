@@ -287,7 +287,7 @@ impl OpnsenseClient {
     /// Build a fresh client for a profile. HTTPS-only: the base URL is
     /// always `https://host:port`.
     pub fn new(conn: &OpnsenseConnection) -> Result<Self, OpnsenseError> {
-        let client = reqwest::Client::builder()
+        let client = crate::http_client::client_builder()
             .connect_timeout(CONNECT_TIMEOUT)
             // No default total timeout: finite requests pass their own
             // per-request timeout, the SSE stream must stay open.

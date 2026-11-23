@@ -25,20 +25,20 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent", "crypto-rust"] }
-dns-lookup = "2"
+dns-lookup = "4"
 hickory-proto = { version = "0.26.1", features = ["dnssec-ring", "serde"] }
 hickory-net = { version = "0.26.1", default-features = false, features = ["tokio", "tls-ring", "https-ring", "quic-ring", "h3-ring", "dnssec-ring", "rustls-platform-verifier"] }
 hickory-resolver = { version = "0.26.1", default-features = false, features = ["tokio", "system-config", "tls-ring", "https-ring", "quic-ring", "h3-ring", "dnssec-ring", "rustls-platform-verifier"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
-webpki-roots = "0.26"
+webpki-roots = "1"
 tokio = { version = "1", features = ["full", "test-util"] }
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "2.4"
 surge-ping = "0.9"
 socket2 = "0.6"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "http2"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "query", "stream", "gzip", "brotli", "deflate", "http2"] }
 futures-util = "0.3"
 tokio-util = "0.7"
 rand = "0.10"
