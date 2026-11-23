@@ -66,6 +66,14 @@ impl HttpSettingsDto {
     }
 }
 
+/// Build a reqwest client with the same process-wide ring provider used by the
+/// rest of the application. Installing is idempotent; a provider installed by
+/// an earlier caller is left in place.
+pub(crate) fn client_builder() -> reqwest::ClientBuilder {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+}
+
 fn apply_version(builder: reqwest::ClientBuilder, version: HttpVersion) -> reqwest::ClientBuilder {
     match version {
         HttpVersion::Auto => builder,
@@ -83,7 +91,7 @@ fn apply_version(builder: reqwest::ClientBuilder, version: HttpVersion) -> reqwe
 pub(crate) fn base_builder(settings: HttpSettingsDto) -> reqwest::ClientBuilder {
     let settings = settings.sanitized();
 
-    let mut builder = reqwest::Client::builder()
+    let mut builder = client_builder()
         .connect_timeout(Duration::from_secs(settings.connect_timeout_sec))
         .timeout(Duration::from_secs(settings.request_timeout_sec));
 

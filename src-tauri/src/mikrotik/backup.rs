@@ -1528,7 +1528,7 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
             if filename.trim_start_matches('/') == self.file_name.as_str() {
                 Ok(russh_sftp::protocol::Handle {
                     id,
-                    handle: "h".to_owned(),
+                    handle: "h".to_owned().into(),
                 })
             } else {
                 Err(russh_sftp::protocol::StatusCode::NoSuchFile)
@@ -1538,7 +1538,7 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
         async fn close(
             &mut self,
             id: u32,
-            _handle: String,
+            _handle: russh_sftp::protocol::SftpHandle,
         ) -> Result<russh_sftp::protocol::Status, Self::Error> {
             Ok(russh_sftp::protocol::Status {
                 id,
@@ -1551,7 +1551,7 @@ MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC
         async fn read(
             &mut self,
             id: u32,
-            _handle: String,
+            _handle: russh_sftp::protocol::SftpHandle,
             offset: u64,
             len: u32,
         ) -> Result<russh_sftp::protocol::Data, Self::Error> {

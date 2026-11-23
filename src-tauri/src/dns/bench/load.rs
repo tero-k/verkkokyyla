@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use rand::rngs::StdRng;
-use rand::{distributions::Distribution, SeedableRng};
+use rand::{distr::Distribution, SeedableRng};
 
 use crate::dns::bench::mixes::QueryMix;
 use crate::dns::bench::profiles::BenchmarkProfile;
@@ -73,8 +73,9 @@ fn representative_query_name(profile: &BenchmarkProfile) -> String {
     match &profile.mix {
         QueryMix::PopularWeighted => profile.query_name.clone(),
         QueryMix::UniqueLabels { base } => {
-            let mut rng = StdRng::from_entropy();
-            let label: String = rand::distributions::Uniform::new_inclusive(b'a', b'z')
+            let mut rng = StdRng::from_rng(&mut rand::rng());
+            let label: String = rand::distr::Uniform::new_inclusive(b'a', b'z')
+                .expect("lowercase ASCII range is non-empty")
                 .sample_iter(&mut rng)
                 .take(12)
                 .map(|b| b as char)

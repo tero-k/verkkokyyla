@@ -31,7 +31,7 @@ struct GitHubRelease {
 }
 
 fn build_client() -> Result<reqwest::Client, reqwest::Error> {
-    reqwest::Client::builder()
+    crate::http_client::client_builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(5))
         // The GitHub API rejects requests without a User-Agent.

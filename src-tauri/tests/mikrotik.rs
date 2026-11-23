@@ -335,8 +335,9 @@ async fn start_tls_fixture_server() -> (u16, tokio::task::JoinHandle<()>) {
     let certified =
         generate_simple_self_signed(vec!["localhost".to_owned(), "127.0.0.1".to_owned()])
             .expect("generate self-signed cert");
-    let key_der =
-        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()));
+    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+        certified.signing_key.serialize_der(),
+    ));
     let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))

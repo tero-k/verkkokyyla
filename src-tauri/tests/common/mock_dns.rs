@@ -467,8 +467,9 @@ fn tls_config() -> (ServerConfig, Vec<u8>) {
         generate_simple_self_signed(vec!["localhost".to_owned(), "mock.test".to_owned()])
             .expect("generate mock cert");
     let cert_der = certified.cert.der().to_vec();
-    let key_der =
-        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()));
+    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+        certified.signing_key.serialize_der(),
+    ));
     let cert_chain = vec![CertificateDer::from(cert_der.clone())];
     let mut config =
         ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))

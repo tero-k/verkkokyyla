@@ -239,7 +239,7 @@ async fn start_tls_fixture_server(overrides: HashMap<&'static str, Reply>) -> Fi
     let certificate = generate_simple_self_signed(vec!["localhost".into(), "127.0.0.1".into()])
         .expect("self-signed fixture certificate");
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-        certificate.key_pair.serialize_der(),
+        certificate.signing_key.serialize_der(),
     ));
     let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
